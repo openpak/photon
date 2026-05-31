@@ -35,7 +35,7 @@ public sealed class HitRateInterceptor : IEventInterceptor
         damage.Add(now, float.IsFinite(dmg) ? Math.Max(0f, dmg) : 0f);
 
         SlidingWindowCounter? headshots = null;
-        if (_opt.HeadshotFlagOffset is int off && info.Value.IsHeadshot(off))
+        if (_opt.HeadshotFlagOffset is int off && info.Value.IsHeadshot(off, _opt.HeadshotFlagMask))
         {
             headshots = Meter(_headshots, actor);
             headshots.Add(now);

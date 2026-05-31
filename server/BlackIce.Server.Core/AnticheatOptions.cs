@@ -34,9 +34,18 @@ public sealed class AnticheatOptions
     /// <summary>
     /// Byte offset of the headshot flag inside the game's DamagePacket custom type, if known. The exact
     /// layout is game-specific and must be confirmed from a local capture; until set, headshot-rate
-    /// checking is inert (the rest of the rate checks still run). A non-zero byte at the offset = headshot.
+    /// checking is inert (the rest of the rate checks still run). A headshot is counted when
+    /// <c>(packet[HeadshotFlagOffset] &amp; HeadshotFlagMask) != 0</c>.
     /// </summary>
     public int? HeadshotFlagOffset { get; set; } = null;
+
+    /// <summary>
+    /// Bit mask applied at <see cref="HeadshotFlagOffset"/> to isolate the headshot/weak-point bit from
+    /// other flags sharing that byte. Default 0xFF = "any non-zero byte". For Black Ice's DamagePacket
+    /// the "combined" bitfield packs Crit=bit0 and WeakPoint=bit1, so offset 39 + mask 0x02 isolates
+    /// weak-point hits — PENDING live-capture confirmation (see docs/protocol/live-verification.md).
+    /// </summary>
+    public byte HeadshotFlagMask { get; set; } = 0xFF;
 
     public TimeSpan RateWindow => TimeSpan.FromSeconds(RateWindowSeconds);
 

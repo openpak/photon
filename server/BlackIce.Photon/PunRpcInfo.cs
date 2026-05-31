@@ -12,9 +12,13 @@ namespace BlackIce.Photon;
 /// </summary>
 public readonly record struct PunRpcInfo(int ViewId, string? Method, float? DamageValue, byte[]? DamagePacket)
 {
-    /// <summary>True when a non-zero byte sits at <paramref name="offset"/> in the DamagePacket (caller supplies the game-specific offset).</summary>
-    public bool IsHeadshot(int offset) =>
-        DamagePacket is { } p && offset >= 0 && offset < p.Length && p[offset] != 0;
+    /// <summary>
+    /// True when the masked byte at <paramref name="offset"/> in the DamagePacket is non-zero — i.e.
+    /// <c>(packet[offset] &amp; mask) != 0</c>. The caller supplies the game-specific offset and mask so a
+    /// single flag bit can be isolated from others sharing the byte (e.g. WeakPoint vs Crit).
+    /// </summary>
+    public bool IsHeadshot(int offset, byte mask = 0xFF) =>
+        DamagePacket is { } p && offset >= 0 && offset < p.Length && (p[offset] & mask) != 0;
 
     /// <summary>Decodes <paramref name="ev"/> as a PUN RPC, or null if it is not event 200 with an RPC table.</summary>
     public static PunRpcInfo? From(EventData ev)

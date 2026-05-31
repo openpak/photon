@@ -10,12 +10,14 @@ namespace BlackIce.Server.Tests.Authority;
 
 public class RateInterceptorTests
 {
-    // A damage RPC for view 1001; optionally stamps a non-zero byte at headshotOffset in the DamagePacket.
-    private static EventData DamageRpc(float dmg, int headshotOffset = -1)
+    // A damage RPC for view 1001; optionally stamps the WeakPoint (bit1) and/or Crit (bit0) flag into
+    // the DamagePacket at the given byte offset, mirroring Black Ice's "combined" bitfield.
+    private static EventData DamageRpc(float dmg, int headshotOffset = -1, int critOffset = -1)
     {
         var b = new byte[41];
         BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), dmg);
-        if (headshotOffset >= 0) b[headshotOffset] = 1;
+        if (headshotOffset >= 0) b[headshotOffset] |= 0x02;   // WeakPoint
+        if (critOffset >= 0) b[critOffset] |= 0x01;           // Crit
         return new EventData(200, new()
         {
             { 245, new Dictionary<object, object>
@@ -120,6 +122,23 @@ public class RateInterceptorTests
         var i = new HitRateInterceptor(opt);
         for (int n = 0; n < 3; n++) i.Intercept(new EventContext("co-op", 1, DamageRpc(10f, headshotOffset: 4)));
         Assert.Equal(1, i.FlaggedCount);   // 3rd headshot > 2
+    }
+
+    [Fact]
+    public void Headshot_mask_isolates_the_weakpoint_bit_from_crit()
+    {
+        // offset 39, mask 0x02 (WeakPoint): crit-only hits (bit0) must NOT count as headshots.
+        var opt = new AnticheatOptions
+        {
+            MaxHitsPerWindow = 1000, MaxDamagePerWindow = float.MaxValue,
+            MaxHeadshotsPerWindow = 1, HeadshotFlagOffset = 39, HeadshotFlagMask = 0x02, RateWindowSeconds = 60,
+        };
+        var i = new HitRateInterceptor(opt);
+        for (int n = 0; n < 5; n++) i.Intercept(new EventContext("co-op", 1, DamageRpc(10f, critOffset: 39)));   // crit bit only
+        Assert.Equal(0, i.FlaggedCount);   // crit != weakpoint under mask 0x02
+
+        for (int n = 0; n < 3; n++) i.Intercept(new EventContext("co-op", 1, DamageRpc(10f, headshotOffset: 39)));  // weakpoint bit
+        Assert.True(i.FlaggedCount >= 1);
     }
 
     [Fact]
