@@ -60,9 +60,11 @@ public sealed class BotManager
     /// </summary>
     public PlayerBot Spawn(RoomSession session, BotIdentity identity, IBotBehavior? behavior = null)
     {
+        int index = _spawnedCount++;
+        var (sx, sz) = SpawnPoint(index);
         var bot = new PlayerBot(_nextBotActor++, identity);
-        bot.Spawn(session);
-        _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, _spawnedCount++)));
+        bot.Spawn(session, sx, 0f, sz);   // 202 carries this position so the client renders the bot here, not at origin
+        _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, index, sx, sz)));
         _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
         // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
         if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
@@ -114,15 +116,22 @@ public sealed class BotManager
     /// Smart bots start spread on a deterministic spiral (so they aren't stacked before they find targets) —
     /// they then path to real entities the master spawns. The spiral uses the golden angle for even coverage.
     /// </summary>
-    private IBotBehavior DefaultBehavior(PlayerBot bot, int index)
+    private IBotBehavior DefaultBehavior(PlayerBot bot, int index, float sx, float sz)
     {
-        if (!Smart || Worlds is null) return new WanderBehavior(0, 0);
+        if (!Smart || Worlds is null) return new WanderBehavior(sx, sz);
+        return new HunterBehavior(bot.ViewId, sx, sz, fleetIndex: index, seed: bot.Actor);
+    }
+
+    /// <summary>Deterministic spread spawn point for bot <paramref name="index"/>: a golden-angle spiral so
+    /// bots start at distinct, non-overlapping spots (and the avatar's 202 renders each there) rather than
+    /// stacked at one point. Centered on world origin — the only frame the server has without level geometry;
+    /// bots then path toward real entities / the player from here.</summary>
+    private static (float x, float z) SpawnPoint(int index)
+    {
         const float goldenAngle = 2.399963f;   // radians (~137.5°)
         float radius = 6f + index * 2f;
         float angle = index * goldenAngle;
-        float sx = radius * (float)System.Math.Cos(angle);
-        float sz = radius * (float)System.Math.Sin(angle);
-        return new HunterBehavior(bot.ViewId, sx, sz, fleetIndex: index, seed: bot.Actor);
+        return (radius * (float)System.Math.Cos(angle), radius * (float)System.Math.Sin(angle));
     }
 
     /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain
