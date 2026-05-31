@@ -33,6 +33,7 @@ public sealed class RealmService
         {
             existing.DisplayName = realm.DisplayName;
             existing.Pvp = realm.Pvp;
+            existing.Mode = realm.Mode;
             existing.HackDifficultyIncrease = realm.HackDifficultyIncrease;
             existing.Password = realm.Password;
             existing.MaxPlayers = realm.MaxPlayers;

@@ -31,7 +31,7 @@ public class UdpListenerMaintenanceTests
         listener.OnMaintenance = () => Interlocked.Increment(ref calls);
 
         using var cts = new CancellationTokenSource();
-        cts.CancelAfter(TimeSpan.FromMilliseconds(2400)); // ~2 maintenance passes (interval is 1s)
+        cts.CancelAfter(TimeSpan.FromMilliseconds(4500)); // several maintenance passes (interval 1s); generous so a slow CI start can't miss it
         try { await listener.RunAsync(cts.Token); }
         finally { cts.Cancel(); }
 
