@@ -84,6 +84,32 @@ public class HunterBehaviorFleetTests
     }
 
     [Fact]
+    public void Bot_keeps_its_ground_height_and_does_not_float_to_an_airborne_target()
+    {
+        // Loot at Y=50 (airborne/arbitrary spawn height). The bot, anchored on ground at Y=2, must NOT
+        // adopt the loot's Y — it stays at its ground height while moving in XZ. (Fixes "bots in the air".)
+        var w = new RoomWorldState();
+        w.ObserveSpawn(9, "XPGem", 100, 50, 0);   // far in XZ, high in Y
+        var bot = new HunterBehavior(BotView, startX: 0, startZ: 0, startY: 2f, fleetIndex: 0, seed: 1);
+        var step = bot.Think(w);
+        Assert.Equal(2f, step.Position.Y, 3);      // ground height preserved
+        Assert.True(step.Position.X > 0, "should still move toward the loot in XZ");
+    }
+
+    [Fact]
+    public void Bot_adopts_a_player_ground_height_when_regrouping()
+    {
+        // No actionable target, only a player avatar at a known-walkable Y. Regrouping, the bot adopts the
+        // player's Y (a trustworthy ground height) so it ends up on the same level as the player.
+        var w = new RoomWorldState();
+        w.ObserveSpawn(2001, "Player", 100, 8, 0);
+        var bot = new HunterBehavior(BotView, startX: 0, startZ: 0, startY: 0f, fleetIndex: 0, seed: 1);
+        var step = bot.Think(w);
+        Assert.Contains("regroup", step.Label);
+        Assert.Equal(8f, step.Position.Y, 3);
+    }
+
+    [Fact]
     public void In_range_the_bot_orbits_rather_than_standing_on_the_target_center()
     {
         // The bot ends its turn offset from the enemy (its orbit slot), not exactly on the enemy's position,

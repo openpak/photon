@@ -36,8 +36,8 @@ public sealed class HunterBehavior : IBotBrain
     private const float OrbitRadius = 2.5f;    // where the bot stands while acting (< AttackRange so it still acts)
     private const int XpPerAction = 10;        // pseudo-XP per resolved interaction
     private const int XpPerLevel = 100;        // XP to advance a level
-    private const int MaxActsPerTarget = 6;    // after this many acts, rotate to another target (if one exists)
-    private const long CooldownTicks = 20;     // how long a rotated-off target stays deprioritized
+    private const int MaxActsPerTarget = 3;    // after this many acts, rotate to another target (if one exists)
+    private const long CooldownTicks = 10;     // how long a rotated-off target stays deprioritized
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
     private static readonly Func<RoomWorldState.Entity, bool> AnyEntity = static _ => true;
@@ -56,12 +56,12 @@ public sealed class HunterBehavior : IBotBrain
     public int Xp { get; private set; }
     public int Level { get; private set; } = 1;
 
-    public HunterBehavior(int viewId, float startX, float startZ, int fleetIndex = 0, int? seed = null)
+    public HunterBehavior(int viewId, float startX, float startZ, float startY = 0f, int fleetIndex = 0, int? seed = null)
     {
         _viewId = viewId;
         _fleetIndex = Math.Max(0, fleetIndex);
         _orbitAngle = _fleetIndex * 2.399963f;   // golden angle → even spread of orbit slots
-        _x = startX; _z = startZ; _y = 0f;
+        _x = startX; _z = startZ; _y = startY;    // start on the safe ground height the manager anchored us to
         _rng = seed is int s ? new Random(s) : new Random();
     }
 
@@ -79,14 +79,14 @@ public sealed class HunterBehavior : IBotBrain
 
             if (dist > AttackRange)
             {
-                StepToward(target.X, target.Z, target.Y);
+                StepToward(target.X, target.Z);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"approach {Describe(target)}");
             }
 
             // In range: take the bot's own orbit slot around the target (so bots ring it, not stack), then act.
             float ox = target.X + OrbitRadius * (float)Math.Cos(_orbitAngle);
             float oz = target.Z + OrbitRadius * (float)Math.Sin(_orbitAngle);
-            StepToward(ox, oz, target.Y);
+            StepToward(ox, oz);
 
             var actions = new List<EventData>();
             string label = ActOn(target, actions);
@@ -111,19 +111,26 @@ public sealed class HunterBehavior : IBotBrain
             double dx = anchor.X - _x, dz = anchor.Z - _z;
             if (Math.Sqrt(dx * dx + dz * dz) > AttackRange)
             {
-                StepToward(anchor.X, anchor.Z, anchor.Y);
+                // Regrouping toward a real player's avatar: adopt their ground height — a player's Y is a
+                // known-walkable height, unlike a loot/enemy spawn Y which may be arbitrary/airborne.
+                if (IsPlayer(anchor)) _y = anchor.Y;
+                StepToward(anchor.X, anchor.Z);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"regroup {Describe(anchor)}");
             }
         }
         return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "idle");   // truly nothing known
     }
 
-    /// <summary>Step toward (tx,tz) by at most <see cref="StepSpeed"/>; rise/sink to ty (waypoint-on-spawns).</summary>
-    private void StepToward(float tx, float tz, float ty)
+    /// <summary>
+    /// Step toward (tx,tz) by at most <see cref="StepSpeed"/>, in the XZ plane only — the bot keeps its
+    /// current ground height <c>_y</c>. The server has no level geometry, so the only height it can trust is
+    /// the safe ground the manager anchored the bot to (a player's walkable Y); adopting a loot/enemy spawn's
+    /// Y would float the bot into the air. Vertical changes happen only when regrouping to a player.
+    /// </summary>
+    private void StepToward(float tx, float tz)
     {
         double dx = tx - _x, dz = tz - _z;
         double dist = Math.Sqrt(dx * dx + dz * dz);
-        _y = ty;
         if (dist <= 0) return;
         double f = Math.Min(1.0, StepSpeed / dist);
         _x += (float)(dx * f);
@@ -180,6 +187,7 @@ public sealed class HunterBehavior : IBotBrain
     private bool IsTargetable(RoomWorldState.Entity e) =>
         e.ViewId != _viewId && (IsEnemy(e) || IsHackNode(e) || IsLoot(e));
 
+    private static bool IsPlayer(RoomWorldState.Entity e) => string.Equals(e.Kind, "Player", StringComparison.OrdinalIgnoreCase);
     private static bool IsEnemy(RoomWorldState.Entity e) => e.Kind is { } k && k.Contains("Enemy", StringComparison.OrdinalIgnoreCase);
     private static bool IsHackNode(RoomWorldState.Entity e) => string.Equals(e.Kind, "Link", StringComparison.OrdinalIgnoreCase);
     private static bool IsLoot(RoomWorldState.Entity e) =>
