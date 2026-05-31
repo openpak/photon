@@ -64,16 +64,18 @@ public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
-    private readonly Func<string, IReadOnlyList<IEventInterceptor>>? _interceptors;
+    private readonly Func<EventContext, RelayVerdict>? _relayPolicy;
     private readonly GameModeRegistry _modes;
 
-    /// <param name="interceptors">Supplies the per-room relay interceptors (the plugin manager wires this;
-    /// authority/anti-cheat and game-mode logic now live in plugins). When null the relay is pure
+    /// <param name="relayPolicy">The live relay decision for every in-room event (the plugin manager wires
+    /// <c>PluginManager.Evaluate</c> here; authority/anti-cheat and game-mode logic live in plugins). It is
+    /// evaluated per event — not baked into the chain — so plugins can be enabled / disabled / loaded /
+    /// unloaded at runtime with immediate effect and no lingering references. When null the relay is pure
     /// pass-through — the vanilla server.</param>
     /// <param name="modes">Shared game-mode/team state, used by the game-mode plugin and the bot soak.</param>
-    public RoomRegistry(Func<string, IReadOnlyList<IEventInterceptor>>? interceptors = null, GameModeRegistry? modes = null)
+    public RoomRegistry(Func<EventContext, RelayVerdict>? relayPolicy = null, GameModeRegistry? modes = null)
     {
-        _interceptors = interceptors;
+        _relayPolicy = relayPolicy;
         _modes = modes ?? new GameModeRegistry();
     }
 
@@ -91,15 +93,26 @@ public sealed class RoomRegistry
     /// materialize empty sessions. Returns null if no session exists yet.</summary>
     public RoomSession? FindSession(string name) => _sessions.TryGetValue(name, out var s) ? s : null;
 
-    /// <summary>The relay session for a room, created on first use. Its interceptor chain is the
-    /// plugin-supplied interceptors (anti-cheat, game modes, …) followed by the pass-through relay.</summary>
+    /// <summary>The relay session for a room, created on first use. Its chain is a single interceptor that
+    /// defers to the live relay policy (the plugin manager) on every event, so toggling / loading /
+    /// unloading plugins takes effect without rebuilding the session. With no policy it is pure
+    /// pass-through — the vanilla relay.</summary>
     public RoomSession Session(string name) =>
         _sessions.GetOrAdd(name, n =>
         {
-            var chain = new List<IEventInterceptor>(_interceptors?.Invoke(n) ?? Array.Empty<IEventInterceptor>())
-            {
-                new PassthroughInterceptor(),
-            };
-            return new RoomSession(n, new InterceptorChain(chain.ToArray()));
+            IEventInterceptor relay = _relayPolicy is null
+                ? new PassthroughInterceptor()
+                : new DelegatingInterceptor(_relayPolicy);
+            return new RoomSession(n, new InterceptorChain(new[] { relay }));
         });
+}
+
+/// <summary>Adapts a per-event relay policy delegate (the plugin manager's live evaluation) into an
+/// <see cref="IEventInterceptor"/>, so the room's chain holds no plugin instances and never needs
+/// rebuilding when plugins change.</summary>
+internal sealed class DelegatingInterceptor : IEventInterceptor
+{
+    private readonly Func<EventContext, RelayVerdict> _policy;
+    public DelegatingInterceptor(Func<EventContext, RelayVerdict> policy) => _policy = policy;
+    public RelayVerdict Intercept(EventContext ctx) => _policy(ctx);
 }

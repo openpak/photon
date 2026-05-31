@@ -57,20 +57,22 @@ builder.Services.AddSingleton(sp => sp.GetRequiredService<ServerConfig>().Server
 builder.Services.AddSingleton<GameModeRegistry>();
 builder.Services.AddSingleton(sp => new RealmService(sp.GetRequiredService<IDbContextFactory<BlackIceDbContext>>().CreateDbContext()));
 
-// Plugin manager: discover built-in + external plugins, applying the configured disabled list.
+// Plugin manager: register built-in plugins, then load any external plugin DLLs from the configured
+// directory (each into its own collectible context). The disabled list applies to both.
 builder.Services.AddSingleton(sp =>
 {
     var mgr = new PluginManager();
     var plugins = sp.GetRequiredService<ServerConfig>().Server.Plugins;
-    var dir = Path.IsPathRooted(plugins.Directory) ? plugins.Directory : Path.Combine(AppContext.BaseDirectory, plugins.Directory);
-    foreach (var plugin in PluginLoader.BuiltIn().Concat(PluginLoader.LoadFrom(dir)))
+    foreach (var plugin in PluginLoader.BuiltIn())
         mgr.Add(plugin, enabled: !plugins.Disabled.Contains(plugin.Name, StringComparer.OrdinalIgnoreCase));
+    var dir = Path.IsPathRooted(plugins.Directory) ? plugins.Directory : Path.Combine(AppContext.BaseDirectory, plugins.Directory);
+    mgr.LoadDirectory(dir, plugins.Disabled);
     return mgr;
 });
 
-// The relay sources its interceptors from the plugin manager; vanilla (no plugins) = pass-through.
+// The relay defers to the plugin manager's live evaluation per event; vanilla (no plugins) = pass-through.
 builder.Services.AddSingleton(sp => new RoomRegistry(
-    room => sp.GetRequiredService<PluginManager>().InterceptorsFor(room),
+    sp.GetRequiredService<PluginManager>().Evaluate,
     sp.GetRequiredService<GameModeRegistry>()));
 
 builder.Services.AddSingleton<AdminActionQueue>();
