@@ -37,10 +37,12 @@ public readonly record struct CommandLine(string Raw, string Command, string Res
 /// </summary>
 public sealed class CommandRegistry
 {
-    private sealed record Entry(Func<CommandLine, string> Invoke, int MinParts, string Usage);
+    private sealed record Entry(Func<CommandLine, string> Invoke, int MinParts, string Usage, PlayerLevel MinLevel);
+
+    private sealed record HelpEntry(string Names, string Usage, PlayerLevel MinLevel);
 
     private readonly Dictionary<string, Entry> _byName = new(StringComparer.OrdinalIgnoreCase);
-    private readonly List<string> _help = new();
+    private readonly List<HelpEntry> _help = new();
 
     /// <summary>Discovers and registers every annotated method on <paramref name="target"/>.</summary>
     public CommandRegistry Register(object target)
@@ -51,35 +53,47 @@ public sealed class CommandRegistry
             var attr = method.GetCustomAttribute<ConsoleCommandAttribute>();
             if (attr is null) continue;
 
-            var entry = new Entry(line => method.Invoke(target, new object[] { line }) as string ?? "", attr.MinParts, attr.Usage);
+            var entry = new Entry(line => method.Invoke(target, new object[] { line }) as string ?? "",
+                                  attr.MinParts, attr.Usage, attr.MinLevel);
             _byName[attr.Name] = entry;
             foreach (var alias in attr.Aliases) _byName[alias] = entry;
 
             var names = attr.Aliases.Length == 0 ? attr.Name : $"{attr.Name}|{string.Join("|", attr.Aliases)}";
-            _help.Add(string.IsNullOrEmpty(attr.Usage) ? names : $"{names} {attr.Usage}");
+            _help.Add(new HelpEntry(names, attr.Usage, attr.MinLevel));
         }
         return this;
     }
 
     /// <summary>
-    /// Runs the command on <paramref name="raw"/>. Returns false (with <paramref name="output"/> unset)
-    /// only when the command word is unknown, so the caller can render its own "unknown command" hint.
+    /// Runs the command on <paramref name="raw"/> as a caller of permission tier <paramref name="caller"/>.
+    /// Returns false (with <paramref name="output"/> unset) only when the command word is unknown, so the
+    /// caller can render its own "unknown command" hint. Unknown-but-"help" yields the help listing; a
+    /// command above the caller's tier is refused; too few arguments yields the usage string.
     /// </summary>
-    public bool TryExecute(string? raw, out string output)
+    public bool TryExecute(string? raw, PlayerLevel caller, out string output)
     {
         var trimmed = (raw ?? "").Trim();
         var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { output = ""; return true; }
 
-        if (!_byName.TryGetValue(parts[0], out var entry)) { output = ""; return false; }
-        if (parts.Length < entry.MinParts) { output = $"usage: {parts[0]} {entry.Usage}".TrimEnd(); return true; }
+        var cmd = parts[0];
+        if (string.Equals(cmd, "help", StringComparison.OrdinalIgnoreCase)) { output = HelpFor(caller); return true; }
+        if (!_byName.TryGetValue(cmd, out var entry)) { output = ""; return false; }
+        if (caller < entry.MinLevel) { output = $"'{cmd}' requires {entry.MinLevel}+ (you are {caller})"; return true; }
+        if (parts.Length < entry.MinParts) { output = $"usage: {cmd} {entry.Usage}".TrimEnd(); return true; }
 
         var sp = trimmed.IndexOf(' ');
         var rest = sp < 0 ? "" : trimmed[(sp + 1)..].Trim();
-        output = entry.Invoke(new CommandLine(trimmed, parts[0].ToLowerInvariant(), rest, parts));
+        output = entry.Invoke(new CommandLine(trimmed, cmd.ToLowerInvariant(), rest, parts));
         return true;
     }
 
-    /// <summary>A one-line listing of every registered command and its usage, for the help command.</summary>
-    public string HelpText => "commands: " + string.Join(" | ", _help);
+    /// <summary>Every registered command + usage, for the (highest-tier) help listing.</summary>
+    public string HelpText => HelpFor(PlayerLevel.Console);
+
+    /// <summary>Help listing limited to the commands a caller of <paramref name="caller"/> may run.</summary>
+    public string HelpFor(PlayerLevel caller) =>
+        "commands: " + string.Join(" | ", _help
+            .Where(h => caller >= h.MinLevel)
+            .Select(h => string.IsNullOrEmpty(h.Usage) ? h.Names : $"{h.Names} {h.Usage}"));
 }
