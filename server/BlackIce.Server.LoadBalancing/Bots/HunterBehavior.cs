@@ -52,40 +52,63 @@ public sealed class HunterBehavior : IBotBrain
     public BotStep Think(RoomWorldState world)
     {
         var target = ResolveTarget(world);
-        if (target is null)
+        if (target is not null)
         {
-            _targetViewId = 0;
-            return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "idle");   // hold — no known target
+            _targetViewId = target.ViewId;
+            double dx = target.X - _x, dz = target.Z - _z;
+            double dist = Math.Sqrt(dx * dx + dz * dz);
+
+            if (dist > AttackRange)
+            {
+                StepToward(target);
+                return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"approach {Describe(target)}");
+            }
+
+            // In range: act on the target, accrue XP, and maybe level up.
+            var actions = new List<EventData>();
+            string label = ActOn(target, actions);
+            Xp += XpPerAction;
+            if (Xp >= Level * XpPerLevel)
+            {
+                Level++;
+                actions.Add(LevelUpRpc());
+                label += $" +level{Level}";
+            }
+            return new BotStep(new BotPositionUpdate(_x, _y, _z), actions, label);
         }
 
-        _targetViewId = target.ViewId;
-        double dx = target.X - _x, dz = target.Z - _z;
-        double dist = Math.Sqrt(dx * dx + dz * dz);
-
-        if (dist > AttackRange)
+        // No actionable target. Rather than sit at the spawn point (possibly inside geometry), drift toward
+        // the nearest KNOWN entity — a player's avatar, scene prop, anything the master has spawned — since
+        // those are real, reachable in-world points. This is the cold-start behavior that gets bots out of
+        // origin and toward where the action is, without any level geometry (waypoint-on-spawns). Never acts.
+        _targetViewId = 0;
+        var anchor = world.Nearest(e => e.ViewId != _viewId, _x, _z);
+        if (anchor is not null)
         {
-            // Approach: step toward the target by at most StepSpeed (waypoint-on-spawns navigation).
-            double f = StepSpeed / dist;
-            _x += (float)(dx * f);
-            _z += (float)(dz * f);
-            _y = target.Y;   // rise/sink to the target's height so flying enemies are reachable
-            return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"approach {Describe(target)}");
+            double dx = anchor.X - _x, dz = anchor.Z - _z;
+            if (Math.Sqrt(dx * dx + dz * dz) > AttackRange)
+            {
+                StepToward(anchor);
+                return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"regroup {Describe(anchor)}");
+            }
         }
-
-        // In range: act on the target, accrue XP, and maybe level up.
-        var actions = new List<EventData>();
-        string label = ActOn(target, actions);
-        Xp += XpPerAction;
-        if (Xp >= Level * XpPerLevel)
-        {
-            Level++;
-            actions.Add(LevelUpRpc());
-            label += $" +level{Level}";
-        }
-        return new BotStep(new BotPositionUpdate(_x, _y, _z), actions, label);
+        return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "idle");   // truly nothing known
     }
 
-    /// <summary>Keep the current target if still alive; otherwise pick the nearest enemy, then Link, then loot.</summary>
+    /// <summary>Step toward <paramref name="target"/> by at most <see cref="StepSpeed"/> (waypoint-on-spawns).</summary>
+    private void StepToward(RoomWorldState.Entity target)
+    {
+        double dx = target.X - _x, dz = target.Z - _z;
+        double dist = Math.Sqrt(dx * dx + dz * dz);
+        if (dist <= 0) { _y = target.Y; return; }
+        double f = Math.Min(1.0, StepSpeed / dist);
+        _x += (float)(dx * f);
+        _z += (float)(dz * f);
+        _y = target.Y;   // match the target's height so airborne entities are reachable
+    }
+
+    /// <summary>Keep the current actionable target if still alive; otherwise pick the nearest enemy, then
+    /// Link, then loot. Returns null when nothing actionable is known (caller then regroups or idles).</summary>
     private RoomWorldState.Entity? ResolveTarget(RoomWorldState world)
     {
         if (_targetViewId != 0 && world.Get(_targetViewId) is { Alive: true } current && IsTargetable(current))

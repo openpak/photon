@@ -27,7 +27,7 @@ public class HunterBehaviorTests
     }
 
     [Fact]
-    public void No_targets_holds_position_and_idles()
+    public void No_entities_at_all_holds_position_and_idles()
     {
         var bot = new HunterBehavior(BotView, startX: 3, startZ: 4, seed: 1);
         var step = bot.Think(new RoomWorldState());
@@ -35,6 +35,18 @@ public class HunterBehaviorTests
         Assert.Equal("idle", step.Label);
         Assert.Equal(3f, step.Position.X, 3);
         Assert.Equal(4f, step.Position.Z, 3);
+    }
+
+    [Fact]
+    public void With_no_actionable_target_regroups_toward_nearest_known_entity()
+    {
+        // A lone player avatar (not a valid combat/hack/loot target) is the only known entity: the bot
+        // should DRIFT toward it (leave its spawn point) rather than idle in place — cold-start behavior.
+        var bot = new HunterBehavior(BotView, startX: 0, startZ: 0, seed: 1);
+        var step = bot.Think(World((2001, "Player", 100, 0)));
+        Assert.Empty(step.Actions);                 // never acts on a non-target
+        Assert.Contains("regroup", step.Label);
+        Assert.True(step.Position.X > 0, $"expected the bot to move toward the player, got x={step.Position.X}");
     }
 
     [Fact]
@@ -96,12 +108,16 @@ public class HunterBehaviorTests
     }
 
     [Fact]
-    public void Never_targets_a_player_or_itself()
+    public void Never_acts_on_a_player_or_itself()
     {
+        // Players are never attacked/hacked/looted. With only players around (one of them itself), the bot
+        // emits no action — it may regroup toward the other player, but never an action RPC.
         var bot = new HunterBehavior(BotView, 0, 0, seed: 1);
-        var step = bot.Think(World((BotView, "Player", 1, 0), (2001, "Player", 1, 1)));
+        var step = bot.Think(World((BotView, "Player", 1, 0), (2001, "Player", 50, 0)));
         Assert.Empty(step.Actions);
-        Assert.Equal("idle", step.Label);
+        Assert.DoesNotContain("attack", step.Label);
+        Assert.DoesNotContain("hack", step.Label);
+        Assert.DoesNotContain("loot", step.Label);
     }
 
     [Fact]
