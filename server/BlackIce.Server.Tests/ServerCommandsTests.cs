@@ -141,6 +141,21 @@ public class ServerCommandsTests
     }
 
     [Fact]
+    public void Raise_sends_an_arbitrary_event_to_the_room()
+    {
+        var (reg, rooms, admin) = Setup();
+        RoomWith(rooms, "co-op", (1, Peer(out var raised)));
+
+        reg.TryExecute("raise co-op 42 payload", PlayerLevel.Console, out var o);
+        Assert.Contains("queued", o);
+        admin.Drain();
+
+        var ev = Assert.Single(raised);
+        Assert.Equal(42, ev.Code);
+        Assert.Equal("payload", ev.Parameters[245]);
+    }
+
+    [Fact]
     public void Unknown_room_is_reported_not_crashed()
     {
         var (reg, _, _) = Setup();

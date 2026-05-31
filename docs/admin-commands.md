@@ -36,6 +36,8 @@ may touch per-peer transport) and take effect on the next maintenance tick — t
 | `rooms` | Mod | List rooms with current player counts |
 | `room <name>` | Mod | A room's actors + game properties |
 | `getprop <room>` | Mod | Dump a room's game properties |
+| `realms` | Mod | List all realms (incl. disabled/hidden) and their rulesets |
+| `realm <name>` | Mod | One realm's full ruleset + MOTD |
 | `stats` | Mod | Room/player totals, uptime, log level |
 | `loglevel <trace\|debug\|info\|warn\|error>` | Admin | Change the live log verbosity |
 
@@ -46,6 +48,7 @@ may touch per-peer transport) and take effect on the next maintenance tick — t
 | `say <room> <text>` | Mod | Broadcast a ServerMessage (event 199) to a room |
 | `tell <room> <actor> <text>` | Mod | Send a ServerMessage to one actor |
 | `setprop <room> <key> <value>` | Admin | Set a shared game property and broadcast the change (event 253) |
+| `raise <room> <eventCode> [text]` | Admin | Send an arbitrary event code (with optional string payload) to a room — generic protocol-debug / scripted manipulation |
 | `bot <realm>` | Admin | Spawn a playerbot into a realm |
 
 `setprop` parses `<value>` as a bool (`true`/`false`), then an integer, otherwise a string — matching

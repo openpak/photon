@@ -37,6 +37,7 @@ public sealed class ConsoleHostedService : BackgroundService
         var commands = new CommandRegistry()
             .Register(new AccountCommands(new AccountService(_dbf.CreateDbContext())))
             .Register(new MotdCommands(new MotdService(_dbf.CreateDbContext())))
+            .Register(new RealmCommands(new RealmService(_dbf.CreateDbContext())))
             .Register(new ServerCommands(_registry, _admin, _bots, _botIdentities));
 
         // Console.ReadLine blocks; run it on a dedicated background thread so it never holds up host

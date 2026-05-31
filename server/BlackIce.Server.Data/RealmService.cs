@@ -17,6 +17,7 @@ public sealed class RealmService
         _db.SaveChanges();
     }
 
+    public IReadOnlyList<Realm> All() => _db.Realms.ToList();
     public IReadOnlyList<Realm> ListEnabled() => _db.Realms.Where(r => r.IsEnabled).ToList();
     public IReadOnlyList<Realm> ListVisible() => _db.Realms.Where(r => r.IsEnabled && r.IsVisible).ToList();
     public Realm? Get(string name) => _db.Realms.FirstOrDefault(r => r.Name == name);

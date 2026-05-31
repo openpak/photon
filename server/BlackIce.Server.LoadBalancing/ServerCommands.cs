@@ -132,6 +132,22 @@ public sealed class ServerCommands
         return $"queued kick of {room}#{actor}";
     }
 
+    [ConsoleCommand("raise", Usage = "<room> <eventCode> [text]", MinParts = 3, MinLevel = PlayerLevel.Admin)]
+    private string Raise(CommandLine line)
+    {
+        var room = Arg(line, 1);
+        if (!byte.TryParse(Arg(line, 2), out var code)) return "eventCode must be 0-255.";
+        if (_rooms.Find(room) is null) return $"no such room: {room}";
+        // Generic "send any direct packet": an arbitrary event code to the whole room, with an optional
+        // string payload under Data(245). Admin authority deliberately bypasses the client reserved-code
+        // rule (the server may originate any event); use for protocol debugging / scripted manipulation.
+        var ev = line.Parts.Count > 3
+            ? new EventData(code, new() { { PhotonCodes.Param.Data, AfterArg(line, 2) } })
+            : new EventData(code, new());
+        _admin.Enqueue(() => _rooms.FindSession(room)?.SendToAll(ev));
+        return $"queued raw event {code} ({PhotonNames.Event(code)}) to \"{room}\"";
+    }
+
     [ConsoleCommand("bot", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Admin)]
     private string Bot(CommandLine line)
     {
