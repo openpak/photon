@@ -133,10 +133,20 @@ public sealed class PeerConnection
     /// <summary>InitEncryption: derive the shared key from the client's public key, return ours.</summary>
     private void EstablishEncryption(Dictionary<byte, object> parameters)
     {
-        var clientPublicKey = (byte[])parameters[1];   // PhotonCodes.ClientKey
-        _crypto = new DiffieHellmanCryptoProvider();
-        var serverPublicKey = _crypto.PublicKey;
-        _crypto.DeriveSharedKey(clientPublicKey);
+        // The client key (param 1) is untrusted: it may be missing or the wrong type. Reject cleanly
+        // rather than throwing a KeyNotFound/InvalidCast out of an unchecked cast.
+        if (!parameters.TryGetValue(1, out var raw) || raw is not byte[] clientPublicKey)   // PhotonCodes.ClientKey
+        {
+            Log.Warn(_role, $"{Remote} InitEncryption without a valid ClientKey (param 1) — ignored");
+            return;
+        }
+
+        // Derive first; only adopt the provider once the (validating) key agreement succeeds, so a bad
+        // key leaves the peer unencrypted rather than half-initialised.
+        var crypto = new DiffieHellmanCryptoProvider();
+        crypto.DeriveSharedKey(clientPublicKey);
+        _crypto = crypto;
+        var serverPublicKey = crypto.PublicKey;
         Log.Info(_role, $"{Remote} shared key derived (clientKey {clientPublicKey.Length}B, serverKey {serverPublicKey.Length}B)");
         var response = new OperationResponse(0, 0, null, new() { { 1, serverPublicKey } }); // ServerKey
         SendRaw(WireMessage.Response(response, WireMessage.InternalOperationResponse));
