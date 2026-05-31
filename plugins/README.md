@@ -22,6 +22,7 @@ is only about the **client** mods below.
 | **`BlackIce.Redirect`** | Points the game's Photon **Name Server** at a BlackIce.Server at startup, so the game's normal online connect / **server browser shows our custom realm list** instead of Photon Cloud. | **Optional** — see below |
 | **`BlackIce.OpLogger`** | Logs the client's Photon operations/events — the recon tool used to reverse-engineer the protocol. | Optional (dev only) |
 | **`BlackIce.Motd`** | Renders the server's `ServerMessage` lines (e.g. MOTD) in the client UI. | Optional |
+| **`BlackIce.BigLobby`** | Raises the client's room-size ceiling so a match can hold more than the stock ~8 players on a large BlackIce realm. **Experimental** (client unverified above 8). See its [README](BlackIce.BigLobby/README.md) and [`../docs/large-servers.md`](../docs/large-servers.md). | Optional |
 | **`BlackIce.SteamTicketSpike`** | Dev spike: mints a Steam-validated game-server ticket from a BepInEx plugin (groundwork for server-side ticket auth). | Optional (dev only) |
 
 ## You do NOT need a client mod to play on our server

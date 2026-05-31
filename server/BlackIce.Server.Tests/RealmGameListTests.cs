@@ -43,4 +43,23 @@ public class RealmGameListTests
         var onProps = (Dictionary<object, object>)((Dictionary<string, object>)on.BuildGameListEvent().Parameters[222])["Arena"];
         Assert.Equal((byte)4, onProps[(byte)252]);
     }
+
+    [Fact]
+    public void Large_and_unlimited_caps_saturate_to_255_instead_of_wrapping()
+    {
+        var realms = TestAccounts.CreateRealms();
+        realms.Upsert(new Realm { Name = "Big", MaxPlayers = 500 });        // > byte: a raw cast would wrap to 244
+        realms.Upsert(new Realm { Name = "Unlimited", MaxPlayers = 0 });    // 0 = unlimited
+
+        var master = new MasterServerHandler("127.0.0.1:5056", "secret", new RoomRegistry(), realms: realms,
+                                             lobbyBotCount: _ => 1000);     // absurd count must also clamp
+        var rooms = (Dictionary<string, object>)master.BuildGameListEvent().Parameters[222];
+
+        var big = (Dictionary<object, object>)rooms["Big"];
+        Assert.Equal((byte)255, big[(byte)255]);    // MaxPlayers clamped, not 500 % 256
+        Assert.Equal((byte)255, big[(byte)252]);    // PlayerCount clamped too
+
+        var unlimited = (Dictionary<object, object>)rooms["Unlimited"];
+        Assert.Equal((byte)255, unlimited[(byte)255]);   // unlimited advertised as a saturated 255
+    }
 }
