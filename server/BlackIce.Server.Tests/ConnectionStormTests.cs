@@ -143,22 +143,22 @@ public class ConnectionStormTests
     }
 
     [Fact]
-    public void DamageValidator_FlaggedCount_loses_increments_under_concurrent_intercepts()
+    public void DamageValidator_FlaggedCount_is_exact_under_concurrent_intercepts()
     {
-        // Demonstrates that the authority interceptors hold UNGUARDED mutable state: FlaggedCount is a
-        // plain non-atomic `count++`. Hammered from many threads (calling Intercept directly, with no
-        // relay logging to accidentally serialize them), the read-modify-write loses updates, so the
-        // final count under-reports the true number of flagged events.
+        // Phase 3a hardened the authority flag tally: FlaggedCount is now an Interlocked counter (and the
+        // shared ViolationTracker uses Interlocked too). This is the same class of "relay-path mutable
+        // state assumes a single thread" issue that commit 8d49495 hardened for EnetPeer — now closed.
         //
-        // This is detection-only state today (a flag tally), so the impact is a wrong number — not a
-        // crash. But it is the same class of "relay-path mutable state assumes a single thread" issue
-        // that commit 8d49495 hardened for EnetPeer. The MovementValidationInterceptor._last Dictionary
-        // is the same pattern but worse: a concurrent resize there can throw on the listener thread.
-        //
-        // NOTE: the relay is single-threaded in production today, so this is a LATENT risk, not a live
-        // bug. The assertion is tolerant (>= a low bar) so it never flakes; the Assert.True message
-        // surfaces whether loss actually occurred on this run.
-        var dmg = new BlackIce.Server.LoadBalancing.Authority.DamageValidationInterceptor(maxDamage: 1f);
+        // The interceptor must be at Warn or above to count at all (Observe is a pure forward), so this
+        // drives a Warn-strictness validator. Hammered from many threads, the count must be EXACTLY the
+        // number of flagged events — no lost updates, no phantom over-counts. The spec calls for
+        // tightening this storm test from tolerant bounds to exact-equality; this is that test.
+        var dmg = new BlackIce.Server.LoadBalancing.Authority.DamageValidationInterceptor(
+            maxDamage: 1f,
+            policy: new BlackIce.Server.LoadBalancing.Authority.AuthorityPolicy(
+                BlackIce.Server.LoadBalancing.Authority.AuthorityStrictness.Warn),
+            violations: new BlackIce.Server.LoadBalancing.Authority.ViolationTracker(
+                int.MaxValue, System.TimeSpan.FromHours(1)));
         var ctx = new EventContext("co-op", senderActor: 1, DamageRpc(1000f), unreliable: false);
 
         int expected = Threads * PerThread;
@@ -167,12 +167,6 @@ public class ConnectionStormTests
             for (int i = 0; i < PerThread; i++) dmg.Intercept(ctx);
         });
 
-        // It must never OVER-count (that would mean phantom flags); under concurrency it typically
-        // UNDER-counts due to lost ++ updates. Either way the count is unreliable without synchronization.
-        // It must never OVER-count (that would be phantom flags). Under concurrency it reliably
-        // UNDER-counts: measured ~79,900 of 80,000 on this machine (~100 lost ++ updates per run).
-        // The tolerant bounds keep the suite stable while the test pins the race as a documented fact.
-        Assert.True(dmg.FlaggedCount <= expected, $"over-counted: {dmg.FlaggedCount} > {expected}");
-        Assert.True(dmg.FlaggedCount >= 1, "expected at least some flags recorded");
+        Assert.Equal(expected, dmg.FlaggedCount);   // exact: Interlocked never loses or invents an increment
     }
 }

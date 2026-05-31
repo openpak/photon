@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using BlackIce.Server.LoadBalancing.Authority;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -54,26 +55,68 @@ public sealed class Room
     }
 }
 
-/// <summary>Tracks rooms shared across the Master and Game server roles.</summary>
+/// <summary>
+/// Tracks rooms shared across the Master and Game server roles, and the per-room relay sessions.
+///
+/// Phase 3a: each session's authority interceptors are driven by an <see cref="AuthorityPolicy"/>
+/// resolved per room from the realm's <c>ExtraJson</c> (via the optional resolver passed to the ctor).
+/// With no resolver — the default — every room resolves to <see cref="AuthorityStrictness.Observe"/>,
+/// so the authority layer is a pure no-op in production until a realm explicitly opts in. One
+/// <see cref="ViolationTracker"/> is shared across rooms so an actor's violation tally is process-wide.
+/// </summary>
 public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
 
+    // Optional resolver from room name -> realm ExtraJson; null = every room is Observe (no-op).
+    private readonly Func<string, string?>? _extraJsonResolver;
+    private readonly ViolationTracker _violations;
+
+    // Authority thresholds. Generous (tuned later); whether they ACT depends on per-realm strictness.
+    private const float MaxUnitsPerSecond = 200f;
+    private const float MaxDamage = 100000f;
+    private const int KickThreshold = 20;
+    private static readonly TimeSpan ViolationDecay = TimeSpan.FromMinutes(5);
+
+    public RoomRegistry() : this(null) { }
+
+    /// <param name="extraJsonResolver">Optional: maps a room name to its realm's <c>ExtraJson</c> so the
+    /// session can resolve per-realm authority strictness. Null = every room is Observe (no-op).</param>
+    public RoomRegistry(Func<string, string?>? extraJsonResolver)
+    {
+        _extraJsonResolver = extraJsonResolver;
+        _violations = new ViolationTracker(KickThreshold, ViolationDecay);
+    }
+
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
-    /// <summary>The relay session for a room, created on first use with the default (pass-through)
-    /// interceptor chain. Phase 2b swaps in a chain that includes authority interceptors.</summary>
+    /// <summary>The relay session for a room, created on first use with the authority interceptor chain.
+    /// The chain's strictness comes from the realm's ExtraJson (via the resolver); at the default Observe
+    /// the validators log only and always forward, so relay behavior is unchanged.</summary>
     public RoomSession Session(string name) =>
-        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
+        _sessions.GetOrAdd(name, n =>
         {
-            // Authority validators (Phase 2b) — detection-only: they log violations and always forward,
-            // so relay behavior is unchanged. Thresholds are generous to avoid false positives on legit
-            // play; enforcement (clamp/drop) is a later, live-tuned step.
-            new Authority.DamageValidationInterceptor(maxDamage: 100000f),
-            new Authority.MovementValidationInterceptor(maxUnitsPerSecond: 200f),
-            new PassthroughInterceptor(),
-        })));
+            var policy = ResolvePolicy(n);
+
+            // Phase 3b: a per-room shadow world-state, fed by the observer (first in the chain) from
+            // authoritative spawn/destroy facts, and consulted by the zero-trust outcome validator.
+            var world = new RoomWorldState();
+            var outcomeRules = new IOutcomeRule[] { new DeadTargetOutcomeRule() };
+
+            return new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
+            {
+                new WorldStateObserver(world),
+                new DamageValidationInterceptor(MaxDamage, policy, _violations),
+                new OutcomeValidationInterceptor(world, outcomeRules, policy, _violations),
+                new MovementValidationInterceptor(MaxUnitsPerSecond, policy, _violations, world),
+                new PassthroughInterceptor(),
+            }));
+        });
+
+    private AuthorityPolicy ResolvePolicy(string roomName) =>
+        _extraJsonResolver is null ? AuthorityPolicy.Default
+                                   : AuthorityPolicy.FromExtraJson(_extraJsonResolver(roomName));
 }

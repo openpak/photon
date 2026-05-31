@@ -1,34 +1,39 @@
-# --- Game-derived material: NEVER commit (analysis-only, local) ---
-decompiled/
-captures/
-*.dll
-*.exe
-asset-dumps/
-**/Black Ice_Data/**
-
-# --- Build / tooling ---
+# ---- BlackIce.Server .gitignore ----
+# Build output
 bin/
 obj/
-*.user
-.vs/
-artifacts/
+[Bb]uild/
 
-# --- Python capture munging ---
-__pycache__/
-*.pyc
-.venv/
-
-# --- Downloaded third-party tools ---
+# Game-derived or secret material — NEVER commit (see CLAUDE.md, NOTICE, SECURITY.md).
+# This is the primary (and only) leak guard: a normal `git add` / `git add -A` will never
+# stage these. Do NOT `git add -f` a path below — that deliberately bypasses this guard.
+decompiled/
+captures/
+asset-dumps/
 third-party/
-
-# Runtime DB + generated server config
+Black Ice_Data/
+*.dll
+*.exe
+*.pdb
+oplog.jsonl
+steam-ticket-spike.log
 *.db
 *.db-shm
 *.db-wal
 blackice.server.json
 
-# Credential-bearing runtime logs (live in the game folder, never in the repo):
-# oplog.jsonl carries decrypted Steam auth tokens; steam-ticket-spike.log carries a
-# real SteamID + auth-ticket bytes. The leak-guard hook also blocks these.
-oplog.jsonl
-steam-ticket-spike.log
+# Dev environment
+.remember/
+.vs/
+.idea/
+*.user
+artifacts/
+
+# Python (capture tooling)
+__pycache__/
+*.pyc
+.venv/
+
+# Local memory (not for public repo)
+memory/
+*.local.json
