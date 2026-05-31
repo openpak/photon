@@ -47,6 +47,44 @@ public sealed class RoomSession
     public void Leave(int actor) { lock (_gate) { _members.Remove(actor); _deliveredSpawns.Remove(actor); } }
     public int Count { get { lock (_gate) return _members.Count; } }
 
+    /// <summary>Snapshot of the actor numbers currently in the room (relay membership).</summary>
+    public IReadOnlyList<int> Actors() { lock (_gate) return _members.Keys.ToArray(); }
+
+    /// <summary>
+    /// Server-originated send to every member (no sender exclusion, no interceptors). For admin/debug
+    /// fan-out (e.g. a server announcement). Must run on the listener thread; returns the recipient count.
+    /// </summary>
+    public int SendToAll(EventData ev, bool unreliable = false)
+    {
+        List<PeerConnection> recipients;
+        lock (_gate) recipients = new List<PeerConnection>(_members.Values);
+        foreach (var peer in recipients) peer.RaiseEvent(ev, unreliable);
+        return recipients.Count;
+    }
+
+    /// <summary>Server-originated send to one member; false if that actor isn't present. Listener thread only.</summary>
+    public bool SendToActor(int actor, EventData ev, bool unreliable = false)
+    {
+        PeerConnection? peer;
+        lock (_gate) { if (!_members.TryGetValue(actor, out peer)) return false; }
+        peer.RaiseEvent(ev, unreliable);
+        return true;
+    }
+
+    /// <summary>
+    /// Removes an actor from the room (a "soft kick"): optionally notifies the kicked player with a
+    /// ServerMessage, drops it from the relay, and tells the remaining actors it left (event 254).
+    /// Listener thread only; false if the actor wasn't present.
+    /// </summary>
+    public bool Kick(int actor, string? reason = null)
+    {
+        lock (_gate) { if (!_members.ContainsKey(actor)) return false; }
+        if (reason is not null) SendToActor(actor, ChatCommandHandler.ServerMessageEvent(reason));
+        Leave(actor);
+        SendToAll(new EventData(PhotonCodes.Event.Leave, new() { { PhotonCodes.Param.ActorNr, actor } }));
+        return true;
+    }
+
     /// <summary>Runs the interceptor chain over <paramref name="ev"/> and fans the verdict out to
     /// every actor except <paramref name="senderActor"/>.</summary>
     public void RelayFrom(int senderActor, EventData ev, bool unreliable = false)

@@ -19,15 +19,17 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly IDbContextFactory<BlackIceDbContext> _dbf;
     private readonly RoomRegistry _registry;
     private readonly BotManager _bots;
+    private readonly AdminActionQueue _admin;
 
     // NOTE: registry is resolved from DI; it is constructed with the configured AnticheatOptions in Program.
     public ListenersHostedService(ServerConfig config, IDbContextFactory<BlackIceDbContext> dbf,
-                                  RoomRegistry registry, BotManager bots)
+                                  RoomRegistry registry, BotManager bots, AdminActionQueue admin)
     {
         _config = config;
         _dbf = dbf;
         _registry = registry;
         _bots = bots;
+        _admin = admin;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -45,9 +47,10 @@ public sealed class ListenersHostedService : BackgroundService
         var game = new UdpListener("GameServer", s.Ports.GameServer,
             new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd), s.Listener);
 
-        // Tick bots on the Game listener's single thread: BotManager.Tick -> RelayFrom mutates the same
-        // EnetPeer send state that thread already owns, so it must not run anywhere else.
-        game.OnMaintenance = () => _bots.Tick();
+        // Tick bots AND drain queued admin actions on the Game listener's single thread: both relay to
+        // peers, mutating the same EnetPeer send state that thread already owns, so neither may run
+        // anywhere else.
+        game.OnMaintenance = () => { _bots.Tick(); _admin.Drain(); };
 
         Log.Info("HOST", $"Listening — NS {s.Ports.NameServer} / Master {s.Ports.MasterServer} / Game {s.Ports.GameServer}");
         try

@@ -72,6 +72,13 @@ public sealed class RoomRegistry
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
+    /// <summary>Room names known to the registry (snapshot), for inspection commands.</summary>
+    public IReadOnlyCollection<string> RoomNames => _rooms.Keys.ToArray();
+
+    /// <summary>The relay session for a room WITHOUT creating one — for inspection that must not
+    /// materialize empty sessions. Returns null if no session exists yet.</summary>
+    public RoomSession? FindSession(string name) => _sessions.TryGetValue(name, out var s) ? s : null;
+
     /// <summary>The relay session for a room, created on first use with the authority/anti-cheat
     /// interceptor chain built from the configured <see cref="AnticheatOptions"/>. Detection-only unless
     /// <see cref="AnticheatOptions.Enforce"/> is set; thresholds are generous to avoid false positives.</summary>
