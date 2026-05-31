@@ -27,6 +27,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly Func<string, int>? _lobbyBotCount;
     private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
@@ -35,9 +36,12 @@ public sealed class MasterServerHandler : IOperationHandler
     /// </param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions advertised in the lobby browser (optional in tests).</param>
+    /// <param name="lobbyBotCount">Optional per-room bot count added to a realm's advertised player count
+    /// in the lobby browser. Null (the default) advertises only real players; wired from the bot manager
+    /// when <c>Server.Bots.CountInLobby</c> is set, so operators choose whether bots look like players.</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
                                bool allowAnonymousLan = false, AccountService? accounts = null,
-                               RealmService? realms = null)
+                               RealmService? realms = null, Func<string, int>? lobbyBotCount = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
@@ -45,6 +49,7 @@ public sealed class MasterServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _realms = realms;
+        _lobbyBotCount = lobbyBotCount;
 
         _router = new OperationRouter("MasterServer")
             .On(OpAuthenticate, (peer, req) =>
@@ -107,7 +112,9 @@ public sealed class MasterServerHandler : IOperationHandler
         var rooms = new Dictionary<string, object>();
         foreach (var realm in _realms?.ListVisible() ?? new List<Realm>())
         {
-            int players = _registry.Find(realm.Name)?.ActorNumbers.Count ?? 0;
+            // Real joined players, plus (only if the operator opted in) the live bots in that realm — so a
+            // bot-stocked realm can look populated in the browser without inflating it when undesired.
+            int players = (_registry.Find(realm.Name)?.ActorNumbers.Count ?? 0) + (_lobbyBotCount?.Invoke(realm.Name) ?? 0);
             rooms[realm.Name] = new Dictionary<object, object>
             {
                 { RoomIsOpen, true },
