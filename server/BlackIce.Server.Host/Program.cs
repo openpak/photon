@@ -4,6 +4,7 @@ using BlackIce.Server.Data;
 using BlackIce.Server.Host;
 using BlackIce.Server.LoadBalancing;
 using BlackIce.Server.LoadBalancing.Bots;
+using BlackIce.Server.LoadBalancing.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -49,7 +50,29 @@ Microsoft.Extensions.Logging.FilterLoggingBuilderExtensions.AddFilter(
 builder.Services.AddSingleton(config);
 builder.Services.AddDbContextFactory<BlackIceDbContext>(
     (sp, b) => sp.GetRequiredService<ServerConfig>().Database.Configure(b));
-builder.Services.AddSingleton(sp => new RoomRegistry(sp.GetRequiredService<ServerConfig>().Server.Anticheat));
+
+// Services plugins resolve via PluginBuilder.Services: the anti-cheat options, the shared game-mode/team
+// state, and a (Game-thread-only) realm reader.
+builder.Services.AddSingleton(sp => sp.GetRequiredService<ServerConfig>().Server.Anticheat);
+builder.Services.AddSingleton<GameModeRegistry>();
+builder.Services.AddSingleton(sp => new RealmService(sp.GetRequiredService<IDbContextFactory<BlackIceDbContext>>().CreateDbContext()));
+
+// Plugin manager: discover built-in + external plugins, applying the configured disabled list.
+builder.Services.AddSingleton(sp =>
+{
+    var mgr = new PluginManager();
+    var plugins = sp.GetRequiredService<ServerConfig>().Server.Plugins;
+    var dir = Path.IsPathRooted(plugins.Directory) ? plugins.Directory : Path.Combine(AppContext.BaseDirectory, plugins.Directory);
+    foreach (var plugin in PluginLoader.BuiltIn().Concat(PluginLoader.LoadFrom(dir)))
+        mgr.Add(plugin, enabled: !plugins.Disabled.Contains(plugin.Name, StringComparer.OrdinalIgnoreCase));
+    return mgr;
+});
+
+// The relay sources its interceptors from the plugin manager; vanilla (no plugins) = pass-through.
+builder.Services.AddSingleton(sp => new RoomRegistry(
+    room => sp.GetRequiredService<PluginManager>().InterceptorsFor(room),
+    sp.GetRequiredService<GameModeRegistry>()));
+
 builder.Services.AddSingleton<AdminActionQueue>();
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();
@@ -57,6 +80,9 @@ builder.Services.AddHostedService<ListenersHostedService>();
 builder.Services.AddHostedService<ConsoleHostedService>();
 
 var host = builder.Build();
+
+// Load plugins (collect their interceptors/commands/hooks) before listeners accept traffic.
+host.Services.GetRequiredService<PluginManager>().ConfigureAll(host.Services);
 
 // One-time startup (schema, bootstrap code, realm seeding, config MOTDs) before listeners go live.
 StartupInitializer.Run(host.Services, config, logPath);

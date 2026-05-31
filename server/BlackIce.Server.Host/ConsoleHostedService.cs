@@ -2,6 +2,7 @@ using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.LoadBalancing;
 using BlackIce.Server.LoadBalancing.Bots;
+using BlackIce.Server.LoadBalancing.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 
@@ -21,15 +22,17 @@ public sealed class ConsoleHostedService : BackgroundService
     private readonly AdminActionQueue _admin;
     private readonly BotManager _bots;
     private readonly BotIdentityGenerator _botIdentities;
+    private readonly PluginManager _plugins;
 
     public ConsoleHostedService(IDbContextFactory<BlackIceDbContext> dbf, RoomRegistry registry,
-                                AdminActionQueue admin, BotManager bots, BotIdentityGenerator botIdentities)
+                                AdminActionQueue admin, BotManager bots, BotIdentityGenerator botIdentities, PluginManager plugins)
     {
         _dbf = dbf;
         _registry = registry;
         _admin = admin;
         _bots = bots;
         _botIdentities = botIdentities;
+        _plugins = plugins;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -38,7 +41,10 @@ public sealed class ConsoleHostedService : BackgroundService
             .Register(new AccountCommands(new AccountService(_dbf.CreateDbContext())))
             .Register(new MotdCommands(new MotdService(_dbf.CreateDbContext())))
             .Register(new RealmCommands(new RealmService(_dbf.CreateDbContext())))
-            .Register(new ServerCommands(_registry, _admin, _bots, _botIdentities));
+            .Register(new ServerCommands(_registry, _admin, _bots, _botIdentities))
+            .Register(new PluginCommands(_plugins));
+        // Console commands contributed by plugins.
+        foreach (var provider in _plugins.CommandProviders) commands.Register(provider);
 
         // Console.ReadLine blocks; run it on a dedicated background thread so it never holds up host
         // shutdown (the thread is reclaimed when the process exits, as before).

@@ -65,7 +65,12 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
     // also drive a rotating script of legitimate AND cheating gameplay (chat, damage, equip, hacking,
     // npc spawns, loot, XP, plus teleport/over-max-damage/headshot-flood/view-spoof/event-flood) through
     // the relay, so the authority validators get exercised. Great for load/soak and anti-cheat tuning.
-    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false }
+    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false },
+
+    // Server plugins. The custom features (anti-cheat, game modes) are plugins; vanilla runs with them
+    // disabled. "Directory" is scanned for external plugin DLLs; "Disabled" lists plugins that start off
+    // (still loadable, toggle live with the `plugin enable <name>` console command). See docs/plugins.md.
+    "Plugins": { "Directory": "server-plugins", "Disabled": [] }
   },
 
   "Database": {

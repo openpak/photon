@@ -48,6 +48,9 @@ public sealed class ServerOptions
     /// <summary>Playerbot auto-spawn / game-action soak settings (off by default).</summary>
     public BotOptions Bots { get; set; } = new();
 
+    /// <summary>Server plugin loading: external directory + which plugins start disabled.</summary>
+    public PluginOptions Plugins { get; set; } = new();
+
     /// <summary>True when <see cref="Secret"/> is still the shipped placeholder — insecure for anything public.</summary>
     public bool UsesDefaultSecret => Secret == DefaultSecret;
 

@@ -37,6 +37,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly MotdService? _motd;
     private readonly ChatCommandHandler _chat;
     private readonly OperationRouter _router;
+    private readonly IRoomLifecycleListener? _lifecycle;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -45,8 +46,10 @@ public sealed class GameServerHandler : IOperationHandler
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions whose ruleset is applied on join (optional in tests).</param>
     /// <param name="motd">Message of the Day service; when provided the resolved MOTD is stamped as a room property.</param>
+    /// <param name="lifecycle">Optional sink fired on actor join/leave (the plugin manager); null = no plugins.</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
-                             AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null)
+                             AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
+                             IRoomLifecycleListener? lifecycle = null)
     {
         _secret = secret;
         _registry = registry;
@@ -54,6 +57,7 @@ public sealed class GameServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _motd = motd;
+        _lifecycle = lifecycle;
         _chat = new ChatCommandHandler(realms, motd);
 
         // OpRaiseEvent/OpSetProperties also still guard on PeerRoomState (peer.Tag) internally, so the
@@ -75,7 +79,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
-        _registry.Modes.Remove(state.RoomName, state.Actor);   // free its team slot
+        _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
@@ -112,29 +116,7 @@ public sealed class GameServerHandler : IOperationHandler
         session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
         peer.RaiseEvent(join);             // and give the newcomer its own join
         session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
-        ApplyGameMode(roomName, actor, session);
-    }
-
-    /// <summary>
-    /// Applies the realm's game mode to a joining actor: records the room's mode and, for a team mode,
-    /// assigns a balanced team and broadcasts it as the standard "Team" player property (which the
-    /// client already renders) — turning the room into Team-vs-Team / Co-op with no client changes.
-    /// The relay's TeamDamageInterceptor then enforces the friendly-fire / PvE rule.
-    /// </summary>
-    private void ApplyGameMode(string roomName, int actor, RoomSession session)
-    {
-        var mode = GameModeRegistry.Parse(_realms?.Get(roomName)?.Mode);
-        _registry.Modes.SetMode(roomName, mode);
-        if (mode == GameMode.FreeForAll) return;
-
-        int team = _registry.Modes.AssignTeam(roomName, actor);
-        _registry.Find(roomName)?.SetProperties(actor, new Dictionary<object, object> { { "Team", team } });
-        session.SendToAll(new EventData(EvPropertiesChanged, new()
-        {
-            { PProperties, new Dictionary<object, object> { { "Team", team } } },
-            { PTargetActorNr, actor },
-        }));
-        Log.Info("GameServer", $"\"{roomName}\" [{mode}] assigned actor {actor} to team {team}");
+        _lifecycle?.OnJoined(roomName, actor, session);   // plugins (e.g. game modes) react to the join
     }
 
     private void HandleSetProperties(PeerConnection peer, OperationRequest request)

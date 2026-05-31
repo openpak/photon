@@ -64,16 +64,20 @@ public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
-    private readonly AnticheatOptions _anticheat;
+    private readonly Func<string, IReadOnlyList<IEventInterceptor>>? _interceptors;
     private readonly GameModeRegistry _modes;
 
-    public RoomRegistry(AnticheatOptions? anticheat = null, GameModeRegistry? modes = null)
+    /// <param name="interceptors">Supplies the per-room relay interceptors (the plugin manager wires this;
+    /// authority/anti-cheat and game-mode logic now live in plugins). When null the relay is pure
+    /// pass-through — the vanilla server.</param>
+    /// <param name="modes">Shared game-mode/team state, used by the game-mode plugin and the bot soak.</param>
+    public RoomRegistry(Func<string, IReadOnlyList<IEventInterceptor>>? interceptors = null, GameModeRegistry? modes = null)
     {
-        _anticheat = anticheat ?? new AnticheatOptions();
+        _interceptors = interceptors;
         _modes = modes ?? new GameModeRegistry();
     }
 
-    /// <summary>The shared game-mode/team state, so handlers can assign teams and set modes per room.</summary>
+    /// <summary>The shared game-mode/team state, so the bot soak and game-mode plugin share one map.</summary>
     public GameModeRegistry Modes => _modes;
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
@@ -87,19 +91,15 @@ public sealed class RoomRegistry
     /// materialize empty sessions. Returns null if no session exists yet.</summary>
     public RoomSession? FindSession(string name) => _sessions.TryGetValue(name, out var s) ? s : null;
 
-    /// <summary>The relay session for a room, created on first use with the authority/anti-cheat
-    /// interceptor chain built from the configured <see cref="AnticheatOptions"/>. Detection-only unless
-    /// <see cref="AnticheatOptions.Enforce"/> is set; thresholds are generous to avoid false positives.</summary>
+    /// <summary>The relay session for a room, created on first use. Its interceptor chain is the
+    /// plugin-supplied interceptors (anti-cheat, game modes, …) followed by the pass-through relay.</summary>
     public RoomSession Session(string name) =>
-        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
+        _sessions.GetOrAdd(name, n =>
         {
-            new Authority.EventRateInterceptor(_anticheat),
-            new Authority.MovementValidationInterceptor(_anticheat.MaxSpeedUnitsPerSecond, _anticheat.MaxTeleportDistance, _anticheat.Enforce),
-            new Authority.DamageValidationInterceptor(_anticheat.MaxDamagePerHit, _anticheat.Enforce),
-            new Authority.HitRateInterceptor(_anticheat),
-            new Authority.ViewOwnershipInterceptor(_anticheat.Enforce),
-            // Game-mode policy: drops friendly-fire / PvE-forbidden player damage (no-op in FreeForAll).
-            new Authority.TeamDamageInterceptor(_modes),
-            new PassthroughInterceptor(),
-        })));
+            var chain = new List<IEventInterceptor>(_interceptors?.Invoke(n) ?? Array.Empty<IEventInterceptor>())
+            {
+                new PassthroughInterceptor(),
+            };
+            return new RoomSession(n, new InterceptorChain(chain.ToArray()));
+        });
 }

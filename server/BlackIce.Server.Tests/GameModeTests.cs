@@ -4,6 +4,7 @@ using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.LoadBalancing;
 using BlackIce.Server.LoadBalancing.Authority;
+using BlackIce.Server.LoadBalancing.Plugins;
 using Xunit;
 
 namespace BlackIce.Server.Tests;
@@ -99,13 +100,20 @@ public class GameModeTests
     // --- end-to-end through the room registry / handler ------------------------------------------
 
     [Fact]
-    public void Joining_a_team_realm_assigns_and_broadcasts_a_team()
+    public void Joining_a_team_realm_assigns_and_broadcasts_a_team_via_the_plugin()
     {
         using var db = new TestDb();
         db.Context.Realms.Add(new Realm { Name = "Team Battle", IsEnabled = true, Mode = "TeamVsTeam" });
         db.Context.SaveChanges();
-        var reg = new RoomRegistry();
-        var h = new GameServerHandler("s", reg, allowAnonymousLan: true, realms: new RealmService(db.Context));
+        var realms = new RealmService(db.Context);
+        var modes = new GameModeRegistry();
+        var reg = new RoomRegistry(modes: modes);
+
+        // The game-mode plugin does the team assignment via the join hook.
+        var plugins = new BlackIce.Server.LoadBalancing.Plugins.PluginManager();
+        plugins.Add(new BlackIce.Server.LoadBalancing.Plugins.GameModePlugin(), enabled: true);
+        plugins.ConfigureAll(new TestServices(modes, realms, reg));
+        var h = new GameServerHandler("s", reg, allowAnonymousLan: true, realms: realms, lifecycle: plugins);
 
         var a = MakePeer(out var aRaised);
         h.OnOperationRequest(a, new OperationRequest(226, new() { { 255, "Team Battle" } }));
@@ -113,7 +121,45 @@ public class GameModeTests
         // The newcomer is told its Team via a PropertiesChanged (253) carrying the "Team" property.
         Assert.Contains(aRaised, e => e.Code == 253
             && e.Parameters.TryGetValue(251, out var p) && p is System.Collections.IDictionary d && d.Contains("Team"));
-        Assert.NotNull(reg.Modes.TeamOf("Team Battle", 1));
+        Assert.NotNull(modes.TeamOf("Team Battle", 1));
+    }
+
+    // --- plugin system ---------------------------------------------------------------------------
+
+    [Fact]
+    public void Built_in_plugins_are_discovered()
+    {
+        var names = PluginLoader.BuiltIn().Select(p => p.Name).ToList();
+        Assert.Contains("anticheat", names);
+        Assert.Contains("gamemodes", names);
+    }
+
+    [Fact]
+    public void Disabling_the_gamemode_plugin_stops_friendly_fire_filtering_live()
+    {
+        var modes = new GameModeRegistry();
+        modes.SetMode("r", GameMode.TeamVsTeam);
+        modes.AssignTeam("r", 1); modes.AssignTeam("r", 2); modes.AssignTeam("r", 3);   // 1 & 3 share a team
+
+        var mgr = new PluginManager();
+        mgr.Add(new GameModePlugin(), enabled: false);
+        mgr.ConfigureAll(new TestServices(modes));
+
+        // One chain built from the plugin's (gated) interceptors; toggling the plugin changes it live.
+        var chain = new InterceptorChain(mgr.InterceptorsFor("r").Append((IEventInterceptor)new PassthroughInterceptor()).ToArray());
+        var friendlyFire = new EventContext("r", 1, PlayerDamage(3));
+
+        Assert.Equal(RelayAction.Forward, chain.Run(friendlyFire).Action);   // plugin off -> not filtered
+        mgr.SetEnabled("gamemodes", true);
+        Assert.Equal(RelayAction.Drop, chain.Run(friendlyFire).Action);      // plugin on -> friendly fire dropped
+    }
+
+    /// <summary>Minimal IServiceProvider for wiring a plugin in tests.</summary>
+    private sealed class TestServices : System.IServiceProvider
+    {
+        private readonly Dictionary<System.Type, object> _map = new();
+        public TestServices(params object[] services) { foreach (var s in services) _map[s.GetType()] = s; }
+        public object? GetService(System.Type t) => _map.TryGetValue(t, out var s) ? s : null;
     }
 
     private static PeerConnection MakePeer(out List<EventData> raised)

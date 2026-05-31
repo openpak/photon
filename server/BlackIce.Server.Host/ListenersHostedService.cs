@@ -2,6 +2,7 @@ using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.LoadBalancing;
 using BlackIce.Server.LoadBalancing.Bots;
+using BlackIce.Server.LoadBalancing.Plugins;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Hosting;
 
@@ -21,10 +22,12 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly BotManager _bots;
     private readonly AdminActionQueue _admin;
     private readonly BotIdentityGenerator _botIds;
+    private readonly PluginManager _plugins;
 
-    // NOTE: registry is resolved from DI; it is constructed with the configured AnticheatOptions in Program.
+    // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<BlackIceDbContext> dbf,
-                                  RoomRegistry registry, BotManager bots, AdminActionQueue admin, BotIdentityGenerator botIds)
+                                  RoomRegistry registry, BotManager bots, AdminActionQueue admin,
+                                  BotIdentityGenerator botIds, PluginManager plugins)
     {
         _config = config;
         _dbf = dbf;
@@ -32,6 +35,7 @@ public sealed class ListenersHostedService : BackgroundService
         _bots = bots;
         _admin = admin;
         _botIds = botIds;
+        _plugins = plugins;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -47,7 +51,7 @@ public sealed class ListenersHostedService : BackgroundService
             new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
                                     _config.AllowAnonymousLan, accounts, realms), s.Listener);
         var game = new UdpListener("GameServer", s.Ports.GameServer,
-            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd), s.Listener);
+            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins), s.Listener);
 
         // Tick bots AND drain queued admin actions on the Game listener's single thread: both relay to
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run
