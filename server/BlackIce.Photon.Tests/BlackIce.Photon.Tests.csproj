@@ -1,12 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+
+    <!-- Path to the real Photon client DLL used as a serialization/crypto ORACLE (independent
+         ground-truth for our clean-room codec + DH/AES). Override with -p:PhotonOracleDll=<path>
+         or the PHOTON_ORACLE_DLL environment variable. When the file is absent (CI, or a
+         contributor who doesn't own the game), the oracle reference and the oracle-only tests are
+         skipped so the rest of the suite still builds and runs. The DLL is never committed
+         (*.dll is gitignored); it is analysis-only and must come from your own copy of the game. -->
+    <PhotonOracleDll Condition="'$(PhotonOracleDll)' == '' and '$(PHOTON_ORACLE_DLL)' != ''">$(PHOTON_ORACLE_DLL)</PhotonOracleDll>
+    <PhotonOracleDll Condition="'$(PhotonOracleDll)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Black Ice\Black Ice_Data\Managed\Photon3Unity3D.dll</PhotonOracleDll>
+    <HasPhotonOracle Condition="Exists('$(PhotonOracleDll)')">true</HasPhotonOracle>
+    <DefineConstants Condition="'$(HasPhotonOracle)' == 'true'">$(DefineConstants);PHOTON_ORACLE</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
@@ -25,13 +32,25 @@
     <ProjectReference Include="..\BlackIce.Photon.Crypto\BlackIce.Photon.Crypto.csproj" />
   </ItemGroup>
 
-  <!-- Test-only serialization oracle: the real Photon client DLL. Never referenced by
-       shippable projects; stays gitignored (*.dll). -->
-  <ItemGroup>
+  <!-- Test-only oracle: the real Photon client DLL. Referenced only when it exists locally; never
+       referenced by shippable projects, and never committed. -->
+  <ItemGroup Condition="'$(HasPhotonOracle)' == 'true'">
     <Reference Include="Photon3Unity3D">
-      <HintPath>C:\Program Files (x86)\Steam\steamapps\common\Black Ice\Black Ice_Data\Managed\Photon3Unity3D.dll</HintPath>
+      <HintPath>$(PhotonOracleDll)</HintPath>
       <Private>true</Private>
     </Reference>
+  </ItemGroup>
+
+  <!-- Without the oracle DLL, exclude the tests that depend on it so the project still builds and
+       the self-contained tests (transport, eNet sequencing, position/RPC decode) run anywhere.
+       The single oracle test in PunRpcDecodeTests is guarded with #if PHOTON_ORACLE instead. -->
+  <ItemGroup Condition="'$(HasPhotonOracle)' != 'true'">
+    <Compile Remove="OracleFixture.cs" />
+    <Compile Remove="GpBinaryTests.cs" />
+    <Compile Remove="MessageTests.cs" />
+    <Compile Remove="WireMessageTests.cs" />
+    <Compile Remove="BotPayloadOracleTests.cs" />
+    <Compile Remove="CryptoTests.cs" />
   </ItemGroup>
 
 </Project>

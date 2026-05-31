@@ -20,7 +20,6 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 public sealed class BotManager
 {
     public const int BotActorBase = 10000;
-    private const byte EvPosition = 201, PData = 245;
 
     private int _nextBotActor = BotActorBase;
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
@@ -76,7 +75,7 @@ public sealed class BotManager
         var rot = PunQuaternion(0, 0, 0, 1);
         var view = new object[] { viewId, false, null!, pos, rot, 0f, 200f, 0f, 0f };
         var batch = new object[] { System.Environment.TickCount, null!, view };
-        return new EventData(EvPosition, new() { { PData, batch } });
+        return new EventData(PhotonCodes.PunEvent.SendSerialize, new() { { PhotonCodes.Param.Data, batch } });
     }
 
     private static PhotonCustomData PunVector3(float x, float y, float z)
@@ -85,7 +84,7 @@ public sealed class BotManager
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), x);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
-        return new PhotonCustomData(86, b);
+        return new PhotonCustomData(PhotonCodes.CustomType.Vector3, b);
     }
 
     private static PhotonCustomData PunQuaternion(float x, float y, float z, float w)
@@ -95,6 +94,6 @@ public sealed class BotManager
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(12), w);
-        return new PhotonCustomData(81, b);
+        return new PhotonCustomData(PhotonCodes.CustomType.Quaternion, b);
     }
 }

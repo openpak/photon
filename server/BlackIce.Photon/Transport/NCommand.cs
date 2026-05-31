@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO;
 
 namespace BlackIce.Photon.Transport;
 
@@ -30,7 +31,7 @@ public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte
     public byte[] ToBytes()
     {
         int headerSize = HasExtraSeq(CommandType) ? UnreliableHeaderSize : ReliableHeaderSize;
-        int total = headerSize + Payload.Length;
+        int total = checked(headerSize + Payload.Length);   // guard against a pathological payload length
         var b = new byte[total];
         b[0] = CommandType; b[1] = ChannelId; b[2] = Flags; b[3] = ReservedByte;
         BinaryPrimitives.WriteInt32BigEndian(b.AsSpan(4), total);
@@ -43,10 +44,24 @@ public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte
 
     public static NCommand Parse(ReadOnlySpan<byte> b, out int consumed)
     {
+        // Reject a truncated common header before reading any field.
+        if (b.Length < ReliableHeaderSize)
+            throw new InvalidDataException($"eNet command truncated: {b.Length} of {ReliableHeaderSize} header bytes");
+
         byte type = b[0], channel = b[1], flags = b[2], reserved = b[3];
         int length = BinaryPrimitives.ReadInt32BigEndian(b[4..]);
         int reliableSeq = BinaryPrimitives.ReadInt32BigEndian(b[8..]);
         int headerSize = HasExtraSeq(type) ? UnreliableHeaderSize : ReliableHeaderSize;
+
+        // Unreliable/unsequenced commands carry an extra int32 — make sure it's present before reading.
+        if (b.Length < headerSize)
+            throw new InvalidDataException($"eNet command truncated: {b.Length} of {headerSize} header bytes (type {type})");
+
+        // The declared length (from untrusted input) must cover at least the header and fit the span;
+        // this also guarantees the caller can advance by `consumed` without running off the datagram.
+        if (length < headerSize || length > b.Length)
+            throw new InvalidDataException($"eNet command length {length} out of range [{headerSize}, {b.Length}]");
+
         int extraSeq = HasExtraSeq(type) ? BinaryPrimitives.ReadInt32BigEndian(b[12..]) : 0;
         var payload = b[headerSize..length].ToArray();
         consumed = length;

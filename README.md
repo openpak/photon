@@ -16,10 +16,26 @@ server foundation is built and tested: GpBinary v1.8 codec, eNet transport, Oakl
 AES encryption, UDP server core, and Name/Master/Game role handlers. See
 `docs/superpowers/plans/`.
 
+## Building & running (CLI)
+
+Requires the **.NET 8 SDK**. No game files are needed to build or test the server:
+
+```bash
+dotnet build server/BlackIce.Server.sln          # build the server
+dotnet test  server/BlackIce.Server.sln          # run the test suite
+dotnet run --project server/BlackIce.Server.Host 127.0.0.1   # run, advertising 127.0.0.1
+```
+
+On first run the server writes a documented `blackice.server.json` next to the binary, applies the
+database schema, prints a one-time admin bootstrap code, and starts the Name/Master/Game listeners.
+Configure it via that file or `BLACKICE_*` environment variables — see
+[`docs/configuration.md`](docs/configuration.md). Stop with Ctrl-C (graceful shutdown).
+
 ## Building & running (Visual Studio)
 
-Requires **Visual Studio 2022 (17.8+)** with the **.NET 8 SDK**, and a local copy of Black Ice
-(its DLLs are referenced for the test oracle and the BepInEx plugins).
+Requires **Visual Studio 2022 (17.8+)** with the **.NET 8 SDK**. A local copy of Black Ice is only
+needed for the full interop **oracle** tests and the BepInEx plugins; the server itself builds and
+tests without it.
 
 1. Open **`BlackIce.sln`** at the repo root — it contains the server and the client plugins.
 2. Set **`BlackIce.Server.Host`** as the startup project (right-click → *Set as Startup Project*).
@@ -29,7 +45,8 @@ Requires **Visual Studio 2022 (17.8+)** with the **.NET 8 SDK**, and a local cop
      LAN address so other PCs can connect.
    - *BlackIce.Server (require Name Server token)* — disables anonymous LAN auth.
 
-Run tests via **Test → Run All Tests** (62 tests).
+Run tests via **Test → Run All Tests**. (With the game's `Photon3Unity3D.dll` present, the full
+interop oracle suite runs too; without it, those tests are skipped and the rest still run.)
 
 ### Connecting the game (LAN mode)
 

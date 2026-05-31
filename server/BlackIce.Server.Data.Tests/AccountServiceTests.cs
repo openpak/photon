@@ -52,9 +52,9 @@ public class AccountServiceTests
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
         svc.ResolveOrCreate("s1", "x");
-        Assert.True(svc.SetLevel("s1", PlayerLevel.Admin));
+        Assert.True(svc.SetLevel("s1", PlayerLevel.Admin).IsOk);
         Assert.Equal(PlayerLevel.Admin, svc.Find("s1")!.Level);
-        Assert.False(svc.SetLevel("does-not-exist", PlayerLevel.Mod));
+        Assert.Equal(BlackIce.Server.Common.ErrorCode.NotFound, svc.SetLevel("does-not-exist", PlayerLevel.Mod).Error);
     }
 
     [Fact]
@@ -63,7 +63,7 @@ public class AccountServiceTests
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
         svc.ResolveOrCreate("s2", "x");
-        Assert.True(svc.SetBanned("s2", true));
+        Assert.True(svc.SetBanned("s2", true).IsOk);
         Assert.True(svc.Find("s2")!.IsBanned);
         svc.SetBanned("s2", false);
         Assert.False(svc.Find("s2")!.IsBanned);
@@ -87,9 +87,9 @@ public class AccountServiceTests
         svc.ResolveOrCreate("owner", "Owner");
         var code = svc.EnsureBootstrapCode();
 
-        Assert.True(svc.ClaimBootstrap("owner", code));
+        Assert.True(svc.ClaimBootstrap("owner", code).IsOk);
         Assert.Equal(PlayerLevel.Console, svc.Find("owner")!.Level);
-        Assert.False(svc.ClaimBootstrap("owner", code));    // one-time
-        Assert.False(svc.ClaimBootstrap("owner", "wrong")); // already claimed / bad code
+        Assert.True(svc.ClaimBootstrap("owner", code).IsFail);    // one-time
+        Assert.True(svc.ClaimBootstrap("owner", "wrong").IsFail); // already claimed / bad code
     }
 }

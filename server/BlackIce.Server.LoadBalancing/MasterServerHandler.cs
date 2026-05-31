@@ -10,12 +10,16 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public sealed class MasterServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230, OpJoinLobby = 229, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte EvGameList = 230;
-    private const byte PAddress = 230, PSecret = 221, PRoomName = 255, PGameListMap = 222;
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpJoinLobby = PhotonCodes.Op.JoinLobby,
+                       OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
+    private const byte EvGameList = PhotonCodes.Event.GameList;
+    private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
+                       PRoomName = PhotonCodes.Param.RoomName, PGameListMap = PhotonCodes.Param.GameList;
 
     // Well-known room properties shown in the lobby room browser.
-    private const byte RoomIsVisible = 254, RoomIsOpen = 253, RoomPlayerCount = 252, RoomMaxPlayers = 255;
+    private const byte RoomIsVisible = PhotonCodes.RoomProperty.IsVisible, RoomIsOpen = PhotonCodes.RoomProperty.IsOpen,
+                       RoomPlayerCount = PhotonCodes.RoomProperty.PlayerCount, RoomMaxPlayers = PhotonCodes.RoomProperty.MaxPlayers;
 
     private readonly string _gameAddress;
     private readonly string _secret;
@@ -23,6 +27,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
@@ -40,34 +45,28 @@ public sealed class MasterServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _realms = realms;
+
+        _router = new OperationRouter("MasterServer")
+            .On(OpAuthenticate, (peer, req) =>
+            {
+                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
+                var response = Authenticate(req, anon);
+                if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+                peer.SendResponse(response);
+            })
+            .On(OpJoinLobby, (peer, req) =>
+            {
+                peer.SendResponse(JoinLobby(req));
+                peer.RaiseEvent(BuildGameListEvent());
+            }, SessionStatus.Authenticated)
+            .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
+            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);
     }
 
     public void OnConnect(PeerConnection peer) { }
     public void OnDisconnect(PeerConnection peer) { }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
-    {
-        switch (request.OperationCode)
-        {
-            case OpAuthenticate:
-                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
-                peer.SendResponse(Authenticate(request, anon));
-                break;
-            case OpJoinLobby:
-                peer.SendResponse(JoinLobby(request));
-                peer.RaiseEvent(BuildGameListEvent());
-                break;
-            case OpCreateGame:
-            case OpJoinGame:
-                peer.SendResponse(CreateGame(request));
-                break;
-            default:
-                Log.Warn("MasterServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                                         $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-                peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
-                break;
-        }
-    }
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
@@ -75,7 +74,7 @@ public sealed class MasterServerHandler : IOperationHandler
         // reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(steamId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
@@ -91,7 +90,7 @@ public sealed class MasterServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop
-            { 225, userId },                                 // ParameterCode.UserId
+            { PhotonCodes.Param.UserId, userId },
         });
     }
 
@@ -125,7 +124,8 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public OperationResponse CreateGame(OperationRequest r)
     {
-        var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : $"Room-{Guid.NewGuid():N}";
+        // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
+        var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : $"Room-{Guid.NewGuid():N}";
         _registry.GetOrCreate(name);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {

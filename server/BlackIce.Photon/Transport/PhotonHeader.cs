@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO;
 
 namespace BlackIce.Photon.Transport;
 
@@ -19,10 +20,14 @@ public readonly record struct PhotonHeader(short PeerId, bool CrcEnabled, byte C
         BinaryPrimitives.WriteInt32BigEndian(b[8..], Challenge);
     }
 
-    public static PhotonHeader ReadFrom(ReadOnlySpan<byte> b) => new(
-        BinaryPrimitives.ReadInt16BigEndian(b),
-        b[2] != 0,
-        b[3],
-        BinaryPrimitives.ReadInt32BigEndian(b[4..]),
-        BinaryPrimitives.ReadInt32BigEndian(b[8..]));
+    public static PhotonHeader ReadFrom(ReadOnlySpan<byte> b)
+    {
+        if (b.Length < Size) throw new InvalidDataException($"Photon header truncated: {b.Length} of {Size} bytes");
+        return new(
+            BinaryPrimitives.ReadInt16BigEndian(b),
+            b[2] != 0,
+            b[3],
+            BinaryPrimitives.ReadInt32BigEndian(b[4..]),
+            BinaryPrimitives.ReadInt32BigEndian(b[8..]));
+    }
 }

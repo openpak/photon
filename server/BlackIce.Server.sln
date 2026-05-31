@@ -21,6 +21,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackIce.Server.Data", "Bla
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackIce.Server.Data.Tests", "BlackIce.Server.Data.Tests\BlackIce.Server.Data.Tests.csproj", "{A820BF3A-D484-4769-A5C5-9D93397E0FB9}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackIce.Server.Common", "BlackIce.Server.Common\BlackIce.Server.Common.csproj", "{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -66,5 +68,9 @@ Global
 		{A820BF3A-D484-4769-A5C5-9D93397E0FB9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A820BF3A-D484-4769-A5C5-9D93397E0FB9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A820BF3A-D484-4769-A5C5-9D93397E0FB9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

@@ -1,0 +1,18 @@
+<Project>
+
+  <!--
+    Shared MSBuild settings for every project under server/. Centralizing the target
+    framework and language options here keeps the individual .csproj files focused on
+    their references, and guarantees the whole server builds against one consistent
+    toolchain. Plugins (netstandard2.0/BepInEx) live outside server/ and are unaffected.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+</Project>

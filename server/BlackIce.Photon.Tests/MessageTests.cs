@@ -60,7 +60,7 @@ public class MessageTests
     [Fact]
     public void Client_parses_our_server_message_event()
     {
-        // ServerMessage channel (GameServerHandler.ServerMessageEvent): event code 199,
+        // ServerMessage channel (ChatCommandHandler.ServerMessageEvent): event code 199,
         // text under param 245 — exactly what the BlackIce.Motd plugin reads back as
         // photonEvent.Parameters[245]. Round-trip through the real Photon codec to prove
         // the client decodes both the code and the text faithfully.
