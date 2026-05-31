@@ -8,6 +8,16 @@ plugins enabled**; the custom features ship as built-in plugins:
 |---|---|
 | `anticheat` | The server-authority validators: event-flood, movement (speed/teleport/NaN), damage, hit/headshot rate, view-ownership. |
 | `gamemodes` | Server-side game modes — team assignment on join + friendly-fire/PvE damage filtering (Team-vs-Team / Co-op). |
+| `mutators` | Global gameplay mutators by rewriting damage RPCs: a damage multiplier and force-crit. Inert (×1, no crits) until tuned. |
+| `spawnguard` | Spawn protection — drops incoming damage to a player for a grace window after they join. Off until armed. |
+| `thorns` | Damage reflection — returns a % of player-dealt damage to the attacker via a server-originated `TakeDamage` RPC. Off until set. |
+| `killfeed` | Server-authoritative killstreak feed — models HP from relayed damage and announces kills/streaks in vanilla chat. Off by default. |
+
+The last four are **server-only gameplay customizations** — they change the rules using nothing but the
+relay (rewriting, dropping, or originating events), so the vanilla client just renders the result with no
+mod. They ship **inert/off**, so the server stays vanilla until an admin tunes them live (see *Gameplay
+mutator commands* below). They demonstrate the three relay levers a plugin has — `mutators` **rewrites**,
+`spawnguard` **drops**, `thorns`/`killfeed` **originate** — and compose safely with the validators above.
 
 A plugin is either **built-in** (compiled into `BlackIce.Server.LoadBalancing`, always present, can be
 disabled but not removed) or **external** (a standalone DLL dropped into the `server-plugins` directory,
@@ -38,6 +48,21 @@ Four ways to control plugins, all without recompiling the server:
 4. **Removing the file** — delete an external plugin's DLL (after `plugin unload`, or before a restart).
    Built-in plugins can't be file-removed but can be disabled via #1/#2.
 
+### Gameplay mutator commands
+
+The server-only gameplay plugins ship inert and are tuned live from the console (Admin). Each command with
+no argument prints the current state:
+
+| Command | Effect |
+|---|---|
+| `mutators` · `mutator damage <mult>` · `mutator crits <on\|off>` · `mutator reset` | Global damage multiplier and force-crit, applied by rewriting damage RPCs. `mutator reset` returns to vanilla (×1, no crits). |
+| `spawnguard [seconds <n> \| off]` | Arms spawn protection: incoming damage to a player is dropped for `<n>` seconds after they join. `0`/`off` disables. |
+| `thorns [percent <0-1000> \| off]` | Reflects `<n>`% of player-dealt damage back at the attacker (a server-originated `TakeDamage` on the attacker's avatar view). |
+| `killfeed [on\|off\|hp <n>]` | Toggles the killstreak feed and sets the assumed max-HP the kill model uses (it sums relayed damage per victim and credits the attacker that crosses it). |
+
+Because these are interceptor/announcement rules layered on the relay, they take effect immediately and on
+every room, with no client changes and no restart.
+
 ## How it works
 
 - On startup the host registers the **built-in** plugins, then loads any `*.dll` in
@@ -45,11 +70,17 @@ Four ways to control plugins, all without recompiling the server:
   calls every plugin's `Configure`, which registers **relay interceptors**, **console commands**, and
   **actor join/leave hooks**.
 - The room relay does **not** bake plugin interceptors into a per-room chain. Instead it defers to the
-  plugin manager's `Evaluate` on every in-room event, which runs the *currently enabled* plugins'
-  interceptors and returns the first non-`Forward` verdict (or `Forward` if none object). With no plugins
-  it's a pure pass-through. Evaluating live — rather than caching interceptor instances inside each room —
-  is what lets a plugin be enabled, disabled, loaded, or **unloaded** at runtime with immediate effect and
-  no lingering references that would pin a collectible context in memory.
+  plugin manager's `Evaluate` on every in-room event. Evaluating live — rather than caching interceptor
+  instances inside each room — is what lets a plugin be enabled, disabled, loaded, or **unloaded** at
+  runtime with immediate effect and no lingering references that would pin a collectible context in memory.
+- `Evaluate` **composes** the active plugins' verdicts rather than stopping at the first opinion: a
+  `Rewrite` updates the working event and the chain *continues*, so a later interceptor (e.g. the anti-cheat
+  / game-mode validators) sees the rewritten event and can still veto it; an `Originate` additionally
+  accumulates server-authored extra events; and a single `Drop` short-circuits and discards everything (a
+  validator veto always wins). A throwing interceptor is caught and skipped — one buggy plugin can never
+  make the relay skip the validators that run after it. This is why a `mutators` damage rewrite still passes
+  through `anticheat`, and why `thorns`/`killfeed` reflection/announcements vanish if the hit that triggered
+  them is dropped by friendly-fire or spawn-protection rules.
 - Per-(plugin, room) interceptor instances are created lazily and kept while the plugin is loaded, so
   per-room state (movement history, rate windows) survives toggling *other* plugins; they're dropped only
   when the plugin itself is unloaded.

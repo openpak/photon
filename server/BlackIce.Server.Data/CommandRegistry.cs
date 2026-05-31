@@ -37,14 +37,16 @@ public readonly record struct CommandLine(string Raw, string Command, string Res
 /// </summary>
 public sealed class CommandRegistry
 {
-    private sealed record Entry(Func<CommandLine, string> Invoke, int MinParts, string Usage, PlayerLevel MinLevel);
+    private sealed record Entry(Func<CommandLine, string> Invoke, int MinParts, string Usage, PlayerLevel MinLevel, object Source);
 
-    private sealed record HelpEntry(string Names, string Usage, PlayerLevel MinLevel);
+    private sealed record HelpEntry(string Names, string Usage, PlayerLevel MinLevel, object Source);
 
     private readonly Dictionary<string, Entry> _byName = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<HelpEntry> _help = new();
 
-    /// <summary>Discovers and registers every annotated method on <paramref name="target"/>.</summary>
+    /// <summary>Discovers and registers every annotated method on <paramref name="target"/>. The target is
+    /// recorded as each command's source so it can later be <see cref="Unregister"/>ed wholesale (e.g. when
+    /// a plugin contributing the commands is hot-unloaded).</summary>
     public CommandRegistry Register(object target)
     {
         foreach (var method in target.GetType()
@@ -54,13 +56,24 @@ public sealed class CommandRegistry
             if (attr is null) continue;
 
             var entry = new Entry(line => method.Invoke(target, new object[] { line }) as string ?? "",
-                                  attr.MinParts, attr.Usage, attr.MinLevel);
+                                  attr.MinParts, attr.Usage, attr.MinLevel, target);
             _byName[attr.Name] = entry;
             foreach (var alias in attr.Aliases) _byName[alias] = entry;
 
             var names = attr.Aliases.Length == 0 ? attr.Name : $"{attr.Name}|{string.Join("|", attr.Aliases)}";
-            _help.Add(new HelpEntry(names, attr.Usage, attr.MinLevel));
+            _help.Add(new HelpEntry(names, attr.Usage, attr.MinLevel, target));
         }
+        return this;
+    }
+
+    /// <summary>Removes every command previously registered from <paramref name="target"/>, dropping the
+    /// delegates that close over it — so a hot-unloaded plugin's commands stop resolving and nothing keeps
+    /// its load context alive. No-op if the target contributed no commands.</summary>
+    public CommandRegistry Unregister(object target)
+    {
+        foreach (var name in _byName.Where(kv => ReferenceEquals(kv.Value.Source, target)).Select(kv => kv.Key).ToList())
+            _byName.Remove(name);
+        _help.RemoveAll(h => ReferenceEquals(h.Source, target));
         return this;
     }
 

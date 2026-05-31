@@ -78,6 +78,24 @@ public class RoomSessionRelayTests
         Assert.Equal(202, bRaised[1].Code);
     }
 
+    [Fact]
+    public void Originated_extras_reach_the_sender_too_but_the_relayed_event_does_not()
+    {
+        var extra = new EventData(202, new());
+        var session = new RoomSession("co-op", new InterceptorChain(new IEventInterceptor[] { new OriginateExtra(extra) }));
+        var a = Peer(out var aRaised); session.Join(actor: 1, a);
+        var b = Peer(out var bRaised); session.Join(actor: 2, b);
+
+        session.RelayFrom(senderActor: 1, new EventData(200, new()));
+
+        // The sender (actor 1) is excluded from the relayed inbound event (200) but DOES receive the
+        // server-authored originated extra (202) — the property reflection/correction path relies on this.
+        Assert.Single(aRaised);
+        Assert.Equal(202, aRaised[0].Code);
+        // The other actor receives both, in order.
+        Assert.Equal(new[] { 200, 202 }, bRaised.Select(e => (int)e.Code).ToArray());
+    }
+
     private sealed class DropAll : IEventInterceptor
     {
         public RelayVerdict Intercept(EventContext ctx) => RelayVerdict.Drop();

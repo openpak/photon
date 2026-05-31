@@ -5,4 +5,9 @@
     <ProjectReference Include="..\BlackIce.Server.Data\BlackIce.Server.Data.csproj" />
   </ItemGroup>
 
+  <!-- Let the test project exercise the plugins' internal interceptors/state without making them public API. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BlackIce.Server.Tests" />
+  </ItemGroup>
+
 </Project>
