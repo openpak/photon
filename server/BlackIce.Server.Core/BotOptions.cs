@@ -11,6 +11,12 @@ public sealed class BotOptions
     public int AutoSpawnPerRealm { get; set; } = 0;
     public bool EmitGameActions { get; set; } = false;
 
+    /// <summary>When true, auto-spawned bots are added to a realm's advertised player count in the lobby
+    /// server browser, so a stocked realm looks populated to connecting players. Off by default — some
+    /// operators prefer the browser to show only real players. (The server console's own <c>rooms</c>
+    /// listing always shows the real bot count regardless of this flag.)</summary>
+    public bool CountInLobby { get; set; } = false;
+
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();

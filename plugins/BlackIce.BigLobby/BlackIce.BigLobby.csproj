@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <AssemblyName>BlackIce.BigLobby</AssemblyName>
+    <LangVersion>latest</LangVersion>
+    <Nullable>annotations</Nullable>
+    <GameManaged>C:\Program Files (x86)\Steam\steamapps\common\Black Ice\Black Ice_Data\Managed</GameManaged>
+    <BepInExCore>C:\Program Files (x86)\Steam\steamapps\common\Black Ice\BepInEx\core</BepInExCore>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="BepInEx"><HintPath>$(BepInExCore)\BepInEx.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(BepInExCore)\0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine"><HintPath>$(GameManaged)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.CoreModule"><HintPath>$(GameManaged)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="PhotonRealtime"><HintPath>$(GameManaged)\PhotonRealtime.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="PhotonUnityNetworking"><HintPath>$(GameManaged)\PhotonUnityNetworking.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <!-- Auto-deploy the built plugin into the game's BepInEx plugins folder. -->
+  <Target Name="DeployToBepInEx" AfterTargets="Build">
+    <PropertyGroup>
+      <BepInExPlugins>C:\Program Files (x86)\Steam\steamapps\common\Black Ice\BepInEx\plugins</BepInExPlugins>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(BepInExPlugins)"
+          Condition="Exists('$(BepInExPlugins)')" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

@@ -65,7 +65,10 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
     // also drive a rotating script of legitimate AND cheating gameplay (chat, damage, equip, hacking,
     // npc spawns, loot, XP, plus teleport/over-max-damage/headshot-flood/view-spoof/event-flood) through
     // the relay, so the authority validators get exercised. Great for load/soak and anti-cheat tuning.
-    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false },
+    // CountInLobby: when true, bots are added to a realm's advertised player count in the lobby server
+    // browser (so a stocked realm looks populated); false (default) advertises only real players. Either
+    // way, the server console's own 'rooms' listing always shows the real bot count ("N + M bots").
+    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false, "CountInLobby": false },
 
     // Server plugins. The custom features (anti-cheat, game modes) are plugins; vanilla runs with them
     // disabled. "Directory" is scanned for external plugin DLLs; "Disabled" lists plugins that start off

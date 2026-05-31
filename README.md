@@ -48,15 +48,27 @@ tests without it.
 Run tests via **Test → Run All Tests**. (With the game's `Photon3Unity3D.dll` present, the full
 interop oracle suite runs too; without it, those tests are skipped and the rest still run.)
 
-### Connecting the game (LAN mode)
+### Connecting a client (no mod required)
 
-Black Ice has a built-in LAN mode. With the server running: in the game, enable LAN mode and set
-the server IP/port (`127.0.0.1` / `5055`), then connect. The client walks Master → Game on your
-server. (The `BlackIce.Redirect` BepInEx plugin is an optional alternative that sets this via a
-config file.)
+The server speaks the stock Photon protocol, so an **unmodified game client can connect and play** —
+once it reaches our Name Server the server drives Name Server → Master → Game itself (via
+`AdvertisedHost`). Two ways to point a client at us:
 
-Building the plugin projects copies their DLLs into the game's `BepInEx/plugins` folder
-automatically.
+- **Built-in LAN mode (the mod-free direct connection).** Black Ice has a native LAN mode: enable it and
+  enter the server's IP/port (`127.0.0.1` / `5055`), then connect — the completely unmodified client walks
+  the stack into the match.
+- **`BlackIce.Redirect` (optional client mod).** Use it when you want the game's **normal online startup /
+  server browser** to surface **our custom realm list** instead of Photon Cloud. It's optional — the
+  redirect's only job is the startup/server-list experience; gameplay works without it.
+
+### Client mods vs. the server plugin system
+
+"Plugins" means **two different things** in this repo, and they don't mix:
+
+- [`plugins/`](plugins/README.md) — **client-side** BepInEx mods that run *in the game* (redirect,
+  op-logger, MOTD, ticket spike). Building them copies their DLLs into the game's `BepInEx/plugins`.
+- [`docs/plugins.md`](docs/plugins.md) — the **server-side** plugin system (anti-cheat, game modes,
+  mutators, arena, killfeed, …) that runs in the server process.
 
 ## Legal / scope
 

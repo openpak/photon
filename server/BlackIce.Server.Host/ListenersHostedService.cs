@@ -47,9 +47,11 @@ public sealed class ListenersHostedService : BackgroundService
         var s = _config.Server;
         var name = new UdpListener("NameServer", s.Ports.NameServer,
             new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts), s.Listener);
+        // Advertise bots as players in the lobby browser only when the operator opted in.
+        Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var master = new UdpListener("MasterServer", s.Ports.MasterServer,
             new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
-                                    _config.AllowAnonymousLan, accounts, realms), s.Listener);
+                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount), s.Listener);
         var game = new UdpListener("GameServer", s.Ports.GameServer,
             new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins), s.Listener);
 

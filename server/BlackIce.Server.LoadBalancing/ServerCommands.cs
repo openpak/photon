@@ -35,7 +35,13 @@ public sealed class ServerCommands
     {
         var names = _rooms.RoomNames;
         if (names.Count == 0) return "(no rooms)";
-        return string.Join('\n', names.OrderBy(n => n).Select(n => $"{n} ({_rooms.FindSession(n)?.Count ?? 0})"));
+        // Operator view: always break out real players vs bots, independent of the lobby CountInLobby toggle.
+        return string.Join('\n', names.OrderBy(n => n).Select(n =>
+        {
+            int players = _rooms.FindSession(n)?.Count ?? 0;
+            int bots = _bots.CountIn(n);
+            return bots > 0 ? $"{n} ({players} + {bots} bots)" : $"{n} ({players})";
+        }));
     }
 
     [ConsoleCommand("room", Usage = "<name>", MinParts = 2, MinLevel = PlayerLevel.Mod)]

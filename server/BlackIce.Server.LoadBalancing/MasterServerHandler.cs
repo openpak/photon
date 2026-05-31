@@ -27,6 +27,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly Func<string, int>? _lobbyBotCount;
     private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
@@ -35,9 +36,12 @@ public sealed class MasterServerHandler : IOperationHandler
     /// </param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions advertised in the lobby browser (optional in tests).</param>
+    /// <param name="lobbyBotCount">Optional per-room bot count added to a realm's advertised player count
+    /// in the lobby browser. Null (the default) advertises only real players; wired from the bot manager
+    /// when <c>Server.Bots.CountInLobby</c> is set, so operators choose whether bots look like players.</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
                                bool allowAnonymousLan = false, AccountService? accounts = null,
-                               RealmService? realms = null)
+                               RealmService? realms = null, Func<string, int>? lobbyBotCount = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
@@ -45,6 +49,7 @@ public sealed class MasterServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _realms = realms;
+        _lobbyBotCount = lobbyBotCount;
 
         _router = new OperationRouter("MasterServer")
             .On(OpAuthenticate, (peer, req) =>
@@ -107,13 +112,21 @@ public sealed class MasterServerHandler : IOperationHandler
         var rooms = new Dictionary<string, object>();
         foreach (var realm in _realms?.ListVisible() ?? new List<Realm>())
         {
-            int players = _registry.Find(realm.Name)?.ActorNumbers.Count ?? 0;
+            // Real joined players, plus (only if the operator opted in) the live bots in that realm — so a
+            // bot-stocked realm can look populated in the browser without inflating it when undesired.
+            int players = (_registry.Find(realm.Name)?.ActorNumbers.Count ?? 0) + (_lobbyBotCount?.Invoke(realm.Name) ?? 0);
+            // PUN's RoomInfo reads PlayerCount/MaxPlayers as a BYTE, so the wire can't represent >255: a raw
+            // (byte) cast WRAPS (256 -> 0, corrupting the browser slot). Clamp instead, so a large or
+            // uncapped realm shows a saturated "255" rather than a garbage count. (A single match that big
+            // is a client-side limitation anyway — see docs/large-servers.md; the server itself scales by
+            // running many realms, each advertised here.) MaxPlayers <= 0 means "unlimited" -> advertise 255.
+            int advertisedMax = realm.MaxPlayers <= 0 ? byte.MaxValue : realm.MaxPlayers;
             rooms[realm.Name] = new Dictionary<object, object>
             {
                 { RoomIsOpen, true },
                 { RoomIsVisible, true },
-                { RoomPlayerCount, (byte)players },
-                { RoomMaxPlayers, (byte)realm.MaxPlayers },
+                { RoomPlayerCount, ClampToByte(players) },
+                { RoomMaxPlayers, ClampToByte(advertisedMax) },
                 { "PVP", realm.Pvp },
                 { "HackDifficultyIncrease", realm.HackDifficultyIncrease },
                 { "Password", realm.Password },
@@ -121,6 +134,10 @@ public sealed class MasterServerHandler : IOperationHandler
         }
         return new EventData(EvGameList, new() { { PGameListMap, rooms } });
     }
+
+    /// <summary>Saturates a count to the 0..255 range PUN's byte-typed RoomInfo slots accept, so a value
+    /// above the client's representable maximum shows as a full "255" rather than wrapping to garbage.</summary>
+    private static byte ClampToByte(int value) => (byte)Math.Clamp(value, 0, byte.MaxValue);
 
     public OperationResponse CreateGame(OperationRequest r)
     {

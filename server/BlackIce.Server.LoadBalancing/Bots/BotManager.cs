@@ -35,6 +35,13 @@ public sealed class BotManager
     private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
     private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
 
+    // Live bot count per room. Written on the Game listener thread (spawn) and read from the Master
+    // thread (lobby browser), so it is a concurrent map for cross-thread safety.
+    private readonly ConcurrentDictionary<string, int> _countByRoom = new();
+
+    /// <summary>The number of bots currently in <paramref name="room"/> (0 if none). Thread-safe.</summary>
+    public int CountIn(string room) => _countByRoom.TryGetValue(room, out var n) ? n : 0;
+
     /// <summary>
     /// Spawns a bot synchronously on the CALLING thread. Mutates <c>_bots</c> and relays the bot's
     /// join/instantiate to every real peer, so the caller must be the listener thread (or a test on
@@ -45,6 +52,7 @@ public sealed class BotManager
         var bot = new PlayerBot(_nextBotActor++, identity);
         bot.Spawn(session);
         _bots.Add((bot, session, behavior ?? new WanderBehavior(0, 0)));
+        _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
         // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
         if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
         {
