@@ -1,0 +1,7 @@
+DeclaringType,StreamCallOrder
+BuffManager,SendNext|SendNext|ReceiveNext|ReceiveNext
+NetworkSyncEnemyStats,SendNext|SendNext|ReceiveNext|ReceiveNext
+NetworkSyncTurretHead,SendNext|ReceiveNext
+NetworkSyncPosition,SendNext|SendNext|SendNext|SendNext|SendNext|SendNext|SendNext|ReceiveNext|ReceiveNext|ReceiveNext|ReceiveNext|ReceiveNext|ReceiveNext|ReceiveNext
+GunAnimationController,SendNext|SendNext|ReceiveNext|ReceiveNext
+NetworkSyncHealth,SendNext|ReceiveNext

@@ -1,0 +1,38 @@
+# Live connection timeline (sanitized) — Black Ice, captured via BepInEx op-logger
+# Credentials (AppId, auth token, UserId) and server IPs are NOT included here; only op timing/names.
+
+[x1]                         session   :None
+[x1]                         send      Authenticate
+[x1]                         response  Authenticate
+[x1]                         send      Authenticate
+[x1]                         event     AppStats
+[x1]                         response  Authenticate
+[x1]                         send      JoinLobby
+[x1]                         response  JoinLobby
+[x1]                         event     GameList
+[x1]                         event     AppStats
+[x1]                         send      CreateGame
+[x1]                         response  CreateGame
+[x1]                         send      Authenticate
+[x1]                         response  Authenticate
+[x1]                         send      CreateGame
+[x1]                         response  CreateGame
+[x1]                         event     Join
+[x3]                         send      RaiseEvent
+[x2]                         send      SetProperties
+[x4]                         send      RaiseEvent
+[x1]                         response  SetProperties
+[x1]                         event     SetProperties
+[x1]                         response  SetProperties
+[x1]                         event     SetProperties
+[x1]                         send      SetProperties
+[x1]                         response  SetProperties
+[x1]                         event     SetProperties
+[x34]                         send      RaiseEvent
+[x1]                         send      SetProperties
+[x1]                         response  SetProperties
+[x1]                         event     SetProperties
+[x26]                         send      RaiseEvent
+[x1]                         send      SetProperties
+[x1]                         response  SetProperties
+[x1]                         event     SetProperties

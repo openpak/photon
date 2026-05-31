@@ -1,0 +1,15 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlackIce.Photon\BlackIce.Photon.csproj" />
+    <ProjectReference Include="..\BlackIce.Photon.Crypto\BlackIce.Photon.Crypto.csproj" />
+    <ProjectReference Include="..\BlackIce.Server.Data\BlackIce.Server.Data.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>

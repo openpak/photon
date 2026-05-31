@@ -1,0 +1,19 @@
+{
+  "profiles": {
+    "BlackIce.Server (local LAN)": {
+      "commandName": "Project",
+      "commandLineArgs": "127.0.0.1",
+      "console": "externalTerminal"
+    },
+    "BlackIce.Server (advertise this PC on LAN)": {
+      "commandName": "Project",
+      "commandLineArgs": "192.168.1.10",
+      "console": "externalTerminal"
+    },
+    "BlackIce.Server (require Name Server token)": {
+      "commandName": "Project",
+      "commandLineArgs": "127.0.0.1 --require-token",
+      "console": "externalTerminal"
+    }
+  }
+}

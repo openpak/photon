@@ -1,0 +1,34 @@
+# --- Game-derived material: NEVER commit (analysis-only, local) ---
+decompiled/
+captures/
+*.dll
+*.exe
+asset-dumps/
+**/Black Ice_Data/**
+
+# --- Build / tooling ---
+bin/
+obj/
+*.user
+.vs/
+artifacts/
+
+# --- Python capture munging ---
+__pycache__/
+*.pyc
+.venv/
+
+# --- Downloaded third-party tools ---
+third-party/
+
+# Runtime DB + generated server config
+*.db
+*.db-shm
+*.db-wal
+blackice.server.json
+
+# Credential-bearing runtime logs (live in the game folder, never in the repo):
+# oplog.jsonl carries decrypted Steam auth tokens; steam-ticket-spike.log carries a
+# real SteamID + auth-ticket bytes. The leak-guard hook also blocks these.
+oplog.jsonl
+steam-ticket-spike.log

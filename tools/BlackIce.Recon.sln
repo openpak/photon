@@ -1,0 +1,28 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackIce.Recon.Catalog", "BlackIce.Recon.Catalog\BlackIce.Recon.Catalog.csproj", "{4289F637-709B-4727-A790-1345B49CB658}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BlackIce.Recon.Catalog.Tests", "BlackIce.Recon.Catalog.Tests\BlackIce.Recon.Catalog.Tests.csproj", "{6291C08C-196F-4F8D-8AFC-A7181C42C29B}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{4289F637-709B-4727-A790-1345B49CB658}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4289F637-709B-4727-A790-1345B49CB658}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4289F637-709B-4727-A790-1345B49CB658}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4289F637-709B-4727-A790-1345B49CB658}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6291C08C-196F-4F8D-8AFC-A7181C42C29B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6291C08C-196F-4F8D-8AFC-A7181C42C29B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6291C08C-196F-4F8D-8AFC-A7181C42C29B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6291C08C-196F-4F8D-8AFC-A7181C42C29B}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
