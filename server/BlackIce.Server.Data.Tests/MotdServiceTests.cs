@@ -40,8 +40,8 @@ public class MotdServiceTests
         db.Context.Realms.Add(new Realm { Name = "co-op" });
         db.Context.SaveChanges();
         var svc = new MotdService(db.Context);
-        Assert.True(svc.SetRealm("co-op", "welcome"));
+        Assert.True(svc.SetRealm("co-op", "welcome").IsOk);
         Assert.Equal("welcome", db.Context.Realms.Find("co-op")!.Motd);
-        Assert.False(svc.SetRealm("nope", "x"));
+        Assert.True(svc.SetRealm("nope", "x").IsFail);
     }
 }

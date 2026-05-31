@@ -1,3 +1,5 @@
+using BlackIce.Server.Common;
+
 namespace BlackIce.Server.Data;
 
 /// <summary>Owns realm definitions: seeding, listing, and CRUD.</summary>
@@ -40,12 +42,13 @@ public sealed class RealmService
         return _db.Realms.First(r => r.Name == realm.Name);
     }
 
-    public bool Delete(string name)
+    /// <summary>Removes a realm. <see cref="ErrorCode.NotFound"/> if no realm by that name exists.</summary>
+    public Result Delete(string name)
     {
         var r = _db.Realms.FirstOrDefault(x => x.Name == name);
-        if (r is null) return false;
+        if (r is null) return Result.Fail(ErrorCode.NotFound);
         _db.Realms.Remove(r);
         _db.SaveChanges();
-        return true;
+        return Result.Ok;
     }
 }

@@ -33,17 +33,17 @@ public sealed class ConsoleCommandProcessor
     private string Promote(CommandLine line)
     {
         if (!int.TryParse(line.Parts[2], out var lvl) || lvl is < 0 or > 3) return "level must be 0-3.";
-        return _accounts.SetLevel(line.Parts[1], (PlayerLevel)lvl)
+        return _accounts.SetLevel(line.Parts[1], (PlayerLevel)lvl).IsOk
             ? $"{line.Parts[1]} -> {(PlayerLevel)lvl}" : $"no such account: {line.Parts[1]}";
     }
 
     [ConsoleCommand("ban", Usage = "<steamId>", MinParts = 2)]
     private string Ban(CommandLine line)
-        => _accounts.SetBanned(line.Parts[1], true) ? $"banned {line.Parts[1]}" : $"no such account: {line.Parts[1]}";
+        => _accounts.SetBanned(line.Parts[1], true).IsOk ? $"banned {line.Parts[1]}" : $"no such account: {line.Parts[1]}";
 
     [ConsoleCommand("unban", Usage = "<steamId>", MinParts = 2)]
     private string Unban(CommandLine line)
-        => _accounts.SetBanned(line.Parts[1], false) ? $"unbanned {line.Parts[1]}" : $"no such account: {line.Parts[1]}";
+        => _accounts.SetBanned(line.Parts[1], false).IsOk ? $"unbanned {line.Parts[1]}" : $"no such account: {line.Parts[1]}";
 
     [ConsoleCommand("list")]
     private string List(CommandLine line)
@@ -72,7 +72,7 @@ public sealed class ConsoleCommandProcessor
         // a realm whose name is a substring of "realmmotd"). The MinParts=3 guard guarantees a space
         // exists in Rest.
         var text = line.Rest[(line.Rest.IndexOf(' ') + 1)..].Trim();
-        return _motd.SetRealm(realmName, text) ? $"{realmName} MOTD set: {text}" : $"no such realm: {realmName}";
+        return _motd.SetRealm(realmName, text).IsOk ? $"{realmName} MOTD set: {text}" : $"no such realm: {realmName}";
     }
 
     [ConsoleCommand("help")]

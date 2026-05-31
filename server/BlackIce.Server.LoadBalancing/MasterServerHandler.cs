@@ -74,7 +74,7 @@ public sealed class MasterServerHandler : IOperationHandler
         // reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(steamId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());

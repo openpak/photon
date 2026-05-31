@@ -37,7 +37,7 @@ public class RealmServiceTests
         svc.Upsert(new Realm { Name = "R", Pvp = false });
         svc.Upsert(new Realm { Name = "R", Pvp = true });
         Assert.True(svc.Get("R")!.Pvp);
-        Assert.True(svc.Delete("R"));
+        Assert.True(svc.Delete("R").IsOk);
         Assert.Null(svc.Get("R"));
     }
 }

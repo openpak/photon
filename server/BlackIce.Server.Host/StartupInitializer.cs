@@ -40,7 +40,7 @@ public static class StartupInitializer
             Log.Info("HOST", $"global MOTD from config: \"{config.Motd}\"");
         }
         foreach (var r in config.Realms.Where(r => !string.IsNullOrWhiteSpace(r.Motd)))
-            if (motd.SetRealm(r.Name, r.Motd)) Log.Info("HOST", $"realm MOTD from config: {r.Name} -> \"{r.Motd}\"");
+            if (motd.SetRealm(r.Name, r.Motd).IsOk) Log.Info("HOST", $"realm MOTD from config: {r.Name} -> \"{r.Motd}\"");
 
         Log.Info("HOST", $"Realms: {string.Join(", ", realms.ListVisible().Select(r => r.Name))}");
     }
