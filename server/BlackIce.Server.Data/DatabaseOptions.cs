@@ -31,6 +31,17 @@ public sealed class DatabaseOptions
     public DbContextOptions<BlackIceDbContext> BuildOptions()
     {
         var builder = new DbContextOptionsBuilder<BlackIceDbContext>();
+        Configure(builder);
+        return builder.Options;
+    }
+
+    /// <summary>
+    /// Applies the selected provider to a context options builder. Shared by <see cref="BuildOptions"/>
+    /// and the host's <c>AddDbContextFactory</c> registration so there is one place that knows how to
+    /// wire SQLite vs MySQL.
+    /// </summary>
+    public void Configure(DbContextOptionsBuilder builder)
+    {
         switch (Provider.ToLowerInvariant())
         {
             case "mysql":
@@ -41,7 +52,6 @@ public sealed class DatabaseOptions
                 builder.UseSqlite(AnchorSqliteFile(ConnectionString));
                 break;
         }
-        return builder.Options;
     }
 
     /// <summary>

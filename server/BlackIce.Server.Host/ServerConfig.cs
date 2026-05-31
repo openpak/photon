@@ -1,6 +1,7 @@
 using System.Text.Json;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
+using Microsoft.Extensions.Configuration;
 
 namespace BlackIce.Server.Host;
 
@@ -23,12 +24,7 @@ public sealed class ServerConfig
     public DatabaseOptions Database { get; set; } = new();
 
     /// <summary>Realms seeded into the DB on first run (only when the Realms table is empty).</summary>
-    public List<Realm> Realms { get; set; } = new()
-    {
-        new Realm { Name = "Black Ice — Co-op", DisplayName = "Co-op", Pvp = false, MaxPlayers = 8 },
-        new Realm { Name = "Black Ice — PvP", DisplayName = "PvP", Pvp = true, MaxPlayers = 6 },
-        new Realm { Name = "Black Ice — Hardcore", DisplayName = "Hardcore", HackDifficultyIncrease = 5, MaxPlayers = 4 },
-    };
+    public List<Realm> Realms { get; set; } = DefaultRealms();
 
     public static ServerConfig Load(string path)
     {
@@ -39,12 +35,29 @@ public sealed class ServerConfig
         if (!Path.IsPathRooted(path))
             path = Path.Combine(AppContext.BaseDirectory, path);
 
+        // Write a fully-defaulted file on first run so operators have a documented starting point.
         if (!File.Exists(path))
-        {
-            var def = new ServerConfig();
-            File.WriteAllText(path, JsonSerializer.Serialize(def, new JsonSerializerOptions { WriteIndented = true }));
-            return def;
-        }
-        return JsonSerializer.Deserialize<ServerConfig>(File.ReadAllText(path)) ?? new ServerConfig();
+            File.WriteAllText(path, JsonSerializer.Serialize(new ServerConfig(), new JsonSerializerOptions { WriteIndented = true }));
+
+        // Layer the JSON file under BLACKICE_ environment overrides (e.g. BLACKICE_Server__Secret,
+        // BLACKICE_Database__Provider) so containers/CI can override any value without editing the
+        // file. Bind onto a target whose Realms start empty: ConfigurationBinder appends to existing
+        // lists, so the default realms are restored only when neither file nor env supplies any.
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(path, optional: true)
+            .AddEnvironmentVariables(prefix: "BLACKICE_")
+            .Build();
+
+        var result = new ServerConfig { Realms = new() };
+        configuration.Bind(result);
+        if (result.Realms.Count == 0) result.Realms = DefaultRealms();
+        return result;
     }
+
+    private static List<Realm> DefaultRealms() => new()
+    {
+        new Realm { Name = "Black Ice — Co-op", DisplayName = "Co-op", Pvp = false, MaxPlayers = 8 },
+        new Realm { Name = "Black Ice — PvP", DisplayName = "PvP", Pvp = true, MaxPlayers = 6 },
+        new Realm { Name = "Black Ice — Hardcore", DisplayName = "Hardcore", HackDifficultyIncrease = 5, MaxPlayers = 4 },
+    };
 }
