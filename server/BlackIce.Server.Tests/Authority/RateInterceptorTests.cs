@@ -164,4 +164,18 @@ public class RateInterceptorTests
         var i = new ViewOwnershipInterceptor(enforce: true);
         Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, Rpc(7001))).Action);
     }
+
+    private static EventData Instantiate(int viewId) => new(202, new()
+    {
+        { 245, new Dictionary<object, object> { { (byte)0, "Player" }, { (byte)7, viewId } } },
+    });
+
+    [Fact]
+    public void Instantiating_into_another_actors_block_is_flagged()
+    {
+        var i = new ViewOwnershipInterceptor();
+        i.Intercept(new EventContext("co-op", 1, Instantiate(1001)));   // owner 1 == sender: ok
+        i.Intercept(new EventContext("co-op", 1, Instantiate(3001)));   // owner 3 != sender 1: flagged
+        Assert.Equal(1, i.FlaggedCount);
+    }
 }

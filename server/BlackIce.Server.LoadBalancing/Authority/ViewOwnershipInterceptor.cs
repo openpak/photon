@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
 
@@ -19,8 +20,11 @@ public sealed class ViewOwnershipInterceptor : IEventInterceptor
 
     public RelayVerdict Intercept(EventContext ctx)
     {
-        // RPC (200) and serialize (201) events carry the viewID of the object being acted on.
-        int? viewId = PunRpcInfo.From(ctx.Event)?.ViewId ?? PositionInfo.From(ctx.Event)?.ViewId;
+        // RPC (200), serialize (201) and instantiation (202) events carry the viewID of the object
+        // being acted on / spawned — all must belong to the sending actor's block.
+        int? viewId = PunRpcInfo.From(ctx.Event)?.ViewId
+                      ?? PositionInfo.From(ctx.Event)?.ViewId
+                      ?? InstantiationViewId(ctx.Event);
         if (viewId is not int vid || vid <= 0) return RelayVerdict.Forward(ctx.Event);   // no view / unparseable
 
         int owner = vid / MaxViewIdsPerActor;
@@ -32,5 +36,14 @@ public sealed class ViewOwnershipInterceptor : IEventInterceptor
         Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{ctx.RoomName}\" acted on view {vid} owned by " +
                               $"actor {owner} -> {(_enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);
+    }
+
+    /// <summary>The viewID a PUN instantiation (202) claims, from key 7 of its PData hashtable.</summary>
+    private static int? InstantiationViewId(EventData ev)
+    {
+        if (ev.Code != PhotonCodes.PunEvent.Instantiation) return null;
+        if (!ev.Parameters.TryGetValue(PhotonCodes.Param.Data, out var d) || d is not IDictionary<object, object> pdata)
+            return null;
+        return pdata.TryGetValue(PhotonCodes.InstantiationKey.ViewId, out var v) && v is int i ? i : null;
     }
 }
