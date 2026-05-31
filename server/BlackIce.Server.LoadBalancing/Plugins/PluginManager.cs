@@ -104,9 +104,15 @@ public sealed class PluginManager : IRoomLifecycleListener
             if (!_activeCache.TryGetValue(ctx.RoomName, out var cached) || cached.Gen != _generation)
             {
                 var list = new List<IEventInterceptor>();
-                foreach (var e in _entries)
+                // Deterministic order independent of discovery: by the plugin's Order (rewriters < validators
+                // < reactors), then name as a stable tie-break. This is what guarantees the validators see a
+                // mutator's rewrite and that a Drop always wins.
+                var active = _entries
+                    .Where(e => e.Enabled && e.Interceptors.Count > 0)
+                    .OrderBy(e => e.Plugin.Order)
+                    .ThenBy(e => e.Plugin.Name, StringComparer.OrdinalIgnoreCase);
+                foreach (var e in active)
                 {
-                    if (!e.Enabled || e.Interceptors.Count == 0) continue;
                     if (!_instances.TryGetValue((e, ctx.RoomName), out var ints))
                         _instances[(e, ctx.RoomName)] = ints = e.Interceptors.Select(f => f()).ToArray();
                     list.AddRange(ints);

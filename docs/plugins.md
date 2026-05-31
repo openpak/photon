@@ -81,6 +81,11 @@ every room, with no client changes and no restart.
   make the relay skip the validators that run after it. This is why a `mutators` damage rewrite still passes
   through `anticheat`, and why `thorns`/`killfeed` reflection/announcements vanish if the hit that triggered
   them is dropped by friendly-fire or spawn-protection rules.
+- Chain order is **deterministic**, set by each plugin's `Order` (low to high), not by discovery order: by
+  convention rewriters run first (`mutators`, `Order = -100`), then the validators (anti-cheat / game modes,
+  `Order = 0`), then the observe-and-originate reactors (`thorns` / `killfeed`, `Order = 100`). This is what
+  guarantees the validators see a rewrite and that a Drop discards a reaction. External plugins keep the
+  default (`0`) unless they need a specific slot.
 - Per-(plugin, room) interceptor instances are created lazily and kept while the plugin is loaded, so
   per-room state (movement history, rate windows) survives toggling *other* plugins; they're dropped only
   when the plugin itself is unloaded.

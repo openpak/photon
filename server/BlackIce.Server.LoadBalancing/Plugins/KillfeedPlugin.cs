@@ -19,6 +19,7 @@ public sealed class KillfeedPlugin : IServerPlugin
 {
     public string Name => "killfeed";
     public string Description => "Server-authoritative killstreak feed: models HP from relayed damage and announces kills/streaks via vanilla chat. Off by default.";
+    public int Order => 100;   // react AFTER the validators: only count hits that actually land
 
     public void Configure(PluginBuilder builder)
     {
@@ -27,16 +28,38 @@ public sealed class KillfeedPlugin : IServerPlugin
         var modes = (GameModeRegistry?)builder.Services.GetService(typeof(GameModeRegistry));
         builder
             .AddInterceptor(() => new KillfeedInterceptor(state, rooms, modes))
+            .OnActorLeft(ctx => state.Forget(ctx.RoomName, ctx.Actor))
             .AddCommands(new KillfeedCommands(state));
     }
 }
 
-/// <summary>Global kill-feed settings. Atomic bool/int across the console and relay threads.</summary>
+/// <summary>
+/// Global kill-feed settings plus the modelled per-player tallies (damage taken toward the next "death",
+/// and current killstreak), keyed by (room, actor). Held here rather than inside the per-room interceptor
+/// so a leaver's entries can be dropped on <c>OnActorLeft</c>. Accessed on the Game listener thread (relay
+/// + join/leave hooks) with the settings also written from the console thread; concurrent maps and atomic
+/// scalars cover that.
+/// </summary>
 internal sealed class KillfeedState
 {
     public bool On;
     public int AssumedMaxHp = 100;
     public int StreakAnnounceThreshold = 3;   // first streak size that earns its own "on fire" line
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Room, int Actor), float> _damageTaken = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Room, int Actor), int> _streak = new();
+
+    public float DamageTaken(string room, int actor) => _damageTaken.GetValueOrDefault((room, actor));
+    public void SetDamageTaken(string room, int actor, float value) => _damageTaken[(room, actor)] = value;
+    public int IncStreak(string room, int actor) => _streak.AddOrUpdate((room, actor), 1, (_, v) => v + 1);
+    public void ResetStreak(string room, int actor) => _streak[(room, actor)] = 0;
+
+    /// <summary>Drops a departed player's tallies (called from the leave hook).</summary>
+    public void Forget(string room, int actor)
+    {
+        _damageTaken.TryRemove((room, actor), out _);
+        _streak.TryRemove((room, actor), out _);
+    }
 }
 
 /// <summary>
@@ -53,8 +76,6 @@ internal sealed class KillfeedInterceptor : IEventInterceptor
     private readonly KillfeedState _state;
     private readonly RoomRegistry? _rooms;
     private readonly GameModeRegistry? _modes;
-    private readonly Dictionary<int, float> _damageTaken = new();   // victim actor -> accumulated damage
-    private readonly Dictionary<int, int> _streak = new();          // attacker actor -> current killstreak
 
     public KillfeedInterceptor(KillfeedState state, RoomRegistry? rooms, GameModeRegistry? modes)
     {
@@ -82,14 +103,13 @@ internal sealed class KillfeedInterceptor : IEventInterceptor
         if (session is null || !session.Actors().Contains(victim)) return RelayVerdict.Forward(ctx.Event);
         if (_modes?.BlocksDamage(ctx.RoomName, attacker, victim) == true) return RelayVerdict.Forward(ctx.Event);
 
-        float total = _damageTaken.GetValueOrDefault(victim) + dmg;
-        if (total < _state.AssumedMaxHp) { _damageTaken[victim] = total; return RelayVerdict.Forward(ctx.Event); }
+        float total = _state.DamageTaken(ctx.RoomName, victim) + dmg;
+        if (total < _state.AssumedMaxHp) { _state.SetDamageTaken(ctx.RoomName, victim, total); return RelayVerdict.Forward(ctx.Event); }
 
         // Kill: credit the attacker, reset the victim's pool and streak.
-        _damageTaken[victim] = 0f;
-        _streak[victim] = 0;
-        int streak = _streak.GetValueOrDefault(attacker) + 1;
-        _streak[attacker] = streak;
+        _state.SetDamageTaken(ctx.RoomName, victim, 0f);
+        _state.ResetStreak(ctx.RoomName, victim);
+        int streak = _state.IncStreak(ctx.RoomName, attacker);
 
         var announce = new List<EventData>
         {

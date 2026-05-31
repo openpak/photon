@@ -15,6 +15,7 @@ public sealed class MutatorsPlugin : IServerPlugin
 {
     public string Name => "mutators";
     public string Description => "Global gameplay mutators (server-side): damage multiplier + force-crit, applied by rewriting damage RPCs. Inert until tuned.";
+    public int Order => -100;   // rewrite damage BEFORE the validators so anti-cheat/game-modes see the final value
 
     public void Configure(PluginBuilder builder)
     {

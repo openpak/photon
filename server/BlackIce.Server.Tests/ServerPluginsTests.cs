@@ -178,11 +178,12 @@ public class ServerPluginsTests
     public void A_rewrite_is_seen_by_a_later_validator_which_can_still_drop()
     {
         var mgr = new PluginManager();
-        mgr.Add(new ScaleDamagePlugin(100f), enabled: true);     // 20 -> 2000
-        mgr.Add(new DropOverPlugin(1000f), enabled: true);       // drops > 1000
+        // Register the validator FIRST and the rewriter SECOND: the plugin Order (rewriter -100 < validator 0),
+        // not registration order, must put the rewrite ahead so the validator sees the scaled value and drops.
+        mgr.Add(new DropOverPlugin(1000f), enabled: true);       // Order 0, drops > 1000
+        mgr.Add(new ScaleDamagePlugin(100f), enabled: true);     // Order -100, 20 -> 2000
         mgr.ConfigureAll(new EmptyServices());
 
-        // The validator runs AFTER the rewrite and sees the scaled value, so it vetoes the hit.
         Assert.Equal(RelayAction.Drop, mgr.Evaluate(Ctx(1, Dmg(2, 20f))).Action);
     }
 
@@ -221,6 +222,7 @@ public class ServerPluginsTests
         public ScaleDamagePlugin(float scale) => _scale = scale;
         public string Name => "scale";
         public string Description => "test: scales damage";
+        public int Order => -100;   // run as a rewriter, before validators
         public void Configure(PluginBuilder b) => b.AddInterceptor(() => new Inner(_scale));
         private sealed class Inner : IEventInterceptor
         {
@@ -252,6 +254,7 @@ public class ServerPluginsTests
     {
         public string Name => "throws";
         public string Description => "test: throws";
+        public int Order => -100;   // run first so the later validator still has to be reached
         public void Configure(PluginBuilder b) => b.AddInterceptor(() => new Inner());
         private sealed class Inner : IEventInterceptor
         {

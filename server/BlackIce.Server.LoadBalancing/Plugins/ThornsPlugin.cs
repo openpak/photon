@@ -19,6 +19,7 @@ public sealed class ThornsPlugin : IServerPlugin
 {
     public string Name => "thorns";
     public string Description => "Damage reflection: returns a % of player-dealt damage to the attacker via a server-originated TakeDamage RPC. Off until set.";
+    public int Order => 100;   // react AFTER the validators: a dropped hit discards the reflection
 
     public void Configure(PluginBuilder builder)
     {
