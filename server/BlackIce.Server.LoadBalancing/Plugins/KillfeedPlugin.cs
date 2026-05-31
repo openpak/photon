@@ -13,7 +13,8 @@ namespace BlackIce.Server.LoadBalancing.Plugins;
 /// and announces it (plus milestone streaks) to the room via a <c>ReceiveChatMessage</c> RPC — the same
 /// vanilla chat channel the client already renders, so the feed shows up with no mod. It is an approximation
 /// (the assumed HP won't match the game exactly) and is <b>off by default</b>; an admin enables it with
-/// <c>killfeed on</c> and tunes the model with <c>killfeed hp &lt;n&gt;</c>.
+/// <c>killfeed on</c> and tunes the model with <c>killfeed hp &lt;n&gt;</c>. Each kill is also published on
+/// the <see cref="KillBus"/> so the <c>arena</c> match plugin can score on it.
 /// </summary>
 public sealed class KillfeedPlugin : IServerPlugin
 {
@@ -26,8 +27,13 @@ public sealed class KillfeedPlugin : IServerPlugin
         var state = new KillfeedState();
         var rooms = (RoomRegistry?)builder.Services.GetService(typeof(RoomRegistry));
         var modes = (GameModeRegistry?)builder.Services.GetService(typeof(GameModeRegistry));
+        var bus = (KillBus?)builder.Services.GetService(typeof(KillBus));
+
+        // Clear a room's tallies when a match resets, so the next round's streaks/HP start fresh.
+        if (bus is not null) bus.RoomReset += state.ForgetRoom;
+
         builder
-            .AddInterceptor(() => new KillfeedInterceptor(state, rooms, modes))
+            .AddInterceptor(() => new KillfeedInterceptor(state, rooms, modes, bus))
             .OnActorLeft(ctx => state.Forget(ctx.RoomName, ctx.Actor))
             .AddCommands(new KillfeedCommands(state));
     }
@@ -36,9 +42,9 @@ public sealed class KillfeedPlugin : IServerPlugin
 /// <summary>
 /// Global kill-feed settings plus the modelled per-player tallies (damage taken toward the next "death",
 /// and current killstreak), keyed by (room, actor). Held here rather than inside the per-room interceptor
-/// so a leaver's entries can be dropped on <c>OnActorLeft</c>. Accessed on the Game listener thread (relay
-/// + join/leave hooks) with the settings also written from the console thread; concurrent maps and atomic
-/// scalars cover that.
+/// so a leaver's entries can be dropped on <c>OnActorLeft</c> and a whole room's cleared on a match reset.
+/// Accessed on the Game listener thread (relay + join/leave hooks) with the settings also written from the
+/// console thread; concurrent maps and atomic scalars cover that.
 /// </summary>
 internal sealed class KillfeedState
 {
@@ -60,28 +66,34 @@ internal sealed class KillfeedState
         _damageTaken.TryRemove((room, actor), out _);
         _streak.TryRemove((room, actor), out _);
     }
+
+    /// <summary>Drops every tally for a room (called on a match/round reset).</summary>
+    public void ForgetRoom(string room)
+    {
+        foreach (var key in _damageTaken.Keys.Where(k => k.Room == room).ToArray()) _damageTaken.TryRemove(key, out _);
+        foreach (var key in _streak.Keys.Where(k => k.Room == room).ToArray()) _streak.TryRemove(key, out _);
+    }
 }
 
 /// <summary>
 /// Per-room kill tracker: accumulates received damage per victim and credits a kill (and streak) to the
-/// attacker that crosses the assumed max-HP. One instance per room (the relay is single-threaded per
-/// listener, so its plain dictionaries need no locking). Announcements ride the Originate path so they reach
-/// every member including the killer.
+/// attacker that crosses the assumed max-HP. Announcements ride the Originate path so they reach every
+/// member including the killer; each kill is also published on the <see cref="KillBus"/> for the arena scorer.
 /// </summary>
 internal sealed class KillfeedInterceptor : IEventInterceptor
 {
-    private const int MaxViewIdsPerActor = 1000;   // viewID / 1000 = owning actor; avatar view = actor*1000 + 1
-    private const int AvatarViewSlot = 1;
-
+    private const int MaxViewIdsPerActor = 1000;   // viewID / 1000 = owning actor
     private readonly KillfeedState _state;
     private readonly RoomRegistry? _rooms;
     private readonly GameModeRegistry? _modes;
+    private readonly KillBus? _bus;
 
-    public KillfeedInterceptor(KillfeedState state, RoomRegistry? rooms, GameModeRegistry? modes)
+    public KillfeedInterceptor(KillfeedState state, RoomRegistry? rooms, GameModeRegistry? modes, KillBus? bus)
     {
         _state = state;
         _rooms = rooms;
         _modes = modes;
+        _bus = bus;
     }
 
     public RelayVerdict Intercept(EventContext ctx)
@@ -96,45 +108,33 @@ internal sealed class KillfeedInterceptor : IEventInterceptor
         int victim = rpc.ViewId / MaxViewIdsPerActor;
         if (victim == attacker) return RelayVerdict.Forward(ctx.Event);
 
-        // Count only player-vs-player damage that actually lands: the victim must be in the room, and the
-        // game mode must not forbid the hit (friendly fire is dropped by the game-mode plugin, so it would
-        // never reach the victim — don't let it inflate the feed).
-        var session = _rooms?.FindSession(ctx.RoomName);
-        if (session is null || !session.Actors().Contains(victim)) return RelayVerdict.Forward(ctx.Event);
+        // Count only player-vs-player damage that actually lands: the victim must be a combatant (a room
+        // member, or a team-assigned participant such as a soak bot), and the game mode must not forbid the
+        // hit (friendly fire is dropped by the game-mode plugin, so it would never reach the victim).
+        if (!IsCombatant(ctx.RoomName, victim)) return RelayVerdict.Forward(ctx.Event);
         if (_modes?.BlocksDamage(ctx.RoomName, attacker, victim) == true) return RelayVerdict.Forward(ctx.Event);
 
         float total = _state.DamageTaken(ctx.RoomName, victim) + dmg;
         if (total < _state.AssumedMaxHp) { _state.SetDamageTaken(ctx.RoomName, victim, total); return RelayVerdict.Forward(ctx.Event); }
 
-        // Kill: credit the attacker, reset the victim's pool and streak.
+        // Kill: credit the attacker, reset the victim's pool and streak, publish for the arena scorer.
         _state.SetDamageTaken(ctx.RoomName, victim, 0f);
         _state.ResetStreak(ctx.RoomName, victim);
         int streak = _state.IncStreak(ctx.RoomName, attacker);
+        _bus?.Publish(new KillNotice(ctx.RoomName, attacker, victim, streak));
 
-        var announce = new List<EventData>
-        {
-            ChatRpc(attacker, $"☠ Actor {attacker} eliminated Actor {victim}"),
-        };
+        var announce = new List<EventData> { ServerRpc.Chat(attacker, $"☠ Actor {attacker} eliminated Actor {victim}") };
         if (streak >= _state.StreakAnnounceThreshold)
-            announce.Add(ChatRpc(attacker, $"\U0001F525 Actor {attacker} is on a {streak} kill streak!"));
+            announce.Add(ServerRpc.Chat(attacker, $"\U0001F525 Actor {attacker} is on a {streak} kill streak!"));
 
         Log.Info("Killfeed", $"\"{ctx.RoomName}\": actor {attacker} killed actor {victim} (streak {streak})");
         return RelayVerdict.Originate(ctx.Event, announce);
     }
 
-    /// <summary>A <c>ReceiveChatMessage</c> RPC on the actor's avatar view — the vanilla chat channel, so the
-    /// line renders without any client mod.</summary>
-    private static EventData ChatRpc(int actor, string text) =>
-        new(PhotonCodes.PunEvent.Rpc, new Dictionary<byte, object>
-        {
-            { PhotonCodes.Param.Code, PhotonCodes.PunEvent.Rpc },
-            { PhotonCodes.Param.Data, new Dictionary<object, object>
-                {
-                    { PhotonCodes.RpcKey.ViewId, actor * MaxViewIdsPerActor + AvatarViewSlot },
-                    { PhotonCodes.RpcKey.MethodName, "ReceiveChatMessage" },
-                    { PhotonCodes.RpcKey.Args, new object[] { text } },
-                } },
-        });
+    /// <summary>A combatant is anyone the server treats as a player here: a live room member, or a
+    /// team-assigned participant (which also covers soak bots, who hold a team but no peer membership).</summary>
+    private bool IsCombatant(string room, int actor) =>
+        (_rooms?.FindSession(room)?.Actors().Contains(actor) ?? false) || _modes?.TeamOf(room, actor) is not null;
 }
 
 /// <summary>Console commands to toggle and tune the kill feed live (Admin).</summary>

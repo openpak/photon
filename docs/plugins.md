@@ -12,6 +12,7 @@ plugins enabled**; the custom features ship as built-in plugins:
 | `spawnguard` | Spawn protection — drops incoming damage to a player for a grace window after they join. Off until armed. |
 | `thorns` | Damage reflection — returns a % of player-dealt damage to the attacker via a server-originated `TakeDamage` RPC. Off until set. |
 | `killfeed` | Server-authoritative killstreak feed — models HP from relayed damage and announces kills/streaks in vanilla chat. Off by default. |
+| `arena` | Team-deathmatch match for Team-vs-Team realms — scores `killfeed` kills per team, first team to the score cap wins, then resets to replay. Off by default. |
 
 The last four are **server-only gameplay customizations** — they change the rules using nothing but the
 relay (rewriting, dropping, or originating events), so the vanilla client just renders the result with no
@@ -59,9 +60,22 @@ no argument prints the current state:
 | `spawnguard [seconds <n> \| off]` | Arms spawn protection: incoming damage to a player is dropped for `<n>` seconds after they join. `0`/`off` disables. |
 | `thorns [percent <0-1000> \| off]` | Reflects `<n>`% of player-dealt damage back at the attacker (a server-originated `TakeDamage` on the attacker's avatar view). |
 | `killfeed [on\|off\|hp <n>]` | Toggles the killstreak feed and sets the assumed max-HP the kill model uses (it sums relayed damage per victim and credits the attacker that crosses it). |
+| `arena [on\|off\|scorecap <n>\|reset]` | Toggles the team match, sets the winning score, or force-resets all active matches. Scores only in Team-vs-Team realms and needs `killfeed` on (its kill source). |
 
 Because these are interceptor/announcement rules layered on the relay, they take effect immediately and on
 every room, with no client changes and no restart.
+
+#### Arena match loop (TvT)
+
+With a Team-vs-Team realm, `killfeed` on, and `arena on`, the continuous relay becomes a replayable match:
+each cross-team kill `killfeed` models is published on an in-process `KillBus`; `arena` credits the killer's
+team a point and broadcasts the running score; the first team to `arena scorecap <n>` wins (the other side
+loses); and — when `Server.Arena.ResetOnWin` is set (default) — the match resets (team scores cleared, kill
+tallies wiped via the bus, "new round" announced) so it loops like an arcade arena. Configure defaults under
+`Server.Arena` (`Enabled`, `ScoreCap`, `ResetOnWin`); tune live with the `arena`/`killfeed` commands. Soak
+bots, which hold a team but no peer membership, count as combatants in team modes, so a bot soak in a TvT
+realm exercises the whole loop. (Score/round announcements use the vanilla chat RPC and are always written to
+the server log under `[Arena]`.)
 
 ## How it works
 

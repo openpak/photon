@@ -133,7 +133,7 @@ public class ServerPluginsTests
         session.Join(2, Peer());
 
         var state = new KillfeedState { On = true, AssumedMaxHp = 100 };
-        var i = new KillfeedInterceptor(state, reg, modes: null);
+        var i = new KillfeedInterceptor(state, reg, modes: null, bus: null);
 
         Assert.Equal(RelayAction.Forward, i.Intercept(Ctx(1, Dmg(2, 60f))).Action);     // 60 < 100: accumulate
         var v = i.Intercept(Ctx(1, Dmg(2, 60f)));                                        // 120 >= 100: kill
@@ -170,6 +170,91 @@ public class ServerPluginsTests
         // ...and the attacker receives the server-originated reflected 20 (50%) on ITS avatar view.
         Assert.Contains(attackerRaised, e =>
             PunRpcInfo.From(e) is { ViewId: 1 * 1000 + 1, DamageValue: 20f });
+    }
+
+    // --- arena: team scoring -> score cap -> win -> reset ---------------------------------------
+
+    private static GameModeRegistry TwoTeams(out int team1, out int team2)
+    {
+        var modes = new GameModeRegistry();
+        modes.SetMode("r", GameMode.TeamVsTeam);
+        team1 = modes.AssignTeam("r", 1);   // team 0
+        team2 = modes.AssignTeam("r", 2);   // team 1
+        return modes;
+    }
+
+    [Fact]
+    public void Arena_scores_cross_team_kills_and_resets_after_a_win()
+    {
+        var modes = TwoTeams(out int t1, out _);
+        var state = new ArenaState { Enabled = true, ScoreCap = 2 };
+        var match = new ArenaMatch(state, modes, rooms: null, bus: new KillBus());
+
+        match.OnKill(new KillNotice("r", Killer: 1, Victim: 2, KillerStreak: 1));
+        Assert.Equal(1, state.Score("r", t1));
+
+        match.OnKill(new KillNotice("r", 1, 2, 2));   // reaches the cap -> win -> reset (ResetOnWin default true)
+        Assert.Equal(0, state.Score("r", t1));        // scores cleared for the next round
+        Assert.False(state.Ended("r"));               // reset, not left in an ended state
+    }
+
+    [Fact]
+    public void Arena_ignores_same_team_kills_and_can_stay_ended_without_reset()
+    {
+        var modes = TwoTeams(out int t1, out _);
+        int t3 = modes.AssignTeam("r", 3);            // balances onto team 0 (same as actor 1)
+        Assert.Equal(t1, t3);
+
+        var state = new ArenaState { Enabled = true, ScoreCap = 1, ResetOnWin = false };
+        var match = new ArenaMatch(state, modes, rooms: null, bus: null);
+
+        match.OnKill(new KillNotice("r", Killer: 1, Victim: 3, KillerStreak: 1));   // same team -> no score
+        Assert.Equal(0, state.Score("r", t1));
+
+        match.OnKill(new KillNotice("r", 1, 2, 1));   // cross-team, cap 1 -> win, no reset
+        Assert.True(state.Ended("r"));
+        match.OnKill(new KillNotice("r", 1, 2, 2));   // ignored while ended
+        Assert.Equal(1, state.Score("r", t1));
+    }
+
+    [Fact]
+    public void Killfeed_kills_drive_arena_score_to_a_win_and_reset_through_the_real_relay()
+    {
+        var modes = new GameModeRegistry();
+        modes.SetMode("r", GameMode.TeamVsTeam);
+        var bus = new KillBus();
+        var mgr = new PluginManager();
+        var reg = new RoomRegistry(mgr.Evaluate, modes);
+        mgr.Add(new KillfeedPlugin(), enabled: true);
+        mgr.Add(new ArenaPlugin(), enabled: true);
+        mgr.ConfigureAll(new ServicesWith(reg, modes, bus, new ArenaOptions { Enabled = true, ScoreCap = 2 }));
+
+        // Arm the kill model so a single 25-damage hit is a kill.
+        var console = new CommandRegistry();
+        foreach (var p in mgr.CommandProviders) console.Register(p);
+        console.TryExecute("killfeed on", PlayerLevel.Console, out _);
+        console.TryExecute("killfeed hp 20", PlayerLevel.Console, out _);
+
+        var session = reg.Session("r");
+        var p1 = Peer(out _); session.Join(1, p1);
+        var p2 = Peer(out var p2Raised); session.Join(2, p2);
+        modes.AssignTeam("r", 1);   // team 0
+        modes.AssignTeam("r", 2);   // team 1
+
+        session.RelayFrom(senderActor: 1, Dmg(2, 25f));   // actor 1 (team A) kills actor 2 -> A scores 1
+        session.RelayFrom(senderActor: 1, Dmg(2, 25f));   // A scores 2 == cap -> A wins -> reset
+
+        var chat = p2Raised.Select(ChatText).Where(t => t is not null).ToList();
+        Assert.Contains(chat, t => t!.Contains("Team A scores"));
+        Assert.Contains(chat, t => t!.Contains("Team A WINS"));
+        Assert.Contains(chat, t => t!.Contains("New round"));
+    }
+
+    private static string? ChatText(EventData ev)
+    {
+        if (PunRpcInfo.From(ev)?.Method != "ReceiveChatMessage") return null;
+        if (!ev.Parameters.TryGetValue((byte)245, out var d) || d is not System.Collections.IDictionary rpc) return null;
+        return rpc[(byte)4] is object[] { Length: > 0 } args && args[0] is string s ? s : null;
     }
 
     // --- cumulative composition in PluginManager.Evaluate ---------------------------------------
