@@ -51,6 +51,9 @@ public sealed class ServerOptions
     /// <summary>Server plugin loading: external directory + which plugins start disabled.</summary>
     public PluginOptions Plugins { get; set; } = new();
 
+    /// <summary>Team-deathmatch / arena match settings (score cap + auto-reset); off by default.</summary>
+    public ArenaOptions Arena { get; set; } = new();
+
     /// <summary>True when <see cref="Secret"/> is still the shipped placeholder — insecure for anything public.</summary>
     public bool UsesDefaultSecret => Secret == DefaultSecret;
 
@@ -84,6 +87,7 @@ public sealed class ServerOptions
 
         errors.AddRange(Anticheat.Validate());
         errors.AddRange(Bots.Validate());
+        errors.AddRange(Arena.Validate());
         return errors;
     }
 }

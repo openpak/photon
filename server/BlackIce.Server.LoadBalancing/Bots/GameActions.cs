@@ -103,15 +103,11 @@ public static class GameActions
         return new EventData(PhotonCodes.PunEvent.SendSerialize, new() { { PhotonCodes.Param.Data, batch } });
     }
 
-    /// <summary>41-byte DamagePacket. Damage is a big-endian float (the server's PunRpcInfo convention);
-    /// the combined bitfield (Crit=bit0, WeakPoint=bit1) sits in byte 39 (big-endian LSB).</summary>
-    private static PhotonCustomData DamagePacket(float damage, bool crit = false, bool weakPoint = false)
-    {
-        var b = new byte[41];
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), damage);
-        b[39] = (byte)((crit ? 0x01 : 0) | (weakPoint ? 0x02 : 0));
-        return new PhotonCustomData(PhotonCodes.CustomType.DamagePacket, b);
-    }
+    /// <summary>41-byte DamagePacket (big-endian float damage at offset 0; Crit/WeakPoint flags in byte 39).
+    /// Delegates to <see cref="DamageData"/> so the bot script and the server-side damage plugins share one
+    /// agreed packet layout.</summary>
+    private static PhotonCustomData DamagePacket(float damage, bool crit = false, bool weakPoint = false) =>
+        DamageData.BuildPacket(damage, crit, weakPoint);
 
     private static PhotonCustomData Vec3(float x, float y, float z)
     {

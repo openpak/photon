@@ -46,8 +46,15 @@ public sealed class ConsoleHostedService : BackgroundService
             .Register(new RealmCommands(new RealmService(_dbf.CreateDbContext())))
             .Register(new ServerCommands(_registry, _admin, _bots, _botIdentities))
             .Register(new PluginCommands(_plugins, _services));
-        // Console commands contributed by plugins.
+        // Console commands contributed by the (built-in + startup-loaded) plugins.
         foreach (var provider in _plugins.CommandProviders) commands.Register(provider);
+
+        // Keep the live registry in step with runtime plugin load/unload: a hot-loaded plugin's commands
+        // become callable immediately, and a hot-unloaded plugin's are dropped (also releasing the last
+        // reference that would otherwise pin its collectible load context). These fire on the console loop
+        // thread (inside `plugin load`/`unload`), the same thread that reads the registry, so no lock is needed.
+        _plugins.CommandsRegistered += providers => { foreach (var p in providers) commands.Register(p); };
+        _plugins.CommandsUnregistered += providers => { foreach (var p in providers) commands.Unregister(p); };
 
         // Console.ReadLine blocks; run it on a dedicated background thread so it never holds up host
         // shutdown (the thread is reclaimed when the process exits, as before).

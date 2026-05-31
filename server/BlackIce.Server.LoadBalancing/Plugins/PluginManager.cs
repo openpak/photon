@@ -1,4 +1,5 @@
 using System.Runtime.Loader;
+using BlackIce.Photon;
 using BlackIce.Server.Core;
 
 namespace BlackIce.Server.LoadBalancing.Plugins;
@@ -86,7 +87,15 @@ public sealed class PluginManager : IRoomLifecycleListener
         lock (_gate) _generation++;
     }
 
-    /// <summary>Runs the active plugins' interceptors for the event's room; first non-Forward verdict wins.</summary>
+    /// <summary>
+    /// Runs the active plugins' interceptors for the event's room and composes their verdicts: a
+    /// <see cref="RelayAction.Rewrite"/> updates the working event and the chain continues (so later
+    /// interceptors — e.g. the anti-cheat/game-mode validators — see the rewritten event and can still
+    /// veto it), an <see cref="RelayAction.Originate"/> additionally accumulates its server-authored
+    /// extras, and a single <see cref="RelayAction.Drop"/> short-circuits and discards everything
+    /// (a validator veto always wins). A throwing interceptor is caught and skipped (treated as Forward)
+    /// so one buggy plugin can never bypass the validators that run after it.
+    /// </summary>
     public RelayVerdict Evaluate(EventContext ctx)
     {
         IEventInterceptor[] chain;
@@ -95,9 +104,15 @@ public sealed class PluginManager : IRoomLifecycleListener
             if (!_activeCache.TryGetValue(ctx.RoomName, out var cached) || cached.Gen != _generation)
             {
                 var list = new List<IEventInterceptor>();
-                foreach (var e in _entries)
+                // Deterministic order independent of discovery: by the plugin's Order (rewriters < validators
+                // < reactors), then name as a stable tie-break. This is what guarantees the validators see a
+                // mutator's rewrite and that a Drop always wins.
+                var active = _entries
+                    .Where(e => e.Enabled && e.Interceptors.Count > 0)
+                    .OrderBy(e => e.Plugin.Order)
+                    .ThenBy(e => e.Plugin.Name, StringComparer.OrdinalIgnoreCase);
+                foreach (var e in active)
                 {
-                    if (!e.Enabled || e.Interceptors.Count == 0) continue;
                     if (!_instances.TryGetValue((e, ctx.RoomName), out var ints))
                         _instances[(e, ctx.RoomName)] = ints = e.Interceptors.Select(f => f()).ToArray();
                     list.AddRange(ints);
@@ -109,15 +124,48 @@ public sealed class PluginManager : IRoomLifecycleListener
         }
 
         // Run outside the lock (single-threaded relay; toggles are rare).
+        var current = ctx.Event;
+        List<EventData>? extras = null;
         foreach (var interceptor in chain)
         {
-            var verdict = interceptor.Intercept(ctx);
-            if (verdict.Action != RelayAction.Forward) return verdict;
+            RelayVerdict verdict;
+            try { verdict = interceptor.Intercept(new EventContext(ctx.RoomName, ctx.SenderActor, current, ctx.Unreliable)); }
+            catch (Exception ex)
+            {
+                Log.Exception("Plugins", $"interceptor {interceptor.GetType().Name} threw on event {ctx.Event.Code} — skipped", ex);
+                continue;
+            }
+
+            switch (verdict.Action)
+            {
+                case RelayAction.Drop:
+                    return RelayVerdict.Drop();   // a veto wins outright — discard any accumulated rewrite/originate
+                case RelayAction.Rewrite:
+                    if (verdict.Event is not null) current = verdict.Event;
+                    break;
+                case RelayAction.Originate:
+                    if (verdict.Event is not null) current = verdict.Event;
+                    if (verdict.Originated.Count > 0) (extras ??= new()).AddRange(verdict.Originated);
+                    break;
+                // Forward: no opinion — keep the working event and continue.
+            }
         }
-        return RelayVerdict.Forward(ctx.Event);
+
+        if (extras is { Count: > 0 }) return RelayVerdict.Originate(current, extras);
+        return ReferenceEquals(current, ctx.Event) ? RelayVerdict.Forward(ctx.Event) : RelayVerdict.Rewrite(current);
     }
 
     public IEnumerable<object> CommandProviders { get { lock (_gate) return _entries.SelectMany(e => e.Commands).ToArray(); } }
+
+    /// <summary>Raised when a runtime <see cref="LoadFile"/> brings in plugins that contribute console
+    /// commands, so the live console registry can register them. Built-in commands are registered directly
+    /// at startup via <see cref="CommandProviders"/>; this covers only the hot-load path.</summary>
+    public event Action<IReadOnlyList<object>>? CommandsRegistered;
+
+    /// <summary>Raised when <see cref="Unload"/> removes a plugin that contributed console commands, so the
+    /// live console registry can drop them — otherwise its delegates keep the (now unloaded) command
+    /// provider, and its load context, alive.</summary>
+    public event Action<IReadOnlyList<object>>? CommandsUnregistered;
 
     public void OnJoined(string roomName, int actor, RoomSession session) => Dispatch(roomName, actor, session, e => e.Joined);
     public void OnLeft(string roomName, int actor, RoomSession session) => Dispatch(roomName, actor, session, e => e.Left);
@@ -159,7 +207,14 @@ public sealed class PluginManager : IRoomLifecycleListener
             Add(plugin, enabled: true, context: ctx);
             names.Add(plugin.Name);
         }
-        if (names.Count > 0) ConfigureAll(services);
+        if (names.Count == 0) return names;
+
+        ConfigureAll(services);   // populates each new entry's Commands during Configure
+        List<object> providers;
+        lock (_gate)
+            providers = _entries.Where(e => names.Contains(e.Plugin.Name, StringComparer.OrdinalIgnoreCase))
+                                .SelectMany(e => e.Commands).ToList();
+        if (providers.Count > 0) CommandsRegistered?.Invoke(providers);
         return names;
     }
 
@@ -171,16 +226,21 @@ public sealed class PluginManager : IRoomLifecycleListener
     public bool Unload(string name)
     {
         AssemblyLoadContext? ctx;
+        object[] removedCommands;
         lock (_gate)
         {
             var e = _entries.FirstOrDefault(x => string.Equals(x.Plugin.Name, name, StringComparison.OrdinalIgnoreCase));
             if (e is null || e.Context is null) return false;   // unknown or built-in
             ctx = e.Context;
+            removedCommands = e.Commands.ToArray();
             _entries.Remove(e);
             foreach (var key in _instances.Keys.Where(k => k.Item1 == e).ToArray()) _instances.Remove(key);
             _activeCache.Clear();
             _generation++;
         }
+        // Drop the plugin's console commands BEFORE unloading its context — the registry's delegates close
+        // over the command provider (in the plugin's assembly), so leaving them would pin the context.
+        if (removedCommands.Length > 0) CommandsUnregistered?.Invoke(removedCommands);
         try { ctx.Unload(); }
         catch (Exception ex) { Log.Exception("Plugins", $"failed to unload context for '{name}'", ex); }
         GC.Collect();

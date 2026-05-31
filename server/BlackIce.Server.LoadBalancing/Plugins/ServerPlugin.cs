@@ -16,6 +16,16 @@ public interface IServerPlugin
     string Name { get; }
     string Description { get; }
 
+    /// <summary>
+    /// Relay-chain ordering key, low to high (default 0). The plugin manager runs interceptors in this
+    /// order so the chain is deterministic regardless of how plugins were discovered. The convention is:
+    /// event <i>rewriters</i> (mutators) run first (negative) so the <i>validators</i> (anti-cheat,
+    /// game modes) that run next (0) see the final event and can still veto it; <i>reactors</i> that only
+    /// observe and originate (reflection, kill feed) run last (positive), and a Drop anywhere discards
+    /// their accumulated extras. External plugins keep the default unless they need a specific slot.
+    /// </summary>
+    int Order => 0;
+
     /// <summary>Called once at load to register the plugin's contributions.</summary>
     void Configure(PluginBuilder builder);
 }

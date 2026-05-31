@@ -95,6 +95,7 @@ public sealed class RoomSession
         if (verdict.Action == RelayAction.Drop) return;
 
         List<PeerConnection> recipients;
+        List<PeerConnection>? originateTargets = null;
         lock (_gate)
         {
             // Maintain the room spawn cache under the same lock that guards membership.
@@ -114,13 +115,21 @@ public sealed class RoomSession
                 recipients.Add(peer);
                 if (isSpawn) MarkDelivered(actor, spawnKey);
             }
+
+            // Server-authored Originated events go to EVERY member, INCLUDING the sender: unlike the
+            // relayed inbound event (which must not echo to its sender), an originated event is a server
+            // decision that often targets the sender itself — e.g. damage reflection ("thorns") aims a
+            // TakeDamage RPC at the attacker's own view, which only the attacker's client owns and applies.
+            if (verdict.Originated.Count > 0) originateTargets = new List<PeerConnection>(_members.Values);
         }
 
         foreach (var peer in recipients)
-        {
             if (verdict.Event is not null) peer.RaiseEvent(verdict.Event, unreliable);
-            foreach (var extra in verdict.Originated) peer.RaiseEvent(extra, unreliable);
-        }
+
+        if (originateTargets is not null)
+            foreach (var extra in verdict.Originated)
+                foreach (var peer in originateTargets)
+                    peer.RaiseEvent(extra, unreliable);
     }
 
     /// <summary>

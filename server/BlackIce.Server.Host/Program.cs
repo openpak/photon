@@ -52,8 +52,11 @@ builder.Services.AddDbContextFactory<BlackIceDbContext>(
     (sp, b) => sp.GetRequiredService<ServerConfig>().Database.Configure(b));
 
 // Services plugins resolve via PluginBuilder.Services: the anti-cheat options, the shared game-mode/team
-// state, and a (Game-thread-only) realm reader.
+// state, a (Game-thread-only) realm reader, the arena match options, and the kill bus that wires the
+// killfeed plugin to the arena scorer.
 builder.Services.AddSingleton(sp => sp.GetRequiredService<ServerConfig>().Server.Anticheat);
+builder.Services.AddSingleton(sp => sp.GetRequiredService<ServerConfig>().Server.Arena);
+builder.Services.AddSingleton<KillBus>();
 builder.Services.AddSingleton<GameModeRegistry>();
 builder.Services.AddSingleton(sp => new RealmService(sp.GetRequiredService<IDbContextFactory<BlackIceDbContext>>().CreateDbContext()));
 
