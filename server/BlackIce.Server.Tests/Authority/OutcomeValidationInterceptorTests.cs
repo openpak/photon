@@ -15,21 +15,17 @@ public class OutcomeValidationInterceptorTests
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(dmg, damage);
         var rpc = new Dictionary<object, object>
         {
-            { (byte)0, targetViewId },                                  // RpcViewId (target)
-            { (byte)3, method },                                        // RpcMethodName
-            { (byte)4, new object[] { new PhotonCustomData(68, dmg) } },// RpcArgs: DamagePacket
+            { (byte)0, targetViewId },                                  // RpcKey.ViewId (target)
+            { (byte)3, method },                                        // RpcKey.MethodName
+            { (byte)4, new object[] { new PhotonCustomData(68, dmg) } },// RpcKey.Args: DamagePacket
         };
         return new EventData(200, new Dictionary<byte, object> { { (byte)245, rpc } });
     }
 
     private static EventContext Ctx(EventData ev, string room = "r", int actor = 9) => new(room, actor, ev);
 
-    private static OutcomeValidationInterceptor Sut(RoomWorldState world, AuthorityStrictness level, out ViolationTracker vt)
-    {
-        vt = new ViolationTracker(int.MaxValue, TimeSpan.FromMinutes(5));
-        return new OutcomeValidationInterceptor(
-            world, new IOutcomeRule[] { new DeadTargetOutcomeRule() }, new AuthorityPolicy(level), vt);
-    }
+    private static OutcomeValidationInterceptor Sut(RoomWorldState world, bool enforce) =>
+        new(world, new IOutcomeRule[] { new DeadTargetOutcomeRule() }, enforce);
 
     private static RoomWorldState WorldWithDead(int viewId)
     {
@@ -42,7 +38,7 @@ public class OutcomeValidationInterceptorTests
     [Fact]
     public void Non_outcome_event_is_forwarded()
     {
-        var sut = Sut(new RoomWorldState(), AuthorityStrictness.Enforce, out _);
+        var sut = Sut(new RoomWorldState(), enforce: true);
         var ev = new EventData(201, new Dictionary<byte, object>());   // not a 200 RPC
         Assert.Equal(RelayAction.Forward, sut.Intercept(Ctx(ev)).Action);
     }
@@ -52,64 +48,44 @@ public class OutcomeValidationInterceptorTests
     {
         var world = new RoomWorldState();
         world.ObserveSpawn(5);
-        var sut = Sut(world, AuthorityStrictness.Enforce, out _);
+        var sut = Sut(world, enforce: true);
         Assert.Equal(RelayAction.Forward, sut.Intercept(Ctx(OutcomeEvent(5))).Action);
     }
 
     [Fact]
     public void Outcome_to_unknown_target_is_forwarded_failopen()
     {
-        var sut = Sut(new RoomWorldState(), AuthorityStrictness.Enforce, out _);   // never observed view 5
+        var sut = Sut(new RoomWorldState(), enforce: true);   // never observed view 5
         Assert.Equal(RelayAction.Forward, sut.Intercept(Ctx(OutcomeEvent(5))).Action);
     }
 
     [Fact]
-    public void Dead_target_under_observe_forwards_and_does_not_count()
+    public void Dead_target_detection_only_forwards_but_counts()
     {
-        var sut = Sut(WorldWithDead(5), AuthorityStrictness.Observe, out var vt);
+        var sut = Sut(WorldWithDead(5), enforce: false);   // detection-only: log + tally, still forward
         var verdict = sut.Intercept(Ctx(OutcomeEvent(5)));
-        Assert.Equal(RelayAction.Forward, verdict.Action);   // Observe is a pure no-op
-        Assert.Equal(0, sut.FlaggedCount);
-        Assert.Equal(0, vt.CountFor("r", 9));
-    }
-
-    [Fact]
-    public void Dead_target_under_warn_forwards_but_counts()
-    {
-        var sut = Sut(WorldWithDead(5), AuthorityStrictness.Warn, out var vt);
-        var verdict = sut.Intercept(Ctx(OutcomeEvent(5)));
-        Assert.Equal(RelayAction.Forward, verdict.Action);   // Warn: log + tally, still forward
+        Assert.Equal(RelayAction.Forward, verdict.Action);
         Assert.Equal(1, sut.FlaggedCount);
-        Assert.Equal(1, vt.CountFor("r", 9));
     }
 
     [Fact]
     public void Dead_target_under_enforce_is_dropped()
     {
-        var sut = Sut(WorldWithDead(5), AuthorityStrictness.Enforce, out _);
+        var sut = Sut(WorldWithDead(5), enforce: true);
         Assert.Equal(RelayAction.Drop, sut.Intercept(Ctx(OutcomeEvent(5))).Action);
-    }
-
-    [Fact]
-    public void Dead_target_under_strict_is_dropped_and_flagged()
-    {
-        var sut = Sut(WorldWithDead(5), AuthorityStrictness.Strict, out var vt);
-        Assert.Equal(RelayAction.Drop, sut.Intercept(Ctx(OutcomeEvent(5))).Action);
-        Assert.Equal(1, vt.CountFor("r", 9));
+        Assert.Equal(1, sut.FlaggedCount);
     }
 
     [Fact]
     public void Observer_then_validator_through_chain_drops_damage_after_death()
     {
-        // End-to-end ordering: the observer (first) marks view 5 dead from a 204, then a later 200 aimed
-        // at view 5 is rejected by the outcome validator. Mirrors the production chain wiring.
+        // End-to-end ordering: the observer marks view 5 dead from a 204, then a later 200 aimed at view 5
+        // is rejected by the outcome validator. Mirrors the production ServerAuthorityInterceptor wiring.
         var world = new RoomWorldState();
-        var vt = new ViolationTracker(int.MaxValue, TimeSpan.FromMinutes(5));
         var chain = new InterceptorChain(new IEventInterceptor[]
         {
             new WorldStateObserver(world),
-            new OutcomeValidationInterceptor(world, new IOutcomeRule[] { new DeadTargetOutcomeRule() },
-                                             new AuthorityPolicy(AuthorityStrictness.Enforce), vt),
+            new OutcomeValidationInterceptor(world, new IOutcomeRule[] { new DeadTargetOutcomeRule() }, enforce: true),
             new PassthroughInterceptor(),
         });
 

@@ -30,15 +30,14 @@ public class ChatCommandTests
             } },
     });
 
-    private static GameServerHandler Handler(out TestDb db)
+    private static ChatCommandHandler Handler(out TestDb db)
     {
         db = new TestDb();
         db.Context.Realms.Add(new Realm { Name = "co-op", IsEnabled = true });
         db.Context.SaveChanges();
         var motd = new MotdService(db.Context);
         motd.SetGlobal("Daily news: the Ice grows.");
-        return new GameServerHandler("s", new RoomRegistry(), allowAnonymousLan: true,
-                                     realms: new RealmService(db.Context), motd: motd);
+        return new ChatCommandHandler(new RealmService(db.Context), motd);
     }
 
     [Fact]
@@ -47,7 +46,7 @@ public class ChatCommandTests
         var h = Handler(out var db);
         using (db)
         {
-            var ev = h.TryHandleChatCommand("co-op", ChatRpc("/motd"));
+            var ev = h.TryHandle("co-op", ChatRpc("/motd"));
             Assert.NotNull(ev);
             Assert.Equal(199, ev!.Code);
             Assert.Equal("Daily news: the Ice grows.", ev.Parameters[245]);
@@ -60,7 +59,7 @@ public class ChatCommandTests
         var h = Handler(out var db);
         using (db)
         {
-            var ev = h.TryHandleChatCommand("co-op", ChatRpc("/frobnicate"));
+            var ev = h.TryHandle("co-op", ChatRpc("/frobnicate"));
             Assert.NotNull(ev);
             Assert.Contains("Unknown command", (string)ev!.Parameters[245]);
         }
@@ -71,7 +70,7 @@ public class ChatCommandTests
     {
         var h = Handler(out var db);
         using (db)
-            Assert.Null(h.TryHandleChatCommand("co-op", ChatRpc("hello everyone")));
+            Assert.Null(h.TryHandle("co-op", ChatRpc("hello everyone")));
     }
 
     [Fact]
@@ -81,7 +80,7 @@ public class ChatCommandTests
         using (db)
         {
             var notChat = new OperationRequest(253, new() { { 244, (byte)201 }, { 245, new Dictionary<object, object>() } });
-            Assert.Null(h.TryHandleChatCommand("co-op", notChat));
+            Assert.Null(h.TryHandle("co-op", notChat));
         }
     }
 
@@ -94,7 +93,7 @@ public class ChatCommandTests
         var h = Handler(out var db);
         using (db)
         {
-            var ev = h.TryHandleChatCommand("co-op", ShortcutChatRpc("/motd"));
+            var ev = h.TryHandle("co-op", ShortcutChatRpc("/motd"));
             Assert.NotNull(ev);
             Assert.Equal("Daily news: the Ice grows.", ev!.Parameters[245]);
         }
@@ -105,7 +104,7 @@ public class ChatCommandTests
     {
         var h = Handler(out var db);
         using (db)
-            Assert.Null(h.TryHandleChatCommand("co-op", ShortcutChatRpc("hello everyone")));
+            Assert.Null(h.TryHandle("co-op", ShortcutChatRpc("hello everyone")));
     }
 
     // A hostile peer can put a non-byte (or out-of-range) value under the event-code key 244.
@@ -122,7 +121,7 @@ public class ChatCommandTests
                 { 244, "not-a-byte" },
                 { 245, new Dictionary<object, object> { { (byte)3, "ReceiveChatMessage" }, { (byte)4, new object[] { "/motd" } } } },
             });
-            Assert.Null(h.TryHandleChatCommand("co-op", bad));
+            Assert.Null(h.TryHandle("co-op", bad));
         }
     }
 }

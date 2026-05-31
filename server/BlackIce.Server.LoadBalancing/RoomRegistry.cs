@@ -1,5 +1,5 @@
 using System.Collections.Concurrent;
-using BlackIce.Server.LoadBalancing.Authority;
+using BlackIce.Server.Core;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -18,6 +18,10 @@ public sealed class Room
     public int AddActor()
     {
         var actor = Interlocked.Increment(ref _nextActor);
+        // Real actor numbers must stay below the bot range so their viewID blocks (actor*1000) never
+        // overlap; this also catches the (absurd, ~2^31 joins) wraparound to a negative number.
+        if (actor <= 0 || actor >= Bots.BotManager.BotActorBase)
+            throw new InvalidOperationException($"Room '{Name}' exhausted its actor-number space ({actor})");
         lock (ActorNumbers) ActorNumbers.Add(actor);
         return actor;
     }
@@ -55,68 +59,60 @@ public sealed class Room
     }
 }
 
-/// <summary>
-/// Tracks rooms shared across the Master and Game server roles, and the per-room relay sessions.
-///
-/// Phase 3a: each session's authority interceptors are driven by an <see cref="AuthorityPolicy"/>
-/// resolved per room from the realm's <c>ExtraJson</c> (via the optional resolver passed to the ctor).
-/// With no resolver — the default — every room resolves to <see cref="AuthorityStrictness.Observe"/>,
-/// so the authority layer is a pure no-op in production until a realm explicitly opts in. One
-/// <see cref="ViolationTracker"/> is shared across rooms so an actor's violation tally is process-wide.
-/// </summary>
+/// <summary>Tracks rooms shared across the Master and Game server roles.</summary>
 public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
+    private readonly Func<EventContext, RelayVerdict>? _relayPolicy;
+    private readonly GameModeRegistry _modes;
 
-    // Optional resolver from room name -> realm ExtraJson; null = every room is Observe (no-op).
-    private readonly Func<string, string?>? _extraJsonResolver;
-    private readonly ViolationTracker _violations;
-
-    // Authority thresholds. Generous (tuned later); whether they ACT depends on per-realm strictness.
-    private const float MaxUnitsPerSecond = 200f;
-    private const float MaxDamage = 100000f;
-    private const int KickThreshold = 20;
-    private static readonly TimeSpan ViolationDecay = TimeSpan.FromMinutes(5);
-
-    public RoomRegistry() : this(null) { }
-
-    /// <param name="extraJsonResolver">Optional: maps a room name to its realm's <c>ExtraJson</c> so the
-    /// session can resolve per-realm authority strictness. Null = every room is Observe (no-op).</param>
-    public RoomRegistry(Func<string, string?>? extraJsonResolver)
+    /// <param name="relayPolicy">The live relay decision for every in-room event (the plugin manager wires
+    /// <c>PluginManager.Evaluate</c> here; authority/anti-cheat and game-mode logic live in plugins). It is
+    /// evaluated per event — not baked into the chain — so plugins can be enabled / disabled / loaded /
+    /// unloaded at runtime with immediate effect and no lingering references. When null the relay is pure
+    /// pass-through — the vanilla server.</param>
+    /// <param name="modes">Shared game-mode/team state, used by the game-mode plugin and the bot soak.</param>
+    public RoomRegistry(Func<EventContext, RelayVerdict>? relayPolicy = null, GameModeRegistry? modes = null)
     {
-        _extraJsonResolver = extraJsonResolver;
-        _violations = new ViolationTracker(KickThreshold, ViolationDecay);
+        _relayPolicy = relayPolicy;
+        _modes = modes ?? new GameModeRegistry();
     }
+
+    /// <summary>The shared game-mode/team state, so the bot soak and game-mode plugin share one map.</summary>
+    public GameModeRegistry Modes => _modes;
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
-    /// <summary>The relay session for a room, created on first use with the authority interceptor chain.
-    /// The chain's strictness comes from the realm's ExtraJson (via the resolver); at the default Observe
-    /// the validators log only and always forward, so relay behavior is unchanged.</summary>
+    /// <summary>Room names known to the registry (snapshot), for inspection commands.</summary>
+    public IReadOnlyCollection<string> RoomNames => _rooms.Keys.ToArray();
+
+    /// <summary>The relay session for a room WITHOUT creating one — for inspection that must not
+    /// materialize empty sessions. Returns null if no session exists yet.</summary>
+    public RoomSession? FindSession(string name) => _sessions.TryGetValue(name, out var s) ? s : null;
+
+    /// <summary>The relay session for a room, created on first use. Its chain is a single interceptor that
+    /// defers to the live relay policy (the plugin manager) on every event, so toggling / loading /
+    /// unloading plugins takes effect without rebuilding the session. With no policy it is pure
+    /// pass-through — the vanilla relay.</summary>
     public RoomSession Session(string name) =>
         _sessions.GetOrAdd(name, n =>
         {
-            var policy = ResolvePolicy(n);
-
-            // Phase 3b: a per-room shadow world-state, fed by the observer (first in the chain) from
-            // authoritative spawn/destroy facts, and consulted by the zero-trust outcome validator.
-            var world = new RoomWorldState();
-            var outcomeRules = new IOutcomeRule[] { new DeadTargetOutcomeRule() };
-
-            return new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
-            {
-                new WorldStateObserver(world),
-                new DamageValidationInterceptor(MaxDamage, policy, _violations),
-                new OutcomeValidationInterceptor(world, outcomeRules, policy, _violations),
-                new MovementValidationInterceptor(MaxUnitsPerSecond, policy, _violations, world),
-                new PassthroughInterceptor(),
-            }));
+            IEventInterceptor relay = _relayPolicy is null
+                ? new PassthroughInterceptor()
+                : new DelegatingInterceptor(_relayPolicy);
+            return new RoomSession(n, new InterceptorChain(new[] { relay }));
         });
+}
 
-    private AuthorityPolicy ResolvePolicy(string roomName) =>
-        _extraJsonResolver is null ? AuthorityPolicy.Default
-                                   : AuthorityPolicy.FromExtraJson(_extraJsonResolver(roomName));
+/// <summary>Adapts a per-event relay policy delegate (the plugin manager's live evaluation) into an
+/// <see cref="IEventInterceptor"/>, so the room's chain holds no plugin instances and never needs
+/// rebuilding when plugins change.</summary>
+internal sealed class DelegatingInterceptor : IEventInterceptor
+{
+    private readonly Func<EventContext, RelayVerdict> _policy;
+    public DelegatingInterceptor(Func<EventContext, RelayVerdict> policy) => _policy = policy;
+    public RelayVerdict Intercept(EventContext ctx) => _policy(ctx);
 }

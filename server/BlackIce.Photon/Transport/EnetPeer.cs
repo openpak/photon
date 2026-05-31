@@ -98,6 +98,14 @@ public sealed class EnetPeer
             return new(NCommand.Ping, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), Array.Empty<byte>());
     }
 
+    /// <summary>Builds a server-initiated reliable Disconnect command — tells the client the server is
+    /// tearing the connection down (a hard kick), rather than letting it discover the silence on timeout.</summary>
+    public NCommand Disconnect()
+    {
+        lock (_seqLock)
+            return new(NCommand.Disconnect, 0xFF, NCommand.FlagReliable, 4, NextSeq(0xFF), Array.Empty<byte>());
+    }
+
     private NCommand VerifyConnect()
     {
         var payload = new byte[32];                       // client reads peerId then skips 30 bytes

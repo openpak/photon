@@ -76,4 +76,37 @@ public class ConsoleCommandProcessorTests
 
         Assert.Equal("hello world", db.Context.Realms.Find("realm")!.Motd);
     }
+
+    [Fact]
+    public void Demote_alias_maps_to_the_same_handler()
+    {
+        using var db = new TestDb();
+        var svc = new AccountService(db.Context);
+        svc.ResolveOrCreate("s3", "x");
+        svc.SetLevel("s3", PlayerLevel.Admin);
+        var proc = new ConsoleCommandProcessor(svc);
+
+        proc.Execute("demote s3 0");
+        Assert.Equal(PlayerLevel.Player, svc.Find("s3")!.Level);
+    }
+
+    [Fact]
+    public void Help_lists_registered_commands()
+    {
+        using var db = new TestDb();
+        var help = new ConsoleCommandProcessor(new AccountService(db.Context)).Execute("help");
+        Assert.Contains("promote", help);
+        Assert.Contains("ban", help);
+        Assert.Contains("realmmotd", help);
+    }
+
+    [Fact]
+    public void Too_few_arguments_returns_usage()
+    {
+        using var db = new TestDb();
+        var proc = new ConsoleCommandProcessor(new AccountService(db.Context));
+        var output = proc.Execute("promote s1");          // missing the level argument
+        Assert.Contains("usage", output);
+        Assert.Contains("<0-3>", output);
+    }
 }

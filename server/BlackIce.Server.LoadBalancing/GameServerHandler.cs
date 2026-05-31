@@ -15,21 +15,19 @@ public sealed record PeerRoomState(string RoomName, int Actor);
 /// </summary>
 public sealed class GameServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte OpRaiseEvent = 253, OpSetProperties = 252;
-    private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
-    private const byte EvJoin = 255;
-    private const byte EvLeave = 254;
-    private const byte EvPropertiesChanged = 253;         // LoadBalancing EventCode.PropertiesChanged
-    private const byte EvServerMessage = 199;             // our server->client message channel
-    private const byte PunRpcEvent = 200;                 // PUN's RPC event code
-    private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys (method name / args)
-    private const byte RpcMethodShortcut = 5;             // PUN sends a byte index here instead of the name
-                                                          // when the method is in the project's RpcList
-    private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
-                       PGameProperties = 248, PActorProperties = 249, PProperties = 251;
-    private const byte PBroadcast = 250;                  // ParameterCode.Broadcast on OpSetProperties
-    private const byte PTargetActorNr = 253;              // EvPropertiesChanged: whose properties changed
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
+    private const byte OpRaiseEvent = PhotonCodes.Op.RaiseEvent, OpSetProperties = PhotonCodes.Op.SetProperties;
+    private const byte PEventCode = PhotonCodes.Param.Code, PData = PhotonCodes.Param.Data;  // RaiseEvent: event code + data
+    private const byte EvJoin = PhotonCodes.Event.Join;
+    private const byte EvLeave = PhotonCodes.Event.Leave;
+    private const byte EvPropertiesChanged = PhotonCodes.Event.PropertiesChanged;
+    private const byte PRoomName = PhotonCodes.Param.RoomName, PSecret = PhotonCodes.Param.Secret,
+                       PActorNr = PhotonCodes.Param.ActorNr, PActorList = PhotonCodes.Param.ActorList,
+                       PGameProperties = PhotonCodes.Param.GameProperties, PActorProperties = PhotonCodes.Param.PlayerProperties,
+                       PProperties = PhotonCodes.Param.Properties;
+    private const byte PBroadcast = PhotonCodes.Param.Broadcast;
+    private const byte PTargetActorNr = PhotonCodes.Param.TargetActorNr;  // EvPropertiesChanged: whose properties changed
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
@@ -37,6 +35,9 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
     private readonly MotdService? _motd;
+    private readonly ChatCommandHandler _chat;
+    private readonly OperationRouter _router;
+    private readonly IRoomLifecycleListener? _lifecycle;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -45,8 +46,10 @@ public sealed class GameServerHandler : IOperationHandler
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions whose ruleset is applied on join (optional in tests).</param>
     /// <param name="motd">Message of the Day service; when provided the resolved MOTD is stamped as a room property.</param>
+    /// <param name="lifecycle">Optional sink fired on actor join/leave (the plugin manager); null = no plugins.</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
-                             AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null)
+                             AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
+                             IRoomLifecycleListener? lifecycle = null)
     {
         _secret = secret;
         _registry = registry;
@@ -54,6 +57,17 @@ public sealed class GameServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _motd = motd;
+        _lifecycle = lifecycle;
+        _chat = new ChatCommandHandler(realms, motd);
+
+        // OpRaiseEvent/OpSetProperties also still guard on PeerRoomState (peer.Tag) internally, so the
+        // InRoom requirement here is detection-only telemetry, not the sole gate.
+        _router = new OperationRouter("GameServer")
+            .On(OpAuthenticate, HandleAuthenticate)
+            .On(OpCreateGame, HandleEnterRoom, SessionStatus.Authenticated)
+            .On(OpJoinGame, HandleEnterRoom, SessionStatus.Authenticated)
+            .On(OpSetProperties, HandleSetProperties, SessionStatus.InRoom)
+            .On(OpRaiseEvent, HandleRaiseEvent, SessionStatus.InRoom);
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -65,67 +79,89 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
+        _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
+
+    private void HandleAuthenticate(PeerConnection peer, OperationRequest request)
     {
-        switch (request.OperationCode)
+        var response = Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
+        if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+        peer.SendResponse(response);
+    }
+
+    private void HandleEnterRoom(PeerConnection peer, OperationRequest request)
+    {
+        // Reject a second join from a peer already in a room — otherwise it would orphan its previous
+        // actor (still in the room's membership) while overwriting peer.Tag with the new one.
+        if (peer.Tag is PeerRoomState already)
         {
-            case OpAuthenticate:
-                peer.SendResponse(Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote)));
-                break;
-            case OpCreateGame:
-            case OpJoinGame:
-                var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
-                peer.SendResponse(response);
-                if (response.ReturnCode == 0)
-                {
-                    var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString()! : "room";
-                    var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
-                    peer.Tag = new PeerRoomState(roomName, actor);
-                    var session = _registry.Session(roomName);
-                    session.Join(actor, peer);
-                    session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
-                    peer.RaiseEvent(join);             // and give the newcomer its own join
-                    session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
-                }
-                break;
-            case OpSetProperties:
-                var prs = peer.Tag as PeerRoomState;
-                peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
-                break;
-            case OpRaiseEvent:
-                var state = peer.Tag as PeerRoomState;
-                var reply = TryHandleChatCommand(state?.RoomName, request);
-                if (reply is not null)
-                {
-                    peer.RaiseEvent(reply);   // server command handled; not relayed
-                }
-                else if (state is not null
-                         && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
-                         && request.Parameters.TryGetValue(PData, out var data))
-                {
-                    // Not a server command: relay this gameplay event to the other actors in the room.
-                    _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
-                }
-                break;
-            default:
-                // Any in-room op we don't implement yet. NOTE: a -2 here is NOT harmless — a live
-                // capture showed the client abandons the room (back to main menu) when an in-room op
-                // it expects (e.g. OpSetProperties, now handled above) is rejected. The Warn log
-                // names exactly which op the game still needs so we can implement it.
-                Log.Warn("GameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                                       $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-                peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
-                break;
+            Log.Warn("GameServer", $"{peer.Remote} tried to join while already in \"{already.RoomName}\" -> rc=-7");
+            peer.SendResponse(new OperationResponse(request.OperationCode, -7, "Already in a room", new()));
+            return;
+        }
+
+        var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
+        peer.SendResponse(response);
+        if (response.ReturnCode != 0) return;
+
+        // Room name is client-supplied: take it only if it's actually a string (never coerce/NRE a null).
+        var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) && rn is string rns ? rns : "room";
+        var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
+        peer.Tag = new PeerRoomState(roomName, actor);
+        peer.Status = SessionStatus.InRoom;
+        var session = _registry.Session(roomName);
+        session.Join(actor, peer);
+        session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
+        peer.RaiseEvent(join);             // and give the newcomer its own join
+        session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
+        _lifecycle?.OnJoined(roomName, actor, session);   // plugins (e.g. game modes) react to the join
+    }
+
+    private void HandleSetProperties(PeerConnection peer, OperationRequest request)
+    {
+        var prs = peer.Tag as PeerRoomState;
+        peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
+    }
+
+    private void HandleRaiseEvent(PeerConnection peer, OperationRequest request)
+    {
+        var state = peer.Tag as PeerRoomState;
+        var reply = _chat.TryHandle(state?.RoomName, request);
+        if (reply is not null)
+        {
+            peer.RaiseEvent(reply);   // server command handled; not relayed
+            return;
+        }
+        if (state is not null
+            && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
+            && request.Parameters.TryGetValue(PData, out var data))
+        {
+            // Packet validation: a client must not raise the server-only lifecycle events (Join/Leave/
+            // PropertiesChanged) — those are emitted by the server, and relaying a client-forged one would
+            // let it spoof another player joining/leaving or changing properties. Drop the attempt.
+            if (!IsClientRaisable(ec))
+            {
+                Log.Warn("GameServer", $"actor {state.Actor} in \"{state.RoomName}\" tried to raise reserved " +
+                                       $"server event {PhotonNames.Event(ec)} -> dropped");
+                return;
+            }
+            // Not a server command: relay this gameplay event to the other actors in the room.
+            _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
+
+    /// <summary>Event codes a client may legitimately raise. The server-emitted lifecycle events
+    /// (Join/Leave/PropertiesChanged) are off-limits so a client can't forge them onto other actors.</summary>
+    private static bool IsClientRaisable(byte eventCode) =>
+        eventCode is not (PhotonCodes.Event.Join or PhotonCodes.Event.Leave or PhotonCodes.Event.PropertiesChanged);
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(steamId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
@@ -139,7 +175,8 @@ public sealed class GameServerHandler : IOperationHandler
 
     public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r, string? joinPassword)
     {
-        var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : "room";
+        // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
+        var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : "room";
         var realm = _realms?.Get(name);
         Log.Debug("GameServer", $"EnterRoom name=\"{name}\" realm={(realm is null ? "<none>" : $"{realm.Name} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
 
@@ -157,6 +194,15 @@ public sealed class GameServerHandler : IOperationHandler
         }
 
         var room = _registry.GetOrCreate(name);
+
+        // Enforce the realm's capacity (MaxPlayers <= 0 means unlimited, so a misconfigured realm can't
+        // lock everyone out). Without realms configured (tests) the room is open.
+        if (realm is not null && realm.MaxPlayers > 0 && room.ActorNumbers.Count >= realm.MaxPlayers)
+        {
+            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": full ({room.ActorNumbers.Count}/{realm.MaxPlayers}) -> rc=-6");
+            return (new OperationResponse(r.OperationCode, -6, "Room full", new()), new EventData(EvJoin, new()));
+        }
+
         int actor = room.AddActor();
         Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
 
@@ -231,52 +277,6 @@ public sealed class GameServerHandler : IOperationHandler
             Log.Warn("GameServer", $"SetProperties: unresolved room (\"{roomName}\") or missing Properties(251)");
         }
         return new OperationResponse(OpSetProperties, 0, null, new());
-    }
-
-    /// <summary>Builds a ServerMessage event: a server->client text line the BlackIce.Motd plugin renders.</summary>
-    public static EventData ServerMessageEvent(string text) =>
-        new(EvServerMessage, new() { { PData, text } });
-
-    /// <summary>
-    /// Inspects an inbound RaiseEvent (op 253). If it is a chat RPC whose text is a "/command",
-    /// returns the ServerMessage to send back and the caller must NOT relay it. Returns null for
-    /// non-commands (normal chat / other events) so future relay logic handles them.
-    ///
-    /// PUN serializes the RPC method either as the string name (key 3) or, when the method is in
-    /// the project's RpcList, as a byte shortcut index (key 5). The shortcut index lives in the
-    /// game's PhotonServerSettings asset, not in code, so we cannot resolve it statically. We
-    /// therefore only ever intercept "/"-prefixed text (which only player chat carries): a named
-    /// "ReceiveChatMessage" RPC, or a shortcut RPC (no name, key 5 present) whose first arg is a
-    /// "/command". This works regardless of the shortcut index and leaves all normal RPCs and
-    /// normal chat untouched. (B5 live capture should confirm no other RPC sends "/"-leading text.)
-    /// </summary>
-    public EventData? TryHandleChatCommand(string? roomName, OperationRequest req)
-    {
-        if (req.OperationCode != OpRaiseEvent) return null;
-        // Event code comes off the wire from an untrusted peer; validate rather than coerce.
-        // A real PUN client always sends it as a GpBinary byte, so anything else (wrong type
-        // or out of byte range) is malformed and ignored — no exception on bad input.
-        if (!req.Parameters.TryGetValue(PEventCode, out var ec) || ec is not byte ecByte || ecByte != PunRpcEvent) return null;
-        if (!req.Parameters.TryGetValue(PData, out var d) || d is not IDictionary rpc) return null;
-
-        var method = rpc.Contains(RpcMethodName) ? rpc[RpcMethodName] as string : null;
-        var isShortcutRpc = rpc.Contains(RpcMethodShortcut);
-        var args = rpc.Contains(RpcParams) ? rpc[RpcParams] as object[] : null;
-        var text = (args is { Length: > 0 } ? args[0] as string : null)?.Trim();
-
-        if (string.IsNullOrEmpty(text) || text![0] != '/') return null;          // only intercept /commands
-        var isChat = method == "ReceiveChatMessage" || (method is null && isShortcutRpc);
-        if (!isChat) return null;
-
-        Log.Info("GameServer", $"chat command intercepted: \"{text}\" (room=\"{roomName}\", " +
-                               $"method={(method ?? "<shortcut>")})");
-        if (text.Equals("/motd", StringComparison.OrdinalIgnoreCase))
-        {
-            var realm = roomName is not null ? _realms?.Get(roomName) : null;
-            var resolved = _motd?.Resolve(realm);
-            return ServerMessageEvent(string.IsNullOrWhiteSpace(resolved) ? "No MOTD set." : resolved!);
-        }
-        return ServerMessageEvent($"Unknown command: {text}");
     }
 
     /// <summary>Reads a join password from the request's GameProperties hashtable, if present.</summary>

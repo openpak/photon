@@ -25,4 +25,41 @@ public class RealmGameListTests
         Assert.Equal(3, props["HackDifficultyIncrease"]);
         Assert.Equal((byte)6, props[(byte)255]);     // MaxPlayers
     }
+
+    [Fact]
+    public void Lobby_player_count_excludes_bots_by_default_and_includes_them_when_opted_in()
+    {
+        var realms = TestAccounts.CreateRealms();
+        realms.Upsert(new Realm { Name = "Arena", MaxPlayers = 8 });
+
+        // Default: no bot-count source -> only real players (0 here) are advertised.
+        var off = new MasterServerHandler("127.0.0.1:5056", "secret", new RoomRegistry(), realms: realms);
+        var offProps = (Dictionary<object, object>)((Dictionary<string, object>)off.BuildGameListEvent().Parameters[222])["Arena"];
+        Assert.Equal((byte)0, offProps[(byte)252]);   // PlayerCount
+
+        // Opted in: the wired bot-count func adds the realm's bots to the advertised count.
+        var on = new MasterServerHandler("127.0.0.1:5056", "secret", new RoomRegistry(), realms: realms,
+                                         lobbyBotCount: room => room == "Arena" ? 4 : 0);
+        var onProps = (Dictionary<object, object>)((Dictionary<string, object>)on.BuildGameListEvent().Parameters[222])["Arena"];
+        Assert.Equal((byte)4, onProps[(byte)252]);
+    }
+
+    [Fact]
+    public void Large_and_unlimited_caps_saturate_to_255_instead_of_wrapping()
+    {
+        var realms = TestAccounts.CreateRealms();
+        realms.Upsert(new Realm { Name = "Big", MaxPlayers = 500 });        // > byte: a raw cast would wrap to 244
+        realms.Upsert(new Realm { Name = "Unlimited", MaxPlayers = 0 });    // 0 = unlimited
+
+        var master = new MasterServerHandler("127.0.0.1:5056", "secret", new RoomRegistry(), realms: realms,
+                                             lobbyBotCount: _ => 1000);     // absurd count must also clamp
+        var rooms = (Dictionary<string, object>)master.BuildGameListEvent().Parameters[222];
+
+        var big = (Dictionary<object, object>)rooms["Big"];
+        Assert.Equal((byte)255, big[(byte)255]);    // MaxPlayers clamped, not 500 % 256
+        Assert.Equal((byte)255, big[(byte)252]);    // PlayerCount clamped too
+
+        var unlimited = (Dictionary<object, object>)rooms["Unlimited"];
+        Assert.Equal((byte)255, unlimited[(byte)255]);   // unlimited advertised as a saturated 255
+    }
 }

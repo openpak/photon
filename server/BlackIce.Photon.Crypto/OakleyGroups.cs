@@ -8,6 +8,14 @@ public static class OakleyGroups
 {
     public const int Generator = 22;
 
+    // Guard against an accidentally truncated/edited prime, which BigInteger would silently accept and
+    // quietly break the key exchange's security. Runs once on first use.
+    static OakleyGroups()
+    {
+        if (OakleyPrime768.Length != 96)
+            throw new InvalidOperationException($"Oakley-768 prime must be 96 bytes (got {OakleyPrime768.Length})");
+    }
+
     /// <summary>Oakley Group 1 768-bit prime, big-endian.</summary>
     public static readonly byte[] OakleyPrime768 =
     {

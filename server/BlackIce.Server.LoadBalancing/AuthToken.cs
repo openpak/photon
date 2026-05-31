@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using BlackIce.Server.Common;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -16,16 +17,19 @@ public static class AuthToken
         return $"{userId}.{sig}";
     }
 
-    public static bool TryValidate(string token, string secret, out string userId)
+    /// <summary>
+    /// Validates a token and recovers its userId, distinguishing a malformed token
+    /// (<see cref="ErrorCode.Corrupt"/>) from one whose signature doesn't match the secret
+    /// (<see cref="ErrorCode.PermissionDenied"/>).
+    /// </summary>
+    public static Result<string> Validate(string token, string secret)
     {
-        userId = "";
         var dot = token.LastIndexOf('.');
-        if (dot <= 0) return false;
+        if (dot <= 0) return Result.Fail(ErrorCode.Corrupt);
         var id = token[..dot];
         if (!CryptographicOperations.FixedTimeEquals(
                 Encoding.UTF8.GetBytes(Mint(id, secret)), Encoding.UTF8.GetBytes(token)))
-            return false;
-        userId = id;
-        return true;
+            return Result.Fail(ErrorCode.PermissionDenied);
+        return id;
     }
 }

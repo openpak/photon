@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Foundational primitives shared by every server project (Result/Unit error handling, Defer).
+       No dependencies; sits at the bottom of the layer graph. Settings inherit from Directory.Build.props. -->
+
+</Project>

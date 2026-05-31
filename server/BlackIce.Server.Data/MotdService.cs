@@ -1,10 +1,12 @@
+using BlackIce.Server.Common;
+
 namespace BlackIce.Server.Data;
 
 /// <summary>Resolves and edits the Message of the Day: a per-realm override over a global default.</summary>
 public sealed class MotdService
 {
     private readonly BlackIceDbContext _db;
-    public MotdService(BlackIceDbContext db) => _db = db;
+    public MotdService(BlackIceDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
     /// <summary>Effective MOTD for a realm: the realm override if set, else the global, else null.</summary>
     public string? Resolve(Realm? realm)
@@ -23,14 +25,14 @@ public sealed class MotdService
         _db.SaveChanges();
     }
 
-    /// <summary>Sets a realm's MOTD override. Returns false if no such realm exists.</summary>
-    public bool SetRealm(string realmName, string? text)
+    /// <summary>Sets a realm's MOTD override. <see cref="ErrorCode.NotFound"/> if no such realm exists.</summary>
+    public Result SetRealm(string realmName, string? text)
     {
         var r = _db.Realms.FirstOrDefault(x => x.Name == realmName);
-        if (r is null) return false;
+        if (r is null) return Result.Fail(ErrorCode.NotFound);
         r.Motd = string.IsNullOrWhiteSpace(text) ? null : text.Trim();
         _db.SaveChanges();
-        return true;
+        return Result.Ok;
     }
 
     /// <summary>The single ServerState row, created on first use.</summary>

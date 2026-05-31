@@ -9,30 +9,10 @@ namespace BlackIce.Photon;
 /// </summary>
 public readonly record struct PositionInfo(int ViewId, float X, float Y, float Z)
 {
-    private const byte PData = 245, Vec3Code = 86;
-
-    /// <summary>
-    /// Builds a PUN position event (code 201) carrying <paramref name="viewId"/> at XYZ, in the exact
-    /// wire shape <see cref="From"/> decodes and the real client serializes: RaiseEvent data (param 245)
-    /// holds <c>object[] { 0, null, view }</c> where <c>view</c> is
-    /// <c>object[] { viewId, false, null, PhotonCustomData(86, &lt;12-byte big-endian XYZ&gt;) }</c>.
-    /// Used by the authority layer to emit a corrective ("snap-correct") position. Round-tripped against
-    /// the real Photon3Unity3D.dll so a corrective event always decodes on the client.
-    /// </summary>
-    public static EventData BuildEvent(int viewId, float x, float y, float z)
-    {
-        var b = new byte[12];
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), x);
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
-        var view = new object[] { viewId, false, null!, new PhotonCustomData(86, b) };
-        return new EventData(201, new Dictionary<byte, object> { { 245, new object[] { 0, null!, view } } });
-    }
-
     public static PositionInfo? From(EventData ev)
     {
-        if (ev.Code != 201) return null;
-        if (!ev.Parameters.TryGetValue(PData, out var d) || d is not object[] batch) return null;
+        if (ev.Code != PhotonCodes.PunEvent.SendSerialize) return null;
+        if (!ev.Parameters.TryGetValue(PhotonCodes.Param.Data, out var d) || d is not object[] batch) return null;
 
         // Per-view entries start at index 2 (after networkTime + prefix).
         for (int i = 2; i < batch.Length; i++)
@@ -40,7 +20,7 @@ public readonly record struct PositionInfo(int ViewId, float X, float Y, float Z
             if (batch[i] is not object[] view || view.Length < 4) continue;
             int viewId = view[0] is int v ? v : 0;
             foreach (var field in view)
-                if (field is PhotonCustomData { Code: Vec3Code } vec && vec.Data.Length >= 12)
+                if (field is PhotonCustomData { Code: PhotonCodes.CustomType.Vector3 } vec && vec.Data.Length >= 12)
                 {
                     float x = BinaryPrimitives.ReadSingleBigEndian(vec.Data.AsSpan(0, 4));
                     float y = BinaryPrimitives.ReadSingleBigEndian(vec.Data.AsSpan(4, 4));

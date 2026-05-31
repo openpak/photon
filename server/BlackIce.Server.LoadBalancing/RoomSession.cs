@@ -13,14 +13,10 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public sealed class RoomSession
 {
-    // PUN event codes carried on the relay. 202 = networked object Instantiation (sent with
-    // EventCaching.AddToRoomCache so the server replays it to late joiners); 204 = Destroy of an
-    // instantiated object. We mirror Photon's room cache so a player who joins after others have
+    // PUN event codes carried on the relay (see PhotonCodes.PunEvent): Instantiation (202) is sent
+    // with EventCaching.AddToRoomCache so the server replays it to late joiners; Destroy (204) removes
+    // an instantiated object. We mirror Photon's room cache so a player who joins after others have
     // spawned still renders them.
-    private const byte EvInstantiation = 202, EvDestroy = 204;
-    private const byte PData = 245;        // RaiseEvent data hashtable
-    private const byte PunViewId = 7;      // key inside the 202 PData hashtable holding the int viewID
-
     private readonly object _gate = new();
     private readonly Dictionary<int, PeerConnection> _members = new();
     private readonly InterceptorChain _chain;
@@ -51,6 +47,46 @@ public sealed class RoomSession
     public void Leave(int actor) { lock (_gate) { _members.Remove(actor); _deliveredSpawns.Remove(actor); } }
     public int Count { get { lock (_gate) return _members.Count; } }
 
+    /// <summary>Snapshot of the actor numbers currently in the room (relay membership).</summary>
+    public IReadOnlyList<int> Actors() { lock (_gate) return _members.Keys.ToArray(); }
+
+    /// <summary>
+    /// Server-originated send to every member (no sender exclusion, no interceptors). For admin/debug
+    /// fan-out (e.g. a server announcement). Must run on the listener thread; returns the recipient count.
+    /// </summary>
+    public int SendToAll(EventData ev, bool unreliable = false)
+    {
+        List<PeerConnection> recipients;
+        lock (_gate) recipients = new List<PeerConnection>(_members.Values);
+        foreach (var peer in recipients) peer.RaiseEvent(ev, unreliable);
+        return recipients.Count;
+    }
+
+    /// <summary>Server-originated send to one member; false if that actor isn't present. Listener thread only.</summary>
+    public bool SendToActor(int actor, EventData ev, bool unreliable = false)
+    {
+        PeerConnection? peer;
+        lock (_gate) { if (!_members.TryGetValue(actor, out peer)) return false; }
+        peer.RaiseEvent(ev, unreliable);
+        return true;
+    }
+
+    /// <summary>
+    /// Hard-kicks an actor: optionally messages the kicked player with a reason, tears down its
+    /// transport (eNet Disconnect + listener eviction), drops it from the relay, and tells the
+    /// remaining actors it left (event 254). Listener thread only; false if the actor wasn't present.
+    /// </summary>
+    public bool Kick(int actor, string? reason = null)
+    {
+        PeerConnection? peer;
+        lock (_gate) { if (!_members.TryGetValue(actor, out peer)) return false; }
+        if (reason is not null) peer.RaiseEvent(ChatCommandHandler.ServerMessageEvent(reason));
+        peer.Disconnect();                                       // hard kick: tear the connection down
+        Leave(actor);
+        SendToAll(new EventData(PhotonCodes.Event.Leave, new() { { PhotonCodes.Param.ActorNr, actor } }));
+        return true;
+    }
+
     /// <summary>Runs the interceptor chain over <paramref name="ev"/> and fans the verdict out to
     /// every actor except <paramref name="senderActor"/>.</summary>
     public void RelayFrom(int senderActor, EventData ev, bool unreliable = false)
@@ -59,32 +95,41 @@ public sealed class RoomSession
         if (verdict.Action == RelayAction.Drop) return;
 
         List<PeerConnection> recipients;
+        List<PeerConnection>? originateTargets = null;
         lock (_gate)
         {
             // Maintain the room spawn cache under the same lock that guards membership.
             int spawnKey = 0;
-            if (verdict.Event is { Code: EvInstantiation }) spawnKey = CacheSpawn(verdict.Event);
-            else if (verdict.Event is { Code: EvDestroy }) EvictSpawn(verdict.Event);
+            if (verdict.Event is { Code: PhotonCodes.PunEvent.Instantiation }) spawnKey = CacheSpawn(verdict.Event);
+            else if (verdict.Event is { Code: PhotonCodes.PunEvent.Destroy }) EvictSpawn(verdict.Event);
 
             recipients = new List<PeerConnection>(_members.Count);
             // When relaying a live 202, record its cache key as delivered to each recipient so a later
             // ReplayCacheTo to that same actor won't re-send it (the Join->Replay double-spawn window).
             // CacheSpawn returns the exact key it used (the viewID, or a synthetic key) so dedupe keys
             // match what ReplayCacheTo iterates.
-            bool isSpawn = verdict.Event is { Code: EvInstantiation };
+            bool isSpawn = verdict.Event is { Code: PhotonCodes.PunEvent.Instantiation };
             foreach (var (actor, peer) in _members)
             {
                 if (actor == senderActor) continue;
                 recipients.Add(peer);
                 if (isSpawn) MarkDelivered(actor, spawnKey);
             }
+
+            // Server-authored Originated events go to EVERY member, INCLUDING the sender: unlike the
+            // relayed inbound event (which must not echo to its sender), an originated event is a server
+            // decision that often targets the sender itself — e.g. damage reflection ("thorns") aims a
+            // TakeDamage RPC at the attacker's own view, which only the attacker's client owns and applies.
+            if (verdict.Originated.Count > 0) originateTargets = new List<PeerConnection>(_members.Values);
         }
 
         foreach (var peer in recipients)
-        {
             if (verdict.Event is not null) peer.RaiseEvent(verdict.Event, unreliable);
-            foreach (var extra in verdict.Originated) peer.RaiseEvent(extra, unreliable);
-        }
+
+        if (originateTargets is not null)
+            foreach (var extra in verdict.Originated)
+                foreach (var peer in originateTargets)
+                    peer.RaiseEvent(extra, unreliable);
     }
 
     /// <summary>
@@ -146,8 +191,8 @@ public sealed class RoomSession
     private static bool TryReadViewId(EventData ev, out int viewId)
     {
         viewId = 0;
-        if (!ev.Parameters.TryGetValue(PData, out var raw) || raw is not IDictionary<object, object> pdata) return false;
-        if (pdata.TryGetValue(PunViewId, out var v) && v is int i) { viewId = i; return true; }
+        if (!ev.Parameters.TryGetValue(PhotonCodes.Param.Data, out var raw) || raw is not IDictionary<object, object> pdata) return false;
+        if (pdata.TryGetValue(PhotonCodes.InstantiationKey.ViewId, out var v) && v is int i) { viewId = i; return true; }
         return false;
     }
 
@@ -161,8 +206,8 @@ public sealed class RoomSession
     private bool TryReadDestroyViewId(EventData ev, out int viewId)
     {
         viewId = 0;
-        if (!ev.Parameters.TryGetValue(PData, out var raw) || raw is not IDictionary<object, object> pdata) return false;
-        if (pdata.TryGetValue(PunViewId, out var v) && v is int i && _spawnCache.ContainsKey(i)) { viewId = i; return true; }
+        if (!ev.Parameters.TryGetValue(PhotonCodes.Param.Data, out var raw) || raw is not IDictionary<object, object> pdata) return false;
+        if (pdata.TryGetValue(PhotonCodes.InstantiationKey.ViewId, out var v) && v is int i && _spawnCache.ContainsKey(i)) { viewId = i; return true; }
         foreach (var value in pdata.Values)
             if (value is int candidate && _spawnCache.ContainsKey(candidate)) { viewId = candidate; return true; }
         return false;

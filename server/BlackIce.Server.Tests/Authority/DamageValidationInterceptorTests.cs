@@ -1,18 +1,12 @@
-using System;
-using System.Buffers.Binary;
-using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.LoadBalancing;
 using BlackIce.Server.LoadBalancing.Authority;
 using Xunit;
+using System.Buffers.Binary;
+using System.Collections.Generic;
 
 namespace BlackIce.Server.Tests.Authority;
 
-/// <summary>
-/// Phase 3a: the damage interceptor now ACTS per the realm <see cref="AuthorityPolicy"/>. Observe/Warn
-/// forward (log only); Enforce/Strict drop an over-threshold (zero-trust) outcome. Fail-open: a normal
-/// hit, a non-damage event, or an unparseable RPC is forwarded.
-/// </summary>
 public class DamageValidationInterceptorTests
 {
     private static EventData DamageRpc(float dmg)
@@ -28,48 +22,18 @@ public class DamageValidationInterceptorTests
         });
     }
 
-    private static DamageValidationInterceptor New(AuthorityStrictness level, float maxDamage = 1000f)
-        => new(maxDamage, new AuthorityPolicy(level), new ViolationTracker(int.MaxValue, TimeSpan.FromHours(1)));
-
     [Fact]
-    public void Observe_forwards_even_when_damage_is_absurd()
+    public void Always_forwards_even_when_damage_is_absurd()
     {
-        var i = New(AuthorityStrictness.Observe);
+        var i = new DamageValidationInterceptor(maxDamage: 1000f);
         var v = i.Intercept(new EventContext("co-op", 1, DamageRpc(999999f)));
-        Assert.Equal(RelayAction.Forward, v.Action);
-    }
-
-    [Fact]
-    public void Warn_forwards_but_counts_over_threshold_damage()
-    {
-        var i = New(AuthorityStrictness.Warn);
-        var v = i.Intercept(new EventContext("co-op", 1, DamageRpc(5000f)));
-        Assert.Equal(RelayAction.Forward, v.Action);
-        Assert.Equal(1, i.FlaggedCount);
-    }
-
-    [Fact]
-    public void Enforce_drops_over_threshold_damage()
-    {
-        var i = New(AuthorityStrictness.Enforce);
-        var v = i.Intercept(new EventContext("co-op", 1, DamageRpc(5000f)));
-        Assert.Equal(RelayAction.Drop, v.Action);
-        Assert.Equal(1, i.FlaggedCount);
-    }
-
-    [Fact]
-    public void Enforce_forwards_legitimate_damage()
-    {
-        var i = New(AuthorityStrictness.Enforce);
-        var v = i.Intercept(new EventContext("co-op", 1, DamageRpc(50f)));
-        Assert.Equal(RelayAction.Forward, v.Action);
-        Assert.Equal(0, i.FlaggedCount);
+        Assert.Equal(RelayAction.Forward, v.Action);       // log-only phase: never drops
     }
 
     [Fact]
     public void Flags_count_increments_only_for_over_threshold_damage()
     {
-        var i = New(AuthorityStrictness.Warn);
+        var i = new DamageValidationInterceptor(maxDamage: 1000f);
         i.Intercept(new EventContext("co-op", 1, DamageRpc(50f)));     // fine
         i.Intercept(new EventContext("co-op", 1, DamageRpc(5000f)));   // flagged
         i.Intercept(new EventContext("co-op", 1, DamageRpc(20f)));     // fine
@@ -79,9 +43,25 @@ public class DamageValidationInterceptorTests
     [Fact]
     public void Non_damage_events_pass_without_flagging()
     {
-        var i = New(AuthorityStrictness.Enforce);
+        var i = new DamageValidationInterceptor(maxDamage: 1000f);
         var v = i.Intercept(new EventContext("co-op", 1, new EventData(201, new() { { 245, "pos" } })));
         Assert.Equal(RelayAction.Forward, v.Action);
         Assert.Equal(0, i.FlaggedCount);
+    }
+
+    [Fact]
+    public void Over_threshold_damage_drops_when_enforcing()
+    {
+        var i = new DamageValidationInterceptor(maxDamage: 1000f, enforce: true);
+        Assert.Equal(RelayAction.Forward, i.Intercept(new EventContext("co-op", 1, DamageRpc(50f))).Action);
+        Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, DamageRpc(9999f))).Action);
+    }
+
+    [Fact]
+    public void Non_finite_damage_is_flagged()
+    {
+        var i = new DamageValidationInterceptor(maxDamage: 1000f);
+        i.Intercept(new EventContext("co-op", 1, DamageRpc(float.PositiveInfinity)));
+        Assert.Equal(1, i.FlaggedCount);
     }
 }

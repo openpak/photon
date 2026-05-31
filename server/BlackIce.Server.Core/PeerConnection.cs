@@ -23,6 +23,13 @@ public sealed class PeerConnection
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
+    /// <summary>
+    /// Where this peer is in the connect flow. Role handlers advance it (Authenticated after a
+    /// successful auth, InRoom after a join); the <see cref="OperationRouter"/> uses it to flag
+    /// operations that arrive out of order.
+    /// </summary>
+    public SessionStatus Status { get; set; } = SessionStatus.Connected;
+
     /// <summary>UTC of the last datagram received from this peer — drives keepalive + dead-peer eviction.</summary>
     public DateTime LastInboundUtc { get; private set; } = DateTime.UtcNow;
     private DateTime _lastPingSentUtc = DateTime.UtcNow;
@@ -90,6 +97,9 @@ public sealed class PeerConnection
         }
         catch (Exception ex)
         {
+            // Deliberate boundary (nothing better): the GpBinary wire codec signals malformed/undecryptable
+            // input by throwing, so we translate that to a log-and-drop here rather than letting one bad
+            // datagram tear down the peer. Expected-failure paths in our own code use Result instead.
             Log.Exception(_role, $"{Remote} dropped malformed {PhotonNames.MessageType(type)} message " +
                                  $"(enc={encrypted}, {payload.Length}B)", ex);
             return;
@@ -123,10 +133,20 @@ public sealed class PeerConnection
     /// <summary>InitEncryption: derive the shared key from the client's public key, return ours.</summary>
     private void EstablishEncryption(Dictionary<byte, object> parameters)
     {
-        var clientPublicKey = (byte[])parameters[1];   // PhotonCodes.ClientKey
-        _crypto = new DiffieHellmanCryptoProvider();
-        var serverPublicKey = _crypto.PublicKey;
-        _crypto.DeriveSharedKey(clientPublicKey);
+        // The client key (param 1) is untrusted: it may be missing or the wrong type. Reject cleanly
+        // rather than throwing a KeyNotFound/InvalidCast out of an unchecked cast.
+        if (!parameters.TryGetValue(1, out var raw) || raw is not byte[] clientPublicKey)   // PhotonCodes.ClientKey
+        {
+            Log.Warn(_role, $"{Remote} InitEncryption without a valid ClientKey (param 1) — ignored");
+            return;
+        }
+
+        // Derive first; only adopt the provider once the (validating) key agreement succeeds, so a bad
+        // key leaves the peer unencrypted rather than half-initialised.
+        var crypto = new DiffieHellmanCryptoProvider();
+        crypto.DeriveSharedKey(clientPublicKey);
+        _crypto = crypto;
+        var serverPublicKey = crypto.PublicKey;
         Log.Info(_role, $"{Remote} shared key derived (clientKey {clientPublicKey.Length}B, serverKey {serverPublicKey.Length}B)");
         var response = new OperationResponse(0, 0, null, new() { { 1, serverPublicKey } }); // ServerKey
         SendRaw(WireMessage.Response(response, WireMessage.InternalOperationResponse));
@@ -143,6 +163,24 @@ public sealed class PeerConnection
         _lastPingSentUtc = now;
         Log.Trace(_role, $"{Remote} -> keepalive Ping (quiet {(now - LastInboundUtc).TotalSeconds:F1}s)");
         _send(new[] { _enet.Ping() }, _enet.Challenge);
+    }
+
+    /// <summary>Set once the server has decided to drop this peer (a hard kick); the listener evicts it
+    /// on the next maintenance pass. The eNet Disconnect command is sent immediately by <see cref="Disconnect"/>.</summary>
+    public bool WantsDisconnect { get; private set; }
+
+    /// <summary>
+    /// Hard-disconnects this peer: sends the client a reliable eNet Disconnect so it tears down promptly,
+    /// and flags the connection for eviction by the listener's next maintenance pass. Must be called on
+    /// the listener thread (it sends through the peer's transport state).
+    /// </summary>
+    public void Disconnect()
+    {
+        if (WantsDisconnect) return;
+        WantsDisconnect = true;
+        try { _send(new[] { _enet.Disconnect() }, _enet.Challenge); }
+        catch (Exception ex) { Log.Exception(_role, $"{Remote} disconnect send failed", ex); }
+        Log.Info(_role, $"{Remote} hard-disconnected (server kick)");
     }
 
     /// <summary>Notifies the role handler that this peer is being dropped (graceful quit or eviction).</summary>

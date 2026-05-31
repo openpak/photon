@@ -10,12 +10,16 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public sealed class MasterServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230, OpJoinLobby = 229, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte EvGameList = 230;
-    private const byte PAddress = 230, PSecret = 221, PRoomName = 255, PGameListMap = 222;
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpJoinLobby = PhotonCodes.Op.JoinLobby,
+                       OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
+    private const byte EvGameList = PhotonCodes.Event.GameList;
+    private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
+                       PRoomName = PhotonCodes.Param.RoomName, PGameListMap = PhotonCodes.Param.GameList;
 
     // Well-known room properties shown in the lobby room browser.
-    private const byte RoomIsVisible = 254, RoomIsOpen = 253, RoomPlayerCount = 252, RoomMaxPlayers = 255;
+    private const byte RoomIsVisible = PhotonCodes.RoomProperty.IsVisible, RoomIsOpen = PhotonCodes.RoomProperty.IsOpen,
+                       RoomPlayerCount = PhotonCodes.RoomProperty.PlayerCount, RoomMaxPlayers = PhotonCodes.RoomProperty.MaxPlayers;
 
     private readonly string _gameAddress;
     private readonly string _secret;
@@ -23,6 +27,8 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly Func<string, int>? _lobbyBotCount;
+    private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
@@ -30,9 +36,12 @@ public sealed class MasterServerHandler : IOperationHandler
     /// </param>
     /// <param name="accounts">Account store for ban enforcement on the resolved SteamID (optional in tests).</param>
     /// <param name="realms">Realm definitions advertised in the lobby browser (optional in tests).</param>
+    /// <param name="lobbyBotCount">Optional per-room bot count added to a realm's advertised player count
+    /// in the lobby browser. Null (the default) advertises only real players; wired from the bot manager
+    /// when <c>Server.Bots.CountInLobby</c> is set, so operators choose whether bots look like players.</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
                                bool allowAnonymousLan = false, AccountService? accounts = null,
-                               RealmService? realms = null)
+                               RealmService? realms = null, Func<string, int>? lobbyBotCount = null)
     {
         _gameAddress = gameAddress;
         _secret = secret;
@@ -40,34 +49,29 @@ public sealed class MasterServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _realms = realms;
+        _lobbyBotCount = lobbyBotCount;
+
+        _router = new OperationRouter("MasterServer")
+            .On(OpAuthenticate, (peer, req) =>
+            {
+                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
+                var response = Authenticate(req, anon);
+                if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+                peer.SendResponse(response);
+            })
+            .On(OpJoinLobby, (peer, req) =>
+            {
+                peer.SendResponse(JoinLobby(req));
+                peer.RaiseEvent(BuildGameListEvent());
+            }, SessionStatus.Authenticated)
+            .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
+            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);
     }
 
     public void OnConnect(PeerConnection peer) { }
     public void OnDisconnect(PeerConnection peer) { }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
-    {
-        switch (request.OperationCode)
-        {
-            case OpAuthenticate:
-                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
-                peer.SendResponse(Authenticate(request, anon));
-                break;
-            case OpJoinLobby:
-                peer.SendResponse(JoinLobby(request));
-                peer.RaiseEvent(BuildGameListEvent());
-                break;
-            case OpCreateGame:
-            case OpJoinGame:
-                peer.SendResponse(CreateGame(request));
-                break;
-            default:
-                Log.Warn("MasterServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                                         $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-                peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
-                break;
-        }
-    }
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
@@ -75,7 +79,7 @@ public sealed class MasterServerHandler : IOperationHandler
         // reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.TryValidate(token, _secret, out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(steamId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
@@ -91,7 +95,7 @@ public sealed class MasterServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop
-            { 225, userId },                                 // ParameterCode.UserId
+            { PhotonCodes.Param.UserId, userId },
         });
     }
 
@@ -108,13 +112,21 @@ public sealed class MasterServerHandler : IOperationHandler
         var rooms = new Dictionary<string, object>();
         foreach (var realm in _realms?.ListVisible() ?? new List<Realm>())
         {
-            int players = _registry.Find(realm.Name)?.ActorNumbers.Count ?? 0;
+            // Real joined players, plus (only if the operator opted in) the live bots in that realm — so a
+            // bot-stocked realm can look populated in the browser without inflating it when undesired.
+            int players = (_registry.Find(realm.Name)?.ActorNumbers.Count ?? 0) + (_lobbyBotCount?.Invoke(realm.Name) ?? 0);
+            // PUN's RoomInfo reads PlayerCount/MaxPlayers as a BYTE, so the wire can't represent >255: a raw
+            // (byte) cast WRAPS (256 -> 0, corrupting the browser slot). Clamp instead, so a large or
+            // uncapped realm shows a saturated "255" rather than a garbage count. (A single match that big
+            // is a client-side limitation anyway — see docs/large-servers.md; the server itself scales by
+            // running many realms, each advertised here.) MaxPlayers <= 0 means "unlimited" -> advertise 255.
+            int advertisedMax = realm.MaxPlayers <= 0 ? byte.MaxValue : realm.MaxPlayers;
             rooms[realm.Name] = new Dictionary<object, object>
             {
                 { RoomIsOpen, true },
                 { RoomIsVisible, true },
-                { RoomPlayerCount, (byte)players },
-                { RoomMaxPlayers, (byte)realm.MaxPlayers },
+                { RoomPlayerCount, ClampToByte(players) },
+                { RoomMaxPlayers, ClampToByte(advertisedMax) },
                 { "PVP", realm.Pvp },
                 { "HackDifficultyIncrease", realm.HackDifficultyIncrease },
                 { "Password", realm.Password },
@@ -123,9 +135,14 @@ public sealed class MasterServerHandler : IOperationHandler
         return new EventData(EvGameList, new() { { PGameListMap, rooms } });
     }
 
+    /// <summary>Saturates a count to the 0..255 range PUN's byte-typed RoomInfo slots accept, so a value
+    /// above the client's representable maximum shows as a full "255" rather than wrapping to garbage.</summary>
+    private static byte ClampToByte(int value) => (byte)Math.Clamp(value, 0, byte.MaxValue);
+
     public OperationResponse CreateGame(OperationRequest r)
     {
-        var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : $"Room-{Guid.NewGuid():N}";
+        // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
+        var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : $"Room-{Guid.NewGuid():N}";
         _registry.GetOrCreate(name);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {

@@ -8,6 +8,9 @@ public class Realm
     [Key] public string Name { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public bool Pvp { get; set; }
+    /// <summary>Server-enforced game mode: "FreeForAll" (default), "TeamVsTeam", or "Coop". Drives
+    /// server-side team assignment and friendly-fire/PvE damage filtering — see GameModeRegistry.</summary>
+    public string Mode { get; set; } = "FreeForAll";
     public int HackDifficultyIncrease { get; set; }
     public string Password { get; set; } = "";       // "" = open
     public int MaxPlayers { get; set; } = 8;

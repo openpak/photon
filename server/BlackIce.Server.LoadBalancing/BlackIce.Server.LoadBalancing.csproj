@@ -1,14 +1,13 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\BlackIce.Server.Core\BlackIce.Server.Core.csproj" />
     <ProjectReference Include="..\BlackIce.Server.Data\BlackIce.Server.Data.csproj" />
   </ItemGroup>
 
-  <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
-    <ImplicitUsings>enable</ImplicitUsings>
-    <Nullable>enable</Nullable>
-  </PropertyGroup>
+  <!-- Let the test project exercise the plugins' internal interceptors/state without making them public API. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BlackIce.Server.Tests" />
+  </ItemGroup>
 
 </Project>

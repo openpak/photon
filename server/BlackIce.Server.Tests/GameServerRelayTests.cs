@@ -63,6 +63,28 @@ public class GameServerRelayTests
     }
 
     [Fact]
+    public void Client_cannot_relay_a_reserved_server_event_code()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out _); var b = Peer(out var bRaised);
+            h.OnOperationRequest(a, Join());
+            h.OnOperationRequest(b, Join());
+            bRaised.Clear();
+
+            // Actor A forges a Join (255, server-only) via RaiseEvent — it must be dropped, not relayed.
+            var forged = new OperationRequest(253, new()
+            {
+                { 244, (byte)255 },   // EvJoin
+                { 245, new Dictionary<object, object> { { (byte)254, 999 } } },
+            });
+            h.OnOperationRequest(a, forged);
+            Assert.Empty(bRaised);
+        }
+    }
+
+    [Fact]
     public void Slash_motd_is_still_intercepted_not_relayed()
     {
         var (h, _, db) = NewHandler();

@@ -53,6 +53,18 @@ public class BotManagerTests
     }
 
     [Fact]
+    public void CountIn_tracks_bots_per_room()
+    {
+        var mgr = new BotManager();
+        Assert.Equal(0, mgr.CountIn("co-op"));
+
+        mgr.Spawn(Session(), new BotIdentityGenerator(seed: 1).Next());
+        mgr.Spawn(Session(), new BotIdentityGenerator(seed: 2).Next());
+        Assert.Equal(2, mgr.CountIn("co-op"));          // both Session()s are room "co-op"
+        Assert.Equal(0, mgr.CountIn("other-room"));
+    }
+
+    [Fact]
     public void Tick_relays_an_unreliable_position_event_for_the_bot()
     {
         var session = Session();

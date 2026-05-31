@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A standalone EXTERNAL server plugin, built outside the server solution to prove the external-DLL
+    loading path end-to-end: it is not referenced by BlackIce.Server.sln and ships as a single DLL you
+    drop into the host's `server-plugins/` directory.
+
+    The references below are <Private>false</Private> on purpose: the plugin compiles against the host's
+    contract assemblies (LoadBalancing/Core/Data/Photon) but must NOT copy them into its own output —
+    the running server already provides them, and the collectible load context resolves them from the
+    host's default context so the IServerPlugin type identity matches. Deploy ONLY SampleServerPlugin.dll.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\server\BlackIce.Server.LoadBalancing\BlackIce.Server.LoadBalancing.csproj" Private="false" />
+  </ItemGroup>
+
+</Project>

@@ -20,11 +20,27 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 public sealed class BotManager
 {
     public const int BotActorBase = 10000;
-    private const byte EvPosition = 201, PData = 245;
+
+    /// <summary>When true, each tick every bot also relays the next entry of its <see cref="GameActions"/>
+    /// script — a rotating mix of legitimate and cheating gameplay traffic — to exercise the relay and
+    /// authority/anti-cheat surface. Off by default (bots just move).</summary>
+    public bool EmitGameActions { get; set; }
+
+    /// <summary>Optional game-mode registry; when set, bots spawned into a team-mode room are assigned a
+    /// balanced team (so the soak exercises Team-vs-Team / Co-op friendly-fire enforcement too).</summary>
+    public GameModeRegistry? Modes { get; set; }
 
     private int _nextBotActor = BotActorBase;
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
+    private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
     private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
+
+    // Live bot count per room. Written on the Game listener thread (spawn) and read from the Master
+    // thread (lobby browser), so it is a concurrent map for cross-thread safety.
+    private readonly ConcurrentDictionary<string, int> _countByRoom = new();
+
+    /// <summary>The number of bots currently in <paramref name="room"/> (0 if none). Thread-safe.</summary>
+    public int CountIn(string room) => _countByRoom.TryGetValue(room, out var n) ? n : 0;
 
     /// <summary>
     /// Spawns a bot synchronously on the CALLING thread. Mutates <c>_bots</c> and relays the bot's
@@ -36,6 +52,13 @@ public sealed class BotManager
         var bot = new PlayerBot(_nextBotActor++, identity);
         bot.Spawn(session);
         _bots.Add((bot, session, behavior ?? new WanderBehavior(0, 0)));
+        _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
+        // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
+        if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
+        {
+            int team = Modes.AssignTeam(session.RoomName, bot.Actor);
+            Log.Info("Bots", $"bot {bot.Actor} joined \"{session.RoomName}\" on team {team}");
+        }
         return bot;
     }
 
@@ -58,7 +81,23 @@ public sealed class BotManager
         {
             var p = behavior.Tick();
             session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, p), unreliable: true);
+            if (EmitGameActions) EmitNextAction(bot, session);
         }
+    }
+
+    /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain
+    /// sees it), advancing its cursor. Cheats are logged with a CHEAT marker so the soak output is legible.</summary>
+    private void EmitNextAction(PlayerBot bot, RoomSession session)
+    {
+        var script = GameActions.Script(bot);
+        if (script.Count == 0) return;
+        _scriptCursor.TryGetValue(bot.Actor, out var i);
+        _scriptCursor[bot.Actor] = i + 1;
+        var action = script[i % script.Count];
+
+        foreach (var ev in action.Events)
+            session.RelayFrom(bot.Actor, ev, unreliable: ev.Code == PhotonCodes.PunEvent.SendSerialize);
+        Log.Info("Bots", $"bot {bot.Actor} -> {action.Label}{(action.Events.Count > 1 ? $" x{action.Events.Count}" : "")}");
     }
 
     /// <summary>
@@ -76,7 +115,7 @@ public sealed class BotManager
         var rot = PunQuaternion(0, 0, 0, 1);
         var view = new object[] { viewId, false, null!, pos, rot, 0f, 200f, 0f, 0f };
         var batch = new object[] { System.Environment.TickCount, null!, view };
-        return new EventData(EvPosition, new() { { PData, batch } });
+        return new EventData(PhotonCodes.PunEvent.SendSerialize, new() { { PhotonCodes.Param.Data, batch } });
     }
 
     private static PhotonCustomData PunVector3(float x, float y, float z)
@@ -85,7 +124,7 @@ public sealed class BotManager
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), x);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
-        return new PhotonCustomData(86, b);
+        return new PhotonCustomData(PhotonCodes.CustomType.Vector3, b);
     }
 
     private static PhotonCustomData PunQuaternion(float x, float y, float z, float w)
@@ -95,6 +134,6 @@ public sealed class BotManager
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
         System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(12), w);
-        return new PhotonCustomData(81, b);
+        return new PhotonCustomData(PhotonCodes.CustomType.Quaternion, b);
     }
 }

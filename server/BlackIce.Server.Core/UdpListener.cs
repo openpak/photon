@@ -12,12 +12,13 @@ namespace BlackIce.Server.Core;
 /// </summary>
 public sealed class UdpListener
 {
-    // Keepalive / dead-peer cleanup tuning. The client pings us ~1s; we run maintenance each tick,
-    // actively ping a peer that's been inbound-silent for PingQuietAfter, and evict (the only way we
-    // reclaim peer state) one we haven't heard from in DeadTimeout. Matches Photon's ~1s/~10s defaults.
-    private static readonly TimeSpan MaintenanceInterval = TimeSpan.FromSeconds(1);
-    private static readonly TimeSpan PingQuietAfter = TimeSpan.FromSeconds(3);
-    private static readonly TimeSpan DeadTimeout = TimeSpan.FromSeconds(10);
+    // Keepalive / dead-peer cleanup cadence (from config; defaults match Photon's ~1s/~10s). The
+    // client pings us ~1s; we run maintenance each MaintenanceInterval, actively ping a peer that's
+    // been inbound-silent for PingQuietAfter, and evict (the only way we reclaim peer state) one we
+    // haven't heard from in DeadTimeout.
+    private readonly TimeSpan _maintenanceInterval;
+    private readonly TimeSpan _pingQuietAfter;
+    private readonly TimeSpan _deadTimeout;
 
     private readonly string _name;
     private readonly UdpClient _socket;
@@ -31,11 +32,18 @@ public sealed class UdpListener
     /// </summary>
     public System.Action? OnMaintenance { get; set; }
 
-    public UdpListener(string name, int port, IOperationHandler handler)
+    public UdpListener(string name, int port, IOperationHandler handler, ListenerTimings? timings = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(handler);
+        if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "port must be 0..65535");
         _name = name;
         _handler = handler;
         _socket = new UdpClient(new IPEndPoint(IPAddress.Any, port));
+        timings ??= new ListenerTimings();
+        _maintenanceInterval = timings.Maintenance;
+        _pingQuietAfter = timings.PingQuiet;
+        _deadTimeout = timings.DeadTimeout;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -50,7 +58,7 @@ public sealed class UdpListener
             try
             {
                 using var recvCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                recvCts.CancelAfter(MaintenanceInterval);
+                recvCts.CancelAfter(_maintenanceInterval);
                 var result = await _socket.ReceiveAsync(recvCts.Token);
 
                 try { Process(result.Buffer, result.RemoteEndPoint); }
@@ -67,25 +75,26 @@ public sealed class UdpListener
             catch (SocketException ex) { Log.Debug(_name, $"recv socket error (ignored): {ex.SocketErrorCode}"); }
 
             var now = DateTime.UtcNow;
-            if (now - lastMaintenance >= MaintenanceInterval) { RunMaintenance(now); lastMaintenance = now; }
+            if (now - lastMaintenance >= _maintenanceInterval) { RunMaintenance(now); lastMaintenance = now; }
         }
         Log.Info(_name, "listener loop exited");
     }
 
-    /// <summary>Pings quiet peers and evicts ones that have gone silent past <see cref="DeadTimeout"/>.</summary>
+    /// <summary>Pings quiet peers and evicts ones gone silent past <see cref="DeadTimeout"/> or hard-kicked.</summary>
     private void RunMaintenance(DateTime now)
     {
         List<IPEndPoint>? dead = null;
         foreach (var (ep, peer) in _peers)
         {
-            if (now - peer.LastInboundUtc >= DeadTimeout) (dead ??= new()).Add(ep);
-            else peer.MaybePing(now, PingQuietAfter);
+            if (peer.WantsDisconnect || now - peer.LastInboundUtc >= _deadTimeout) (dead ??= new()).Add(ep);
+            else peer.MaybePing(now, _pingQuietAfter);
         }
         if (dead is not null)
             foreach (var ep in dead)
             {
                 if (!_peers.Remove(ep, out var peer)) continue;
-                Log.Info(_name, $"evicting silent peer {ep} (no inbound for {DeadTimeout.TotalSeconds:F0}s+); {_peers.Count} remain");
+                var why = peer.WantsDisconnect ? "kicked" : $"no inbound for {_deadTimeout.TotalSeconds:F0}s+";
+                Log.Info(_name, $"evicting peer {ep} ({why}); {_peers.Count} remain");
                 peer.NotifyDisconnect();
             }
 
