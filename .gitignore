@@ -27,6 +27,12 @@ blackice.server.json
 .vs/
 .idea/
 *.user
+artifacts/
+
+# Python (capture tooling)
+__pycache__/
+*.pyc
+.venv/
 
 # Local memory (not for public repo)
 memory/
