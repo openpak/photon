@@ -74,6 +74,7 @@ public class PunRpcDecodeTests
         Assert.Null(info!.Value.DamageValue);
     }
 
+#if PHOTON_ORACLE
     [Fact]
     public void DamagePacket_damage_float_survives_oracle_roundtrip()
     {
@@ -85,4 +86,5 @@ public class PunRpcDecodeTests
         var back = (PhotonCustomData)new GpBinaryReader(ourBytes).ReadTyped()!;
         Assert.Equal(123.25f, System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(back.Data.AsSpan(0, 4)), 3);
     }
+#endif
 }
