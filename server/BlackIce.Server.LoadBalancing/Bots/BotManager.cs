@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
+using BlackIce.Server.LoadBalancing.Authority;
 
 namespace BlackIce.Server.LoadBalancing.Bots;
 
@@ -30,7 +31,17 @@ public sealed class BotManager
     /// balanced team (so the soak exercises Team-vs-Team / Co-op friendly-fire enforcement too).</summary>
     public GameModeRegistry? Modes { get; set; }
 
+    /// <summary>When true (and <see cref="Worlds"/> is set), auto-spawned bots use the world-aware
+    /// <see cref="HunterBehavior"/> — they seek and act on real enemies/hack-nodes/loot — instead of the
+    /// blind <see cref="WanderBehavior"/>. Off by default.</summary>
+    public bool Smart { get; set; }
+
+    /// <summary>Shared per-room world-state the smart bots read to find targets. Set from the host so bots
+    /// and the authority plugin observe the same world. Null = bots fall back to move-only behavior.</summary>
+    public RoomWorldStateRegistry? Worlds { get; set; }
+
     private int _nextBotActor = BotActorBase;
+    private int _spawnedCount;   // monotonic, for deterministic spread placement of smart bots
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
     private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
     private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
@@ -51,7 +62,7 @@ public sealed class BotManager
     {
         var bot = new PlayerBot(_nextBotActor++, identity);
         bot.Spawn(session);
-        _bots.Add((bot, session, behavior ?? new WanderBehavior(0, 0)));
+        _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, _spawnedCount++)));
         _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
         // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
         if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
@@ -79,10 +90,39 @@ public sealed class BotManager
 
         foreach (var (bot, session, behavior) in _bots)
         {
+            // World-aware brain: read the room's shared world-state, move toward a real target, and relay
+            // any contextual action RPCs it produced. Falls back to move-only when no world-state is wired.
+            if (behavior is IBotBrain brain && Worlds is { } worlds)
+            {
+                var step = brain.Think(worlds.For(session.RoomName));
+                session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, step.Position), unreliable: true);
+                foreach (var ev in step.Actions)
+                    session.RelayFrom(bot.Actor, ev, unreliable: ev.Code == PhotonCodes.PunEvent.SendSerialize);
+                if (step.Actions.Count > 0) Log.Info("Bots", $"bot {bot.Actor} -> {step.Label}");
+                continue;
+            }
+
             var p = behavior.Tick();
             session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, p), unreliable: true);
             if (EmitGameActions) EmitNextAction(bot, session);
         }
+    }
+
+    /// <summary>
+    /// Picks the default behavior for an auto-spawned bot: the world-aware <see cref="HunterBehavior"/> when
+    /// <see cref="Smart"/> + <see cref="Worlds"/> are set, otherwise the blind <see cref="WanderBehavior"/>.
+    /// Smart bots start spread on a deterministic spiral (so they aren't stacked before they find targets) —
+    /// they then path to real entities the master spawns. The spiral uses the golden angle for even coverage.
+    /// </summary>
+    private IBotBehavior DefaultBehavior(PlayerBot bot, int index)
+    {
+        if (!Smart || Worlds is null) return new WanderBehavior(0, 0);
+        const float goldenAngle = 2.399963f;   // radians (~137.5°)
+        float radius = 6f + index * 2f;
+        float angle = index * goldenAngle;
+        float sx = radius * (float)System.Math.Cos(angle);
+        float sz = radius * (float)System.Math.Sin(angle);
+        return new HunterBehavior(bot.ViewId, sx, sz, seed: bot.Actor);
     }
 
     /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain

@@ -78,6 +78,8 @@ builder.Services.AddSingleton(sp => new RoomRegistry(
     sp.GetRequiredService<PluginManager>().Evaluate,
     sp.GetRequiredService<GameModeRegistry>()));
 
+// Shared per-room world-state: the authority plugin's observer writes it, the world-aware bots read it.
+builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry>();
 builder.Services.AddSingleton<AdminActionQueue>();
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();

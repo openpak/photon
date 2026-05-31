@@ -104,6 +104,7 @@ public static class PhotonCodes
     public static class InstantiationKey
     {
         public const byte PrefabName = 0;
+        public const byte Position = 1;         // Vector3 (custom type 86): the spawn's world position
         public const byte ServerTime = 6;       // PUN casts this to int unconditionally — must be present
         public const byte ViewId = 7;
     }

@@ -23,11 +23,13 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly AdminActionQueue _admin;
     private readonly BotIdentityGenerator _botIds;
     private readonly PluginManager _plugins;
+    private readonly BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry _worlds;
 
     // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<BlackIceDbContext> dbf,
                                   RoomRegistry registry, BotManager bots, AdminActionQueue admin,
-                                  BotIdentityGenerator botIds, PluginManager plugins)
+                                  BotIdentityGenerator botIds, PluginManager plugins,
+                                  BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry worlds)
     {
         _config = config;
         _dbf = dbf;
@@ -36,6 +38,7 @@ public sealed class ListenersHostedService : BackgroundService
         _admin = admin;
         _botIds = botIds;
         _plugins = plugins;
+        _worlds = worlds;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -65,6 +68,8 @@ public sealed class ListenersHostedService : BackgroundService
         if (s.Bots.AutoSpawnPerRealm > 0)
         {
             _bots.EmitGameActions = s.Bots.EmitGameActions;
+            _bots.Smart = s.Bots.Smart;      // world-aware hunting bots (read the shared world-state)
+            _bots.Worlds = _worlds;          // same per-room shadow the authority plugin writes
             _bots.Modes = _registry.Modes;   // so soak bots get team-assigned in team-mode realms
             foreach (var realm in _config.Realms)
             {
