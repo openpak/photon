@@ -56,8 +56,9 @@ public sealed class ServerConfig
 
     private static List<Realm> DefaultRealms() => new()
     {
-        new Realm { Name = "Black Ice — Co-op", DisplayName = "Co-op", Pvp = false, MaxPlayers = 8 },
-        new Realm { Name = "Black Ice — PvP", DisplayName = "PvP", Pvp = true, MaxPlayers = 6 },
+        new Realm { Name = "Black Ice — Co-op", DisplayName = "Co-op", Pvp = false, MaxPlayers = 8, Mode = "Coop" },
+        new Realm { Name = "Black Ice — PvP", DisplayName = "PvP", Pvp = true, MaxPlayers = 6, Mode = "FreeForAll" },
+        new Realm { Name = "Black Ice — Team Battle", DisplayName = "Team Battle", Pvp = true, MaxPlayers = 8, Mode = "TeamVsTeam" },
         new Realm { Name = "Black Ice — Hardcore", DisplayName = "Hardcore", HackDifficultyIncrease = 5, MaxPlayers = 4 },
     };
 }

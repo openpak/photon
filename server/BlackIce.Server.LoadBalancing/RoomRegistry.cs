@@ -65,8 +65,16 @@ public sealed class RoomRegistry
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
     private readonly AnticheatOptions _anticheat;
+    private readonly GameModeRegistry _modes;
 
-    public RoomRegistry(AnticheatOptions? anticheat = null) => _anticheat = anticheat ?? new AnticheatOptions();
+    public RoomRegistry(AnticheatOptions? anticheat = null, GameModeRegistry? modes = null)
+    {
+        _anticheat = anticheat ?? new AnticheatOptions();
+        _modes = modes ?? new GameModeRegistry();
+    }
+
+    /// <summary>The shared game-mode/team state, so handlers can assign teams and set modes per room.</summary>
+    public GameModeRegistry Modes => _modes;
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
@@ -90,6 +98,8 @@ public sealed class RoomRegistry
             new Authority.DamageValidationInterceptor(_anticheat.MaxDamagePerHit, _anticheat.Enforce),
             new Authority.HitRateInterceptor(_anticheat),
             new Authority.ViewOwnershipInterceptor(_anticheat.Enforce),
+            // Game-mode policy: drops friendly-fire / PvE-forbidden player damage (no-op in FreeForAll).
+            new Authority.TeamDamageInterceptor(_modes),
             new PassthroughInterceptor(),
         })));
 }

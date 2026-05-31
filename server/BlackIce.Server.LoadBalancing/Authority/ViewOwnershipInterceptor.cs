@@ -20,11 +20,12 @@ public sealed class ViewOwnershipInterceptor : IEventInterceptor
 
     public RelayVerdict Intercept(EventContext ctx)
     {
-        // RPC (200), serialize (201) and instantiation (202) events carry the viewID of the object
-        // being acted on / spawned — all must belong to the sending actor's block.
-        int? viewId = PunRpcInfo.From(ctx.Event)?.ViewId
-                      ?? PositionInfo.From(ctx.Event)?.ViewId
-                      ?? InstantiationViewId(ctx.Event);
+        // Only SERIALIZE (201, position) and INSTANTIATION (202) must reference the sender's OWN view —
+        // you sync/spawn your own objects. RPCs (200) are deliberately NOT checked here: many legitimately
+        // target another object's view (e.g. TakeDamage is sent to the VICTIM's view), so flagging them on
+        // ownership would false-positive on normal play. Cross-actor RPC policy lives elsewhere
+        // (e.g. TeamDamageInterceptor for damage).
+        int? viewId = PositionInfo.From(ctx.Event)?.ViewId ?? InstantiationViewId(ctx.Event);
         if (viewId is not int vid || vid <= 0) return RelayVerdict.Forward(ctx.Event);   // no view / unparseable
 
         int owner = vid / MaxViewIdsPerActor;

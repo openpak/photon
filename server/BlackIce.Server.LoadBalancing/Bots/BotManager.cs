@@ -26,6 +26,10 @@ public sealed class BotManager
     /// authority/anti-cheat surface. Off by default (bots just move).</summary>
     public bool EmitGameActions { get; set; }
 
+    /// <summary>Optional game-mode registry; when set, bots spawned into a team-mode room are assigned a
+    /// balanced team (so the soak exercises Team-vs-Team / Co-op friendly-fire enforcement too).</summary>
+    public GameModeRegistry? Modes { get; set; }
+
     private int _nextBotActor = BotActorBase;
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
     private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
@@ -41,6 +45,12 @@ public sealed class BotManager
         var bot = new PlayerBot(_nextBotActor++, identity);
         bot.Spawn(session);
         _bots.Add((bot, session, behavior ?? new WanderBehavior(0, 0)));
+        // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
+        if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
+        {
+            int team = Modes.AssignTeam(session.RoomName, bot.Actor);
+            Log.Info("Bots", $"bot {bot.Actor} joined \"{session.RoomName}\" on team {team}");
+        }
         return bot;
     }
 

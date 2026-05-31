@@ -13,7 +13,7 @@ public sealed class RealmCommands
         var all = _realms.All();
         if (all.Count == 0) return "(no realms)";
         return string.Join('\n', all.Select(r =>
-            $"{r.Name} \"{r.DisplayName}\" pvp={r.Pvp} max={r.MaxPlayers} hack=+{r.HackDifficultyIncrease} " +
+            $"{r.Name} \"{r.DisplayName}\" mode={r.Mode} pvp={r.Pvp} max={r.MaxPlayers} hack=+{r.HackDifficultyIncrease} " +
             $"{(r.IsEnabled ? "enabled" : "DISABLED")}{(r.IsVisible ? "" : " hidden")}{(r.Password.Length > 0 ? " locked" : "")}"));
     }
 
@@ -23,7 +23,7 @@ public sealed class RealmCommands
         var r = _realms.Get(line.Parts[1]);
         return r is null
             ? $"no such realm: {line.Parts[1]}"
-            : $"{r.Name} \"{r.DisplayName}\" pvp={r.Pvp} maxPlayers={r.MaxPlayers} hackDifficulty=+{r.HackDifficultyIncrease} " +
+            : $"{r.Name} \"{r.DisplayName}\" mode={r.Mode} pvp={r.Pvp} maxPlayers={r.MaxPlayers} hackDifficulty=+{r.HackDifficultyIncrease} " +
               $"enabled={r.IsEnabled} visible={r.IsVisible} locked={r.Password.Length > 0} motd={(r.Motd is null ? "<none>" : $"\"{r.Motd}\"")}";
     }
 }

@@ -40,11 +40,15 @@ public static class GameActions
             One("npc-spawn", false, Instantiate("Enemy", foreignBlockSafeEnemyView(bot))),
             One("loot-lock", false, Rpc(EnemyDamageRpcView, "GetLock")),
             One("position", false, Position(ownView, 1f, 0f, 1f)),
+            // Player-vs-player damage at sibling bots' views (a TakeDamage RPC targets the VICTIM's view).
+            // In a team realm the same-team hit is dropped by TeamDamageInterceptor; the cross-team one passes.
+            One("pvp-vs-neighbour", false, Rpc((bot.Actor + 1) * 1000 + 1, "TakeDamage", (bot.Actor + 1) * 1000 + 1, DamagePacket(20f))),
+            One("pvp-vs-teammate", false, Rpc((bot.Actor + 2) * 1000 + 1, "TakeDamage", (bot.Actor + 2) * 1000 + 1, DamagePacket(20f))),
 
             // --- deliberate cheats (flagged by the authority interceptors) -------------------------
             One("CHEAT over-max-damage", true, Rpc(EnemyDamageRpcView, "TakeDamage", EnemyDamageRpcView, DamagePacket(999_999f))),
             One("CHEAT nan-damage", true, Rpc(EnemyDamageRpcView, "TakeDamage", EnemyDamageRpcView, DamagePacket(float.NaN))),
-            One("CHEAT view-spoof", true, Rpc(foreignView, "TakeDamage", foreignView, DamagePacket(50f))),
+            One("CHEAT view-spoof", true, Position(foreignView, 1f, 0f, 1f)),   // driving another actor's view (201)
             One("CHEAT teleport", true, Position(ownView, 99_999f, 0f, 99_999f)),
             One("CHEAT nan-position", true, Position(ownView, float.NaN, 0f, 0f)),
             One("CHEAT instant-loot", true, Rpc(EnemyDamageRpcView, "SetItemRPC", "Legendary_Rifle_Godroll")),

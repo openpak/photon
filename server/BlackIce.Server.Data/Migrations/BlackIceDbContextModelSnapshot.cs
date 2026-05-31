@@ -85,6 +85,10 @@ namespace BlackIce.Server.Data.Migrations
                     b.Property<int>("MaxPlayers")
                         .HasColumnType("INTEGER");
 
+                    b.Property<string>("Mode")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Motd")
                         .HasColumnType("TEXT");
 

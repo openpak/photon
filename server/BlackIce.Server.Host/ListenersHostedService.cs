@@ -59,9 +59,11 @@ public sealed class ListenersHostedService : BackgroundService
         if (s.Bots.AutoSpawnPerRealm > 0)
         {
             _bots.EmitGameActions = s.Bots.EmitGameActions;
+            _bots.Modes = _registry.Modes;   // so soak bots get team-assigned in team-mode realms
             foreach (var realm in _config.Realms)
             {
                 _registry.GetOrCreate(realm.Name);
+                _registry.Modes.SetMode(realm.Name, GameModeRegistry.Parse(realm.Mode));   // record the mode so bots are assigned + damage is filtered
                 var session = _registry.Session(realm.Name);
                 for (int n = 0; n < s.Bots.AutoSpawnPerRealm; n++) _bots.RequestSpawn(session, _botIds.Next());
             }

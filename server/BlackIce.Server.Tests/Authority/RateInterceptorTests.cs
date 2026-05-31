@@ -152,28 +152,44 @@ public class RateInterceptorTests
 
     // --- ViewOwnershipInterceptor ----------------------------------------------------------------
 
+    // Ownership is checked on POSITION (201) and INSTANTIATION (202) — your own objects — not on RPCs.
+    private static EventData Pos(int viewId)
+    {
+        var v3 = new byte[12];
+        var view = new object[] { viewId, false, null!, new PhotonCustomData(86, v3), new PhotonCustomData(81, new byte[16]) };
+        return new EventData(201, new() { { 245, new object[] { 0, null!, view } } });
+    }
+
     [Fact]
-    public void Acting_on_own_view_is_allowed()
+    public void Syncing_own_view_is_allowed()
     {
         var i = new ViewOwnershipInterceptor();
-        var v = i.Intercept(new EventContext("co-op", 1, Rpc(1001)));   // owner 1001/1000 = 1 == sender
+        var v = i.Intercept(new EventContext("co-op", 1, Pos(1001)));   // owner 1001/1000 = 1 == sender
         Assert.Equal(RelayAction.Forward, v.Action);
         Assert.Equal(0, i.FlaggedCount);
     }
 
     [Fact]
-    public void Acting_on_another_actors_view_is_flagged()
+    public void Syncing_another_actors_view_is_flagged()
     {
         var i = new ViewOwnershipInterceptor();
-        i.Intercept(new EventContext("co-op", 1, Rpc(2001)));   // owner 2, sender 1 -> mismatch
+        i.Intercept(new EventContext("co-op", 1, Pos(2001)));   // owner 2, sender 1 -> mismatch
         Assert.Equal(1, i.FlaggedCount);
+    }
+
+    [Fact]
+    public void Rpcs_are_not_subject_to_ownership_so_damage_to_another_view_passes()
+    {
+        var i = new ViewOwnershipInterceptor();
+        i.Intercept(new EventContext("co-op", 1, Rpc(2001)));   // an RPC onto actor 2's view (e.g. TakeDamage)
+        Assert.Equal(0, i.FlaggedCount);                        // legitimate — not an ownership violation
     }
 
     [Fact]
     public void Scene_objects_block_zero_are_allowed_for_anyone()
     {
         var i = new ViewOwnershipInterceptor();
-        i.Intercept(new EventContext("co-op", 3, Rpc(5)));   // owner 0 (scene) -> allowed
+        i.Intercept(new EventContext("co-op", 3, Pos(5)));   // owner 0 (scene) -> allowed
         Assert.Equal(0, i.FlaggedCount);
     }
 
@@ -181,7 +197,7 @@ public class RateInterceptorTests
     public void View_spoof_drops_when_enforcing()
     {
         var i = new ViewOwnershipInterceptor(enforce: true);
-        Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, Rpc(7001))).Action);
+        Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, Pos(7001))).Action);
     }
 
     private static EventData Instantiate(int viewId) => new(202, new()

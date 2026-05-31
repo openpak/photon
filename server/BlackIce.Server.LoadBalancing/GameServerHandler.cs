@@ -75,6 +75,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
+        _registry.Modes.Remove(state.RoomName, state.Actor);   // free its team slot
     }
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
@@ -111,6 +112,29 @@ public sealed class GameServerHandler : IOperationHandler
         session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
         peer.RaiseEvent(join);             // and give the newcomer its own join
         session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
+        ApplyGameMode(roomName, actor, session);
+    }
+
+    /// <summary>
+    /// Applies the realm's game mode to a joining actor: records the room's mode and, for a team mode,
+    /// assigns a balanced team and broadcasts it as the standard "Team" player property (which the
+    /// client already renders) — turning the room into Team-vs-Team / Co-op with no client changes.
+    /// The relay's TeamDamageInterceptor then enforces the friendly-fire / PvE rule.
+    /// </summary>
+    private void ApplyGameMode(string roomName, int actor, RoomSession session)
+    {
+        var mode = GameModeRegistry.Parse(_realms?.Get(roomName)?.Mode);
+        _registry.Modes.SetMode(roomName, mode);
+        if (mode == GameMode.FreeForAll) return;
+
+        int team = _registry.Modes.AssignTeam(roomName, actor);
+        _registry.Find(roomName)?.SetProperties(actor, new Dictionary<object, object> { { "Team", team } });
+        session.SendToAll(new EventData(EvPropertiesChanged, new()
+        {
+            { PProperties, new Dictionary<object, object> { { "Team", team } } },
+            { PTargetActorNr, actor },
+        }));
+        Log.Info("GameServer", $"\"{roomName}\" [{mode}] assigned actor {actor} to team {team}");
     }
 
     private void HandleSetProperties(PeerConnection peer, OperationRequest request)
