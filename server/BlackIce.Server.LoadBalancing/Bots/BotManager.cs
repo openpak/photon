@@ -61,9 +61,16 @@ public sealed class BotManager
     public PlayerBot Spawn(RoomSession session, BotIdentity identity, IBotBehavior? behavior = null)
     {
         int index = _spawnedCount++;
-        var (sx, sz) = SpawnPoint(index);
+        // Spawn AT a live player's position (offset into a small ring) — the only ground the server can
+        // prove is safe, since a player is standing on it. The server has no level geometry, so a guessed
+        // world coordinate (e.g. origin) can drop a bot into a map hazard ("Lava"/void). With no player
+        // anchor known, fall back to origin (tests / pre-join); the Tick gate holds smart spawns until an
+        // anchor exists so production never uses that fallback.
+        var anchor = PlayerAnchor(session.RoomName) ?? (0f, 0f, 0f);
+        var (ox, oz) = RingOffset(index);
+        float sx = anchor.x + ox, sy = anchor.y, sz = anchor.z + oz;
         var bot = new PlayerBot(_nextBotActor++, identity);
-        bot.Spawn(session, sx, 0f, sz);   // 202 carries this position so the client renders the bot here, not at origin
+        bot.Spawn(session, sx, sy, sz);   // 202 carries this position so the client renders the bot on safe ground
         _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, index, sx, sz)));
         _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
         // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
@@ -87,8 +94,20 @@ public sealed class BotManager
     /// (event 201, unreliable). Runs entirely on the listener thread.</summary>
     public void Tick()
     {
-        while (_pending.TryDequeue(out var req))
-            Spawn(req.session, req.identity, req.behavior);   // perform the deferred spawn on this (listener) thread
+        // Drain queued spawns. A SMART bot needs a safe anchor (a live player's known position) before it
+        // spawns — otherwise it materializes at a guessed coordinate that may be a map hazard. Hold (requeue)
+        // any spawn whose room has no player anchor yet; it spawns the moment a player is present. The
+        // pendingCount bound stops a requeue from looping within one tick. Non-smart bots spawn immediately.
+        int pendingCount = _pending.Count;
+        for (int i = 0; i < pendingCount && _pending.TryDequeue(out var req); i++)
+        {
+            if (Smart && Worlds is not null && PlayerAnchor(req.session.RoomName) is null)
+            {
+                _pending.Enqueue(req);   // no safe anchor yet — wait for a player to join
+                continue;
+            }
+            Spawn(req.session, req.identity, req.behavior);   // deferred spawn on this (listener) thread
+        }
 
         foreach (var (bot, session, behavior) in _bots)
         {
@@ -122,16 +141,29 @@ public sealed class BotManager
         return new HunterBehavior(bot.ViewId, sx, sz, fleetIndex: index, seed: bot.Actor);
     }
 
-    /// <summary>Deterministic spread spawn point for bot <paramref name="index"/>: a golden-angle spiral so
-    /// bots start at distinct, non-overlapping spots (and the avatar's 202 renders each there) rather than
-    /// stacked at one point. Centered on world origin — the only frame the server has without level geometry;
-    /// bots then path toward real entities / the player from here.</summary>
-    private static (float x, float z) SpawnPoint(int index)
+    /// <summary>A small golden-angle ring offset for bot <paramref name="index"/>, added to the spawn anchor
+    /// so bots appear spread in a tight cluster around the player rather than stacked on one point.</summary>
+    private static (float x, float z) RingOffset(int index)
     {
         const float goldenAngle = 2.399963f;   // radians (~137.5°)
-        float radius = 6f + index * 2f;
+        float radius = 3f + (index % 5) * 1.5f;
         float angle = index * goldenAngle;
         return (radius * (float)System.Math.Cos(angle), radius * (float)System.Math.Sin(angle));
+    }
+
+    /// <summary>
+    /// The position of a live, non-bot player in <paramref name="room"/> whose location the world-state
+    /// knows (from their 201 stream), or null if none. This is the only position the server can prove is
+    /// safe ground — a player is standing on it — so bots anchor their spawn here instead of guessing a
+    /// world coordinate that may be a hazard. Bot avatars (also "Player" kind) are excluded by viewID range.
+    /// </summary>
+    private (float x, float y, float z)? PlayerAnchor(string room)
+    {
+        if (Worlds?.Find(room) is not { } world) return null;
+        var p = world.Nearest(
+            e => e.ViewId < BotActorBase * 1000 && string.Equals(e.Kind, "Player", System.StringComparison.OrdinalIgnoreCase),
+            0f, 0f);
+        return p is null ? null : (p.X, p.Y, p.Z);
     }
 
     /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain
