@@ -45,6 +45,9 @@ public sealed class ServerOptions
     /// <summary>Server-authority / anti-cheat validator tunables (detection-only by default).</summary>
     public AnticheatOptions Anticheat { get; set; } = new();
 
+    /// <summary>Playerbot auto-spawn / game-action soak settings (off by default).</summary>
+    public BotOptions Bots { get; set; } = new();
+
     /// <summary>True when <see cref="Secret"/> is still the shipped placeholder — insecure for anything public.</summary>
     public bool UsesDefaultSecret => Secret == DefaultSecret;
 
@@ -77,6 +80,7 @@ public sealed class ServerOptions
             errors.Add("Server.Listener.DeadTimeoutSeconds must be greater than PingQuietSeconds.");
 
         errors.AddRange(Anticheat.Validate());
+        errors.AddRange(Bots.Validate());
         return errors;
     }
 }

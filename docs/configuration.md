@@ -55,9 +55,17 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
       "MaxHeadshotsPerWindow": 8,         // per-actor headshot rate (see HeadshotFlagOffset)
       // Byte offset of the headshot flag inside the game's DamagePacket custom type. The layout is
       // game-specific; until you set this from a local capture, headshot-rate checking is inert
-      // (the other rate checks still run). A non-zero byte at the offset = headshot.
+      // (the other rate checks still run). A non-zero byte at the offset = headshot. (Black Ice's
+      // DamagePacket carries Crit=bit0 / WeakPoint=bit1 in byte 39, so 39 catches weak-point hits.)
       "HeadshotFlagOffset": null
-    }
+    },
+
+    // Playerbot soak / anti-cheat exercise (off by default). With AutoSpawnPerRealm > 0 the server
+    // spawns that many synthetic players into each realm on startup; with EmitGameActions true they
+    // also drive a rotating script of legitimate AND cheating gameplay (chat, damage, equip, hacking,
+    // npc spawns, loot, XP, plus teleport/over-max-damage/headshot-flood/view-spoof/event-flood) through
+    // the relay, so the authority validators get exercised. Great for load/soak and anti-cheat tuning.
+    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false }
   },
 
   "Database": {

@@ -21,8 +21,14 @@ public sealed class BotManager
 {
     public const int BotActorBase = 10000;
 
+    /// <summary>When true, each tick every bot also relays the next entry of its <see cref="GameActions"/>
+    /// script — a rotating mix of legitimate and cheating gameplay traffic — to exercise the relay and
+    /// authority/anti-cheat surface. Off by default (bots just move).</summary>
+    public bool EmitGameActions { get; set; }
+
     private int _nextBotActor = BotActorBase;
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
+    private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
     private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
 
     /// <summary>
@@ -57,7 +63,23 @@ public sealed class BotManager
         {
             var p = behavior.Tick();
             session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, p), unreliable: true);
+            if (EmitGameActions) EmitNextAction(bot, session);
         }
+    }
+
+    /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain
+    /// sees it), advancing its cursor. Cheats are logged with a CHEAT marker so the soak output is legible.</summary>
+    private void EmitNextAction(PlayerBot bot, RoomSession session)
+    {
+        var script = GameActions.Script(bot);
+        if (script.Count == 0) return;
+        _scriptCursor.TryGetValue(bot.Actor, out var i);
+        _scriptCursor[bot.Actor] = i + 1;
+        var action = script[i % script.Count];
+
+        foreach (var ev in action.Events)
+            session.RelayFrom(bot.Actor, ev, unreliable: ev.Code == PhotonCodes.PunEvent.SendSerialize);
+        Log.Info("Bots", $"bot {bot.Actor} -> {action.Label}{(action.Events.Count > 1 ? $" x{action.Events.Count}" : "")}");
     }
 
     /// <summary>
