@@ -7,7 +7,6 @@ using BlackIce.Server.LoadBalancing.Bots;
 var config = ServerConfig.Load("blackice.server.json");
 if (args.Length > 0 && !args[0].StartsWith("--")) config.AdvertisedHost = args[0];
 if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
-const string secret = "change-me-platform-sp1";
 
 // --- Diagnostics ----------------------------------------------------------------------------
 // Log level: --trace / --debug (or env BLACKICE_LOG=Trace|Debug|Info|Warn|Error). Default Info.
@@ -32,7 +31,19 @@ TaskScheduler.UnobservedTaskException += (_, e) =>
 };
 AppDomain.CurrentDomain.ProcessExit += (_, _) => { Log.Info("HOST", "process exiting"); Log.Flush(); };
 
-using var db = config.Database.CreateContext();      // EnsureCreated runs here
+// Fail fast on a misconfiguration (out-of-range or duplicate ports, empty secret, nonsensical
+// listener timings) rather than half-starting and failing obscurely once a client connects.
+var configErrors = config.Server.Validate();
+if (configErrors.Count > 0)
+{
+    foreach (var e in configErrors) Log.Error("HOST", $"config error: {e}");
+    Log.Flush();
+    return;
+}
+if (config.Server.UsesDefaultSecret)
+    Log.Warn("HOST", "Server.Secret is the shipped default — change it in blackice.server.json before exposing the server publicly.");
+
+using var db = config.Database.CreateContext();      // schema migrate/ensure runs here
 var accounts = new AccountService(db);
 
 Log.Info("HOST", $"BlackIce.Server starting — DB {config.Database.Provider}, advertising {config.AdvertisedHost}, " +
@@ -65,9 +76,12 @@ Log.Info("HOST", $"Realms: {string.Join(", ", realms.ListVisible().Select(r => r
 // here (rather than on a Timer/Task) keeps the bot relay path on the listener's single thread —
 // critical, since BotManager.Tick -> RelayFrom mutates the same EnetPeer send state this thread
 // already owns. NOTE: 1 Hz (maintenance cadence) gives coarse movement; finer cadence is a future tweak.
-var nameListener = new UdpListener("NameServer", 5058, new NameServerHandler($"{config.AdvertisedHost}:5055", secret, accounts));
-var masterListener = new UdpListener("MasterServer", 5055, new MasterServerHandler($"{config.AdvertisedHost}:5056", secret, registry, config.AllowAnonymousLan, accounts, realms));
-var gameListener = new UdpListener("GameServer", 5056, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms, motd));
+var secret = config.Server.Secret;
+var ports = config.Server.Ports;
+var timings = config.Server.Listener;
+var nameListener = new UdpListener("NameServer", ports.NameServer, new NameServerHandler($"{config.AdvertisedHost}:{ports.MasterServer}", secret, accounts), timings);
+var masterListener = new UdpListener("MasterServer", ports.MasterServer, new MasterServerHandler($"{config.AdvertisedHost}:{ports.GameServer}", secret, registry, config.AllowAnonymousLan, accounts, realms), timings);
+var gameListener = new UdpListener("GameServer", ports.GameServer, new GameServerHandler(secret, registry, config.AllowAnonymousLan, accounts, realms, motd), timings);
 gameListener.OnMaintenance = () => botManager.Tick();
 var listeners = new[] { nameListener, masterListener, gameListener };
 
@@ -108,7 +122,7 @@ var consoleThread = new Thread(() =>
 }) { IsBackground = true };
 consoleThread.Start();
 
-Log.Info("HOST", "Listening — NS 5058 / Master 5055 / Game 5056");
+Log.Info("HOST", $"Listening — NS {ports.NameServer} / Master {ports.MasterServer} / Game {ports.GameServer}");
 try { await Task.WhenAll(listeners.Select(l => l.RunAsync(cts.Token))); }
 catch (OperationCanceledException) { }
 catch (Exception ex) { Log.Exception("FATAL", "listener task faulted", ex); }

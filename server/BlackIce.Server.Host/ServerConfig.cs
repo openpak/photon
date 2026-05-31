@@ -1,4 +1,5 @@
 using System.Text.Json;
+using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 
 namespace BlackIce.Server.Host;
@@ -8,6 +9,9 @@ public sealed class ServerConfig
 {
     public string AdvertisedHost { get; set; } = "127.0.0.1";
     public bool AllowAnonymousLan { get; set; } = true;
+
+    /// <summary>Token-signing secret, per-role ports, and listener cadence (was hard-coded in Program.cs).</summary>
+    public ServerOptions Server { get; set; } = new();
 
     /// <summary>
     /// Optional global Message of the Day applied on startup. Per-realm overrides live on each
