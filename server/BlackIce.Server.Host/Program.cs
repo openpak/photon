@@ -24,7 +24,10 @@ ResultDiagnostics.Error = Log.Error;
 RegisterCrashHandlers();
 
 // Fail fast on a misconfiguration rather than half-starting and failing obscurely once a client connects.
-var configErrors = config.Server.Validate();
+var configErrors = new List<string>();
+configErrors.AddRange(config.Server.Validate());
+configErrors.AddRange(config.Database.Validate());
+if (string.IsNullOrWhiteSpace(config.AdvertisedHost)) configErrors.Add("AdvertisedHost must not be empty.");
 if (configErrors.Count > 0)
 {
     foreach (var e in configErrors) Log.Error("HOST", $"config error: {e}");

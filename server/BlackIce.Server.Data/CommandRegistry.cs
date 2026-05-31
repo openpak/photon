@@ -51,7 +51,7 @@ public sealed class CommandRegistry
             var attr = method.GetCustomAttribute<ConsoleCommandAttribute>();
             if (attr is null) continue;
 
-            var entry = new Entry(line => (string)method.Invoke(target, new object[] { line })!, attr.MinParts, attr.Usage);
+            var entry = new Entry(line => method.Invoke(target, new object[] { line }) as string ?? "", attr.MinParts, attr.Usage);
             _byName[attr.Name] = entry;
             foreach (var alias in attr.Aliases) _byName[alias] = entry;
 
@@ -65,9 +65,9 @@ public sealed class CommandRegistry
     /// Runs the command on <paramref name="raw"/>. Returns false (with <paramref name="output"/> unset)
     /// only when the command word is unknown, so the caller can render its own "unknown command" hint.
     /// </summary>
-    public bool TryExecute(string raw, out string output)
+    public bool TryExecute(string? raw, out string output)
     {
-        var trimmed = raw.Trim();
+        var trimmed = (raw ?? "").Trim();
         var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { output = ""; return true; }
 

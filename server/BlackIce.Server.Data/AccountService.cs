@@ -7,7 +7,7 @@ namespace BlackIce.Server.Data;
 public sealed class AccountService
 {
     private readonly BlackIceDbContext _db;
-    public AccountService(BlackIceDbContext db) => _db = db;
+    public AccountService(BlackIceDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
     /// <summary>Finds the account for a SteamID, creating it (+ profile) at level Player on first contact.</summary>
     public Account ResolveOrCreate(string steamId, string displayName)

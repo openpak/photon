@@ -68,6 +68,8 @@ public sealed class ServerOptions
 
         if (Listener.MaintenanceSeconds <= 0)
             errors.Add("Server.Listener.MaintenanceSeconds must be greater than 0.");
+        if (Listener.PingQuietSeconds <= 0)
+            errors.Add("Server.Listener.PingQuietSeconds must be greater than 0.");
         if (Listener.DeadTimeoutSeconds <= Listener.PingQuietSeconds)
             errors.Add("Server.Listener.DeadTimeoutSeconds must be greater than PingQuietSeconds.");
 

@@ -6,7 +6,7 @@ namespace BlackIce.Server.Data;
 public sealed class MotdService
 {
     private readonly BlackIceDbContext _db;
-    public MotdService(BlackIceDbContext db) => _db = db;
+    public MotdService(BlackIceDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
     /// <summary>Effective MOTD for a realm: the realm override if set, else the global, else null.</summary>
     public string? Resolve(Realm? realm)

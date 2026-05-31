@@ -49,6 +49,7 @@ public sealed class ConsoleHostedService : BackgroundService
             if (line.StartsWith("bot ", StringComparison.OrdinalIgnoreCase))
             {
                 var realmName = line.Substring(4).Trim();
+                if (string.IsNullOrWhiteSpace(realmName)) { Console.WriteLine("usage: bot <realm>"); continue; }
                 _registry.GetOrCreate(realmName);                 // ensure the room exists
                 var session = _registry.Session(realmName);
                 _bots.RequestSpawn(session, _botIdentities.Next());

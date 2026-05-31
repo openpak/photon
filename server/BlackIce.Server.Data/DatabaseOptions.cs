@@ -16,6 +16,19 @@ public sealed class DatabaseOptions
     /// </summary>
     public bool AutoMigrate { get; set; } = true;
 
+    /// <summary>Returns human-readable validation errors; empty means usable. Catches an empty connection
+    /// string or an unrecognized provider name (which would otherwise silently fall back to SQLite).</summary>
+    public IReadOnlyList<string> Validate()
+    {
+        var errors = new List<string>();
+        if (string.IsNullOrWhiteSpace(ConnectionString))
+            errors.Add("Database.ConnectionString must not be empty.");
+        if (!string.Equals(Provider, "Sqlite", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(Provider, "MySql", StringComparison.OrdinalIgnoreCase))
+            errors.Add($"Database.Provider '{Provider}' is not recognized (use \"Sqlite\" or \"MySql\").");
+        return errors;
+    }
+
     /// <summary>Builds a context for the selected provider and initializes its schema per <see cref="AutoMigrate"/>.</summary>
     public BlackIceDbContext CreateContext()
     {

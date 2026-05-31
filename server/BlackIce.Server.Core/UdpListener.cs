@@ -34,6 +34,9 @@ public sealed class UdpListener
 
     public UdpListener(string name, int port, IOperationHandler handler, ListenerTimings? timings = null)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        ArgumentNullException.ThrowIfNull(handler);
+        if (port is < 0 or > 65535) throw new ArgumentOutOfRangeException(nameof(port), port, "port must be 0..65535");
         _name = name;
         _handler = handler;
         _socket = new UdpClient(new IPEndPoint(IPAddress.Any, port));

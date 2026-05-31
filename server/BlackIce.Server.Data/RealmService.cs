@@ -6,11 +6,12 @@ namespace BlackIce.Server.Data;
 public sealed class RealmService
 {
     private readonly BlackIceDbContext _db;
-    public RealmService(BlackIceDbContext db) => _db = db;
+    public RealmService(BlackIceDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
     /// <summary>Inserts the given realms only if no realms exist yet (first-run seeding).</summary>
     public void SeedDefaults(IEnumerable<Realm> defaults)
     {
+        ArgumentNullException.ThrowIfNull(defaults);
         if (_db.Realms.Any()) return;
         _db.Realms.AddRange(defaults);
         _db.SaveChanges();

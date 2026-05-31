@@ -19,12 +19,12 @@ public sealed class ConsoleCommandProcessor
         _registry.Register(this);
     }
 
-    public string Execute(string line)
+    public string Execute(string? line)
         => _registry.TryExecute(line, out var output) ? output : $"unknown command '{Word(line)}'. type 'help'.";
 
-    private static string Word(string line)
+    private static string Word(string? line)
     {
-        var t = line.Trim();
+        var t = (line ?? "").Trim();
         var sp = t.IndexOf(' ');
         return (sp < 0 ? t : t[..sp]).ToLowerInvariant();
     }
@@ -69,9 +69,10 @@ public sealed class ConsoleCommandProcessor
         var realmName = line.Parts[1];
         // text = everything after the realm token. Slice from Rest ("<realm> <text>") rather than
         // content-searching the raw line, which would mis-match if the realm name occurs earlier (e.g.
-        // a realm whose name is a substring of "realmmotd"). The MinParts=3 guard guarantees a space
-        // exists in Rest.
-        var text = line.Rest[(line.Rest.IndexOf(' ') + 1)..].Trim();
+        // a realm whose name is a substring of "realmmotd"). MinParts=3 normally guarantees a space in
+        // Rest; the >= 0 check is belt-and-braces against a future change to MinParts.
+        var sp = line.Rest.IndexOf(' ');
+        var text = sp >= 0 ? line.Rest[(sp + 1)..].Trim() : "";
         return _motd.SetRealm(realmName, text).IsOk ? $"{realmName} MOTD set: {text}" : $"no such realm: {realmName}";
     }
 
