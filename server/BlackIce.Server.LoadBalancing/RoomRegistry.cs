@@ -1,79 +1,65 @@
-using System.Collections.Concurrent;
+using BlackIce.Server.LoadBalancing.Authority;
 
 namespace BlackIce.Server.LoadBalancing;
 
-/// <summary>An in-memory game room and its membership. Persistence is out of scope for Phase 1.</summary>
-public sealed class Room
+/// <summary>
+/// Process-wide registry of <see cref="RoomSession"/>s keyed by room name. The relay path looks up (or
+/// lazily creates) a session per room. Each session is built with the authority interceptor chain.
+/// Thread-safety: a simple lock around the dictionary; sessions outlive individual operations.
+///
+/// Phase 3a: each session's authority interceptors are driven by an <see cref="AuthorityPolicy"/>
+/// resolved per room from the realm's <c>ExtraJson</c> (via the optional <c>extraJsonResolver</c>). With
+/// no resolver — the default — every room resolves to <see cref="AuthorityStrictness.Observe"/>, so the
+/// authority layer is a pure no-op in production until a realm explicitly opts in.
+/// </summary>
+public sealed class RoomRegistry
 {
-    public required string Name { get; init; }
-    public Dictionary<byte, object> Properties { get; } = new();
-    public List<int> ActorNumbers { get; } = new();
-    private int _nextActor;
+    private readonly object _gate = new();
+    private readonly Dictionary<string, RoomSession> _sessions = new();
+    private readonly Func<string, string?>? _extraJsonResolver;
 
-    private readonly object _propsLock = new();
-    private readonly Dictionary<object, object> _gameProps = new();
-    private readonly Dictionary<int, Dictionary<object, object>> _actorProps = new();
+    // Shared across rooms so an actor's violation tally is process-wide for the session.
+    private readonly ViolationTracker _violations;
 
-    public int AddActor()
+    // Authority thresholds. Generous defaults (tuned later). Whether they ACT depends on the per-realm
+    // strictness; at the default Observe they only ever forward.
+    private const float MaxUnitsPerSecond = 50f;
+    private const float MaxDamage = 1000f;
+    private const int KickThreshold = 20;
+    private static readonly TimeSpan ViolationDecay = TimeSpan.FromMinutes(5);
+
+    public RoomRegistry() : this(null) { }
+
+    /// <param name="extraJsonResolver">Optional: maps a room name to its realm's <c>ExtraJson</c> so the
+    /// session can resolve per-realm authority strictness. Null = every room is Observe (no-op).</param>
+    public RoomRegistry(Func<string, string?>? extraJsonResolver)
     {
-        var actor = Interlocked.Increment(ref _nextActor);
-        lock (ActorNumbers) ActorNumbers.Add(actor);
-        return actor;
+        _extraJsonResolver = extraJsonResolver;
+        _violations = new ViolationTracker(KickThreshold, ViolationDecay);
     }
 
-    /// <summary>
-    /// Merges a property set into the room. With <paramref name="actorNr"/>, the values are that
-    /// actor's player properties; without it, they are the shared game properties. This is how
-    /// OpSetProperties (op 252) persists in-room state so later joiners / GetProperties see it.
-    /// Keys/values are stored as-is (Photon's loosely-typed hashtable entries).
-    /// </summary>
-    public void SetProperties(int? actorNr, System.Collections.IDictionary props)
+    public RoomSession Session(string roomName)
     {
-        lock (_propsLock)
+        lock (_gate)
         {
-            var target = actorNr is int nr
-                ? (_actorProps.TryGetValue(nr, out var ap) ? ap : _actorProps[nr] = new())
-                : _gameProps;
-            foreach (System.Collections.DictionaryEntry e in props)
-                if (e.Key is not null) target[e.Key] = e.Value!;
+            if (!_sessions.TryGetValue(roomName, out var s))
+            {
+                var policy = ResolvePolicy(roomName);
+                var chain = new InterceptorChain(new IEventInterceptor[]
+                {
+                    new DamageValidationInterceptor(MaxDamage, policy, _violations),
+                    new MovementValidationInterceptor(MaxUnitsPerSecond, policy, _violations),
+                    new PassthroughInterceptor(),
+                });
+                _sessions[roomName] = s = new RoomSession(roomName, chain);
+            }
+            return s;
         }
     }
 
-    /// <summary>Snapshot of the game (shared) properties.</summary>
-    public IReadOnlyDictionary<object, object> GameProperties
+    private AuthorityPolicy ResolvePolicy(string roomName)
     {
-        get { lock (_propsLock) return new Dictionary<object, object>(_gameProps); }
+        if (_extraJsonResolver is null) return AuthorityPolicy.Default;
+        return AuthorityPolicy.FromExtraJson(_extraJsonResolver(roomName));
     }
-
-    /// <summary>Snapshot of one actor's player properties, or empty if none set.</summary>
-    public IReadOnlyDictionary<object, object> ActorProperties(int actorNr)
-    {
-        lock (_propsLock)
-            return _actorProps.TryGetValue(actorNr, out var ap)
-                ? new Dictionary<object, object>(ap) : new Dictionary<object, object>();
-    }
-}
-
-/// <summary>Tracks rooms shared across the Master and Game server roles.</summary>
-public sealed class RoomRegistry
-{
-    private readonly ConcurrentDictionary<string, Room> _rooms = new();
-    private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
-
-    public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
-    public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
-    public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
-
-    /// <summary>The relay session for a room, created on first use with the default (pass-through)
-    /// interceptor chain. Phase 2b swaps in a chain that includes authority interceptors.</summary>
-    public RoomSession Session(string name) =>
-        _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
-        {
-            // Authority validators (Phase 2b) — detection-only: they log violations and always forward,
-            // so relay behavior is unchanged. Thresholds are generous to avoid false positives on legit
-            // play; enforcement (clamp/drop) is a later, live-tuned step.
-            new Authority.DamageValidationInterceptor(maxDamage: 100000f),
-            new Authority.MovementValidationInterceptor(maxUnitsPerSecond: 200f),
-            new PassthroughInterceptor(),
-        })));
 }
