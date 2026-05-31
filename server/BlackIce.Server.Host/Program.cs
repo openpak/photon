@@ -1,3 +1,4 @@
+using BlackIce.Server.Common;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.Host;
@@ -17,6 +18,9 @@ if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
 Log.Level = ResolveLogLevel(args);
 var logPath = Path.Combine(AppContext.BaseDirectory, $"blackice-server-{DateTime.Now:yyyyMMdd-HHmmss}.log");
 Log.ToFile(logPath);
+// Route the Result handling policies' diagnostics (LogAndDrop / Expect) into the server log.
+ResultDiagnostics.Warn = Log.Warn;
+ResultDiagnostics.Error = Log.Error;
 RegisterCrashHandlers();
 
 // Fail fast on a misconfiguration rather than half-starting and failing obscurely once a client connects.
