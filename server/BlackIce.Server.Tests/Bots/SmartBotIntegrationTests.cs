@@ -54,10 +54,10 @@ public class SmartBotIntegrationTests
     [Fact]
     public void Smart_bot_attacks_an_enemy_the_master_spawned()
     {
-        // Shared world-state + a session whose evaluate is the authority observer (mirrors production).
+        // Shared world-state + a session whose interceptor chain is the authority observer (mirrors production).
         var worlds = new RoomWorldStateRegistry();
-        var observer = new WorldStateObserver(worlds.For(Room));
-        var session = new RoomSession(Room, observer.Intercept);
+        var chain = new InterceptorChain(new IEventInterceptor[] { new WorldStateObserver(worlds.For(Room)) });
+        var session = new RoomSession(Room, chain);
 
         // A real player in the room receives the relayed traffic (the bot is not a session member).
         var sink = new List<EventData>();
@@ -89,7 +89,7 @@ public class SmartBotIntegrationTests
     {
         // No enemies spawned → the bot has nothing to hunt → it relays a position (201) but no action RPC.
         var worlds = new RoomWorldStateRegistry();
-        var session = new RoomSession(Room);
+        var session = new RoomSession(Room, new InterceptorChain(new IEventInterceptor[] { new PassthroughInterceptor() }));
         var sink = new List<EventData>();
         session.Join(1, Peer(sink));
 
