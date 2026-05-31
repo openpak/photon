@@ -60,6 +60,10 @@ public class DatabaseOptionsTests
         }
         finally
         {
+            // Microsoft.Data.Sqlite pools connections, so the file handle outlives the disposed context —
+            // deleting it immediately races the pool and throws IOException ("being used by another
+            // process"). Clear the pool first so the OS handle is released before we delete.
+            SqliteConnection.ClearAllPools();
             foreach (var f in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
                 if (File.Exists(f)) File.Delete(f);
         }
