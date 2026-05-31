@@ -23,6 +23,13 @@ public sealed class PeerConnection
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
+    /// <summary>
+    /// Where this peer is in the connect flow. Role handlers advance it (Authenticated after a
+    /// successful auth, InRoom after a join); the <see cref="OperationRouter"/> uses it to flag
+    /// operations that arrive out of order.
+    /// </summary>
+    public SessionStatus Status { get; set; } = SessionStatus.Connected;
+
     /// <summary>UTC of the last datagram received from this peer — drives keepalive + dead-peer eviction.</summary>
     public DateTime LastInboundUtc { get; private set; } = DateTime.UtcNow;
     private DateTime _lastPingSentUtc = DateTime.UtcNow;

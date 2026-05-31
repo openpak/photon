@@ -19,28 +19,26 @@ public sealed class NameServerHandler : IOperationHandler
     private readonly string _masterAddress;
     private readonly string _secret;
     private readonly AccountService _accounts;
+    private readonly OperationRouter _router;
 
     public NameServerHandler(string masterAddress, string secret, AccountService accounts)
     {
         _masterAddress = masterAddress;
         _secret = secret;
         _accounts = accounts;
+        _router = new OperationRouter("NameServer", "Unsupported on Name Server")
+            .On(OpAuthenticate, (peer, req) =>
+            {
+                var response = Authenticate(req);
+                if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+                peer.SendResponse(response);
+            });
     }
 
     public void OnConnect(PeerConnection peer) { }
     public void OnDisconnect(PeerConnection peer) { }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
-    {
-        if (request.OperationCode == OpAuthenticate)
-        {
-            peer.SendResponse(Authenticate(request));
-            return;
-        }
-        Log.Warn("NameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                               $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-        peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unsupported on Name Server", new()));
-    }
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
 
     public OperationResponse Authenticate(OperationRequest request)
     {

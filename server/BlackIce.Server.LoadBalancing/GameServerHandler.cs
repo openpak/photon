@@ -36,6 +36,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly RealmService? _realms;
     private readonly MotdService? _motd;
     private readonly ChatCommandHandler _chat;
+    private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -54,6 +55,15 @@ public sealed class GameServerHandler : IOperationHandler
         _accounts = accounts;
         _motd = motd;
         _chat = new ChatCommandHandler(realms, motd);
+
+        // OpRaiseEvent/OpSetProperties also still guard on PeerRoomState (peer.Tag) internally, so the
+        // InRoom requirement here is detection-only telemetry, not the sole gate.
+        _router = new OperationRouter("GameServer")
+            .On(OpAuthenticate, HandleAuthenticate)
+            .On(OpCreateGame, HandleEnterRoom, SessionStatus.Authenticated)
+            .On(OpJoinGame, HandleEnterRoom, SessionStatus.Authenticated)
+            .On(OpSetProperties, HandleSetProperties, SessionStatus.InRoom)
+            .On(OpRaiseEvent, HandleRaiseEvent, SessionStatus.InRoom);
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -67,57 +77,53 @@ public sealed class GameServerHandler : IOperationHandler
         session.Leave(state.Actor);
     }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
+
+    private void HandleAuthenticate(PeerConnection peer, OperationRequest request)
     {
-        switch (request.OperationCode)
+        var response = Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
+        if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+        peer.SendResponse(response);
+    }
+
+    private void HandleEnterRoom(PeerConnection peer, OperationRequest request)
+    {
+        var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
+        peer.SendResponse(response);
+        if (response.ReturnCode != 0) return;
+
+        var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString()! : "room";
+        var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
+        peer.Tag = new PeerRoomState(roomName, actor);
+        peer.Status = SessionStatus.InRoom;
+        var session = _registry.Session(roomName);
+        session.Join(actor, peer);
+        session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
+        peer.RaiseEvent(join);             // and give the newcomer its own join
+        session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
+    }
+
+    private void HandleSetProperties(PeerConnection peer, OperationRequest request)
+    {
+        var prs = peer.Tag as PeerRoomState;
+        peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
+    }
+
+    private void HandleRaiseEvent(PeerConnection peer, OperationRequest request)
+    {
+        var state = peer.Tag as PeerRoomState;
+        var reply = _chat.TryHandle(state?.RoomName, request);
+        if (reply is not null)
         {
-            case OpAuthenticate:
-                peer.SendResponse(Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote)));
-                break;
-            case OpCreateGame:
-            case OpJoinGame:
-                var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
-                peer.SendResponse(response);
-                if (response.ReturnCode == 0)
-                {
-                    var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString()! : "room";
-                    var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
-                    peer.Tag = new PeerRoomState(roomName, actor);
-                    var session = _registry.Session(roomName);
-                    session.Join(actor, peer);
-                    session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
-                    peer.RaiseEvent(join);             // and give the newcomer its own join
-                    session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
-                }
-                break;
-            case OpSetProperties:
-                var prs = peer.Tag as PeerRoomState;
-                peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
-                break;
-            case OpRaiseEvent:
-                var state = peer.Tag as PeerRoomState;
-                var reply = _chat.TryHandle(state?.RoomName, request);
-                if (reply is not null)
-                {
-                    peer.RaiseEvent(reply);   // server command handled; not relayed
-                }
-                else if (state is not null
-                         && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
-                         && request.Parameters.TryGetValue(PData, out var data))
-                {
-                    // Not a server command: relay this gameplay event to the other actors in the room.
-                    _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
-                }
-                break;
-            default:
-                // Any in-room op we don't implement yet. NOTE: a -2 here is NOT harmless — a live
-                // capture showed the client abandons the room (back to main menu) when an in-room op
-                // it expects (e.g. OpSetProperties, now handled above) is rejected. The Warn log
-                // names exactly which op the game still needs so we can implement it.
-                Log.Warn("GameServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                                       $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-                peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
-                break;
+            peer.RaiseEvent(reply);   // server command handled; not relayed
+            return;
+        }
+        if (state is not null
+            && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
+            && request.Parameters.TryGetValue(PData, out var data))
+        {
+            // Not a server command: relay this gameplay event to the other actors in the room.
+            _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
 

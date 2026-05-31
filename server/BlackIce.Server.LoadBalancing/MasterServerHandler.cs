@@ -27,6 +27,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
+    private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless first-contact auth (the game's LAN mode) is accepted — but only from
@@ -44,34 +45,28 @@ public sealed class MasterServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
         _realms = realms;
+
+        _router = new OperationRouter("MasterServer")
+            .On(OpAuthenticate, (peer, req) =>
+            {
+                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
+                var response = Authenticate(req, anon);
+                if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
+                peer.SendResponse(response);
+            })
+            .On(OpJoinLobby, (peer, req) =>
+            {
+                peer.SendResponse(JoinLobby(req));
+                peer.RaiseEvent(BuildGameListEvent());
+            }, SessionStatus.Authenticated)
+            .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
+            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);
     }
 
     public void OnConnect(PeerConnection peer) { }
     public void OnDisconnect(PeerConnection peer) { }
 
-    public void OnOperationRequest(PeerConnection peer, OperationRequest request)
-    {
-        switch (request.OperationCode)
-        {
-            case OpAuthenticate:
-                bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
-                peer.SendResponse(Authenticate(request, anon));
-                break;
-            case OpJoinLobby:
-                peer.SendResponse(JoinLobby(request));
-                peer.RaiseEvent(BuildGameListEvent());
-                break;
-            case OpCreateGame:
-            case OpJoinGame:
-                peer.SendResponse(CreateGame(request));
-                break;
-            default:
-                Log.Warn("MasterServer", $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                                         $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
-                peer.SendResponse(new OperationResponse(request.OperationCode, -2, "Unknown operation", new()));
-                break;
-        }
-    }
+    public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {
