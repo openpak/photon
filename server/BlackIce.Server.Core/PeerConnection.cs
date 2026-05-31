@@ -97,6 +97,9 @@ public sealed class PeerConnection
         }
         catch (Exception ex)
         {
+            // Deliberate boundary (nothing better): the GpBinary wire codec signals malformed/undecryptable
+            // input by throwing, so we translate that to a log-and-drop here rather than letting one bad
+            // datagram tear down the peer. Expected-failure paths in our own code use Result instead.
             Log.Exception(_role, $"{Remote} dropped malformed {PhotonNames.MessageType(type)} message " +
                                  $"(enc={encrypted}, {payload.Length}B)", ex);
             return;
