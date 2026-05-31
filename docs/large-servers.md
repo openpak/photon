@@ -8,8 +8,8 @@ layers, because "8 players" means different things in different places.
 | Scope | Limit | Set by |
 |---|---|---|
 | **Total players on the server** | effectively unbounded (hardware) | — run many realms/rooms |
-| **Players in one realm (room)** | up to **9,999** structurally | the server's actor/viewID scheme |
-| **Players the stock client renders in one match** | **~8** (design assumption, unverified above) | the **game client**, not us |
+| **Players who can JOIN one realm** | the realm's `MaxPlayers` (config; `0` = unlimited), up to **9,999** structurally | **our server** enforces it — unmodified clients included |
+| **Players the stock client RENDERS in one match** | **~8** (design assumption, unverified above) — an in-match concern, **not** a join block | the **game client**, not us |
 | **Count shown in the lobby browser** | **0–255** per slot | the Photon wire format (byte-typed) |
 
 ## Total players: not limited to 8 — that's the whole point
@@ -28,15 +28,21 @@ Nothing caps the *server* at 8.
   must stay below the bot range (`BotManager.BotActorBase = 10000`) because each actor owns a viewID block
   of `actor * 1000`; `RoomRegistry.AddActor` throws if that space is exhausted. So the server itself is not
   the 8-limit.
-- **Client side:** the **8 is the game's own design point**, not ours. Black Ice was built around small
-  Photon rooms with master-client authority; its rendering, netcode, and UI assumptions for a *single
-  match* are unverified above 8 and are the most likely thing to break in a big room. We can't change that
-  server-side — it lives in the client.
+- **Client side:** the **8 is the game's own design point**, not a join gate on our server. **Capacity is
+  enforced entirely server-side** — `GameServerHandler.EnterRoom` admits a join only against the realm's
+  configured `MaxPlayers` (`rc=-6 "Room full"` when reached); it never consults anything the client
+  requested. So an **unmodified client CAN join a realm configured for >8** — set `MaxPlayers = 32` and the
+  server admits up to 32 stock clients. What's *unverified* is whether the game's **rendering / HUD /
+  netcode hold up** once >8 avatars are actually in one match (it was built around ~8 with master-client
+  authority). That's an in-match client concern, not a connection block.
 
-**To actually field a >8 match you need the client-side mod** [`BlackIce.BigLobby`](../plugins/BlackIce.BigLobby/README.md),
-which raises the client's room-size ceiling (and the lobby `MaxPlayers` it will accept). See its README for
-exactly what it changes and the **caveats** (it's a client assumption being overridden, not a guarantee the
-game is stable at large sizes — that's a live-verification item).
+**An unmodified client joins a >8 realm fine.** The optional client mod
+[`BlackIce.BigLobby`](../plugins/BlackIce.BigLobby/README.md) is a **smoothing/verification** aid, not a
+requirement: the client that *creates* a room still calls PUN with the game's small baked-in
+`RoomOptions.MaxPlayers` (~8), which the server ignores for the gate but which the creating client's own
+local PUN/HUD still believes — BigLobby raises that so the creating client's view matches the big realm.
+See its README for exactly what it changes and the **caveats** (overriding a client assumption is not a
+guarantee the game is stable at large sizes — that's a live-verification item).
 
 ## The lobby browser count is a single byte
 
@@ -49,5 +55,7 @@ advertised number saturates. (The server console's `rooms` command shows the tru
 ## What scales how
 
 - **Want more players overall?** Add realms / raise per-realm caps. Already supported, no mod.
-- **Want a single huge match?** Raise the server cap *and* install `BlackIce.BigLobby` on each client — and
-  treat client stability above 8 as unverified until tested against the real game.
+- **Want a single match with >8 players?** Raise the server realm's `MaxPlayers`. Unmodified clients will
+  **join** it (the server is the gate). Optionally install `BlackIce.BigLobby` on clients so the
+  room-creator's local view matches the big cap — and treat the game's in-match stability above 8 as
+  **unverified** until tested against the real client.

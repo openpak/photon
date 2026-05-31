@@ -9,14 +9,19 @@
 
 ## Why this exists
 
-The **server already supports large rooms** — a room structurally holds thousands of actors, and a
-realm's `MaxPlayers` is operator-set (`0` = unlimited; see [`../../docs/large-servers.md`](../../docs/large-servers.md)).
-The ~8 limit is a **client assumption**: the game asks Photon to create/join rooms with a small
-`MaxPlayers`, and once a room's declared capacity is reached **Photon itself refuses further joins** — so
-the cap bites before the server ever gets a say.
+> **This mod is optional — it is NOT required to join a >8 realm.** Room capacity is enforced
+> **entirely by the BlackIce server** (`GameServerHandler.EnterRoom` admits joins against the realm's
+> configured `MaxPlayers`). An **unmodified client joins a realm configured for 32 players just fine.**
 
-This mod overrides that declared capacity at the **public PUN API boundary**, so the client stops
-self-limiting and a big realm can actually fill.
+The **server already supports large rooms** — a room structurally holds thousands of actors, and a realm's
+`MaxPlayers` is operator-set (`0` = unlimited; see [`../../docs/large-servers.md`](../../docs/large-servers.md)).
+The remaining ~8 is a **client-side in-match assumption**, not a connection gate: the client that *creates*
+a room calls PUN with the game's small baked-in `RoomOptions.MaxPlayers` (~8). The server ignores that for
+the capacity gate, but the **creating client's own local PUN/HUD** still believes the small number, which is
+where odd rendering/UI can show up in a big match.
+
+This mod raises that requested capacity at the **public PUN API boundary**, so the room-creator's local
+view matches the big realm. It's a **smoothing / make-it-verifiable** aid, not a requirement to connect.
 
 ## What it patches
 

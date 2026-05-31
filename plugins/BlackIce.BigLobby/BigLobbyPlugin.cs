@@ -9,11 +9,13 @@ namespace BlackIce.BigLobby;
 /// CLIENT-side BepInEx mod that raises the game's effective room-size ceiling so a match can hold more
 /// than the stock ~8 players when playing on a BlackIce server configured for a larger realm.
 ///
-/// Why a client mod is needed: the BlackIce server already supports large rooms (a room structurally holds
-/// thousands of actors, and a realm's MaxPlayers is operator-set with 0 = unlimited). The 8-ish limit is a
-/// CLIENT assumption — the game asks Photon to create/join rooms with a small MaxPlayers, and once a room's
-/// declared MaxPlayers is reached Photon itself refuses further joins. This mod overrides that declared
-/// capacity at the public PUN API boundary, so the client stops self-limiting.
+/// This mod is OPTIONAL — it is NOT required to join a >8 realm. Room capacity is enforced entirely by the
+/// BlackIce server (GameServerHandler.EnterRoom admits joins against the realm's configured MaxPlayers), so
+/// an unmodified client joins a realm configured for 32 players fine. The remaining ~8 is a CLIENT-side
+/// in-match assumption: the client that CREATES a room calls PUN with the game's small baked-in
+/// RoomOptions.MaxPlayers (~8); the server ignores that for the gate, but the creating client's own local
+/// PUN/HUD still believes it. This mod raises that requested capacity at the public PUN boundary so the
+/// room-creator's local view matches the big realm — a smoothing aid, not a connection requirement.
 ///
 /// What it patches (public PUN surface only — no game internals):
 ///   * <see cref="Photon.Pun.PhotonNetwork.CreateRoom"/> / CreateRoomAndLobby — clamp up the RoomOptions.MaxPlayers
