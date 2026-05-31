@@ -8,40 +8,59 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 
 /// <summary>
 /// A world-aware playerbot brain. Each think it reads the room's authoritative <see cref="RoomWorldState"/>,
-/// picks the nearest real target the master client has spawned — an <b>enemy</b> to kill, a <b>Link</b> to
-/// hack, or <b>loot</b> to grab (in that priority) — steps toward it in bounded increments, and once in range
-/// emits the matching captured RPC. Resolved interactions accrue pseudo-XP; crossing a level threshold emits
-/// a progression RPC (so the bot visibly "gets stronger"). With no known target it <b>holds position</b>
-/// rather than wandering blindly into geometry.
+/// picks a real target the master client has spawned — an <b>enemy</b> to kill, a <b>Link</b> to hack, or
+/// <b>loot</b> to grab (in that priority) — moves toward it, and once in range emits the matching captured
+/// RPC. Resolved interactions accrue pseudo-XP; crossing a level threshold emits a progression RPC.
 ///
-/// <para><b>Clean-room navigation ("collision"):</b> the server owns no level mesh, so true physics collision
-/// is impossible. Instead the bot only ever moves toward positions the master has <em>spawned things at</em> —
-/// provably valid, reachable in-world points — and holds when it has none. That keeps bots on the graph of
-/// real points without any level geometry. See docs/superpowers/specs/2026-05-31-smart-bots-design.md.</para>
+/// <para><b>Fleet behavior (so 10 bots don't look like 1):</b></para>
+/// <list type="bullet">
+/// <item><b>Fan-out</b> — each bot targets the <see cref="RoomWorldState.NearestRanked"/> entity at its own
+/// fleet index, so bots spread across distinct targets instead of all swarming the single nearest.</item>
+/// <item><b>Orbit</b> — in range, a bot stands at its own angular slot a short radius from the target
+/// (not the target's exact center), so a group rings the target rather than stacking into one capsule.</item>
+/// <item><b>Rotate</b> — after acting on a target for a while it cools that target down and moves to another
+/// (when one exists), so bots patrol the arena instead of freezing on one item forever. The game never
+/// removes a looted/killed thing from the bot's view, so without this they'd spam one target indefinitely.</item>
+/// </list>
 ///
-/// <para>Deterministic given a seed; fully unit-testable against a hand-built world-state (no live server).</para>
+/// <para><b>Clean-room navigation:</b> the server owns no level mesh, so bots only ever move toward entities
+/// with a KNOWN position the master spawned (provably reachable) — never to an unknown/defaulted (0,0,0) —
+/// and hold when nothing is known. True physics collision is impossible server-side. See the smart-bots spec.</para>
+///
+/// <para>Deterministic given a seed + fleet index; fully unit-testable against a hand-built world-state.</para>
 /// </summary>
 public sealed class HunterBehavior : IBotBrain
 {
-    // Tunables (units are game-world units; cadence is per maintenance tick ~1 Hz).
-    private const float StepSpeed = 6f;       // max distance moved toward a target per tick
-    private const float AttackRange = 5f;     // within this XZ distance the bot acts instead of moving
-    private const int XpPerAction = 10;       // pseudo-XP gained per resolved interaction
-    private const int XpPerLevel = 100;       // XP needed to advance a level
+    private const float StepSpeed = 6f;        // max distance moved toward a target per tick
+    private const float AttackRange = 5f;      // within this XZ distance to the target the bot acts
+    private const float OrbitRadius = 2.5f;    // where the bot stands while acting (< AttackRange so it still acts)
+    private const int XpPerAction = 10;        // pseudo-XP per resolved interaction
+    private const int XpPerLevel = 100;        // XP to advance a level
+    private const int MaxActsPerTarget = 6;    // after this many acts, rotate to another target (if one exists)
+    private const long CooldownTicks = 20;     // how long a rotated-off target stays deprioritized
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
+    private static readonly Func<RoomWorldState.Entity, bool> AnyEntity = static _ => true;
 
     private readonly int _viewId;
+    private readonly int _fleetIndex;
+    private readonly float _orbitAngle;
     private readonly Random _rng;
     private float _x, _y, _z;
+
+    private long _tick;
     private int _targetViewId;                 // 0 = no current target
+    private int _actsOnCurrent;
+    private readonly Dictionary<int, long> _cooldownUntil = new();
 
     public int Xp { get; private set; }
     public int Level { get; private set; } = 1;
 
-    public HunterBehavior(int viewId, float startX, float startZ, int? seed = null)
+    public HunterBehavior(int viewId, float startX, float startZ, int fleetIndex = 0, int? seed = null)
     {
         _viewId = viewId;
+        _fleetIndex = Math.Max(0, fleetIndex);
+        _orbitAngle = _fleetIndex * 2.399963f;   // golden angle → even spread of orbit slots
         _x = startX; _z = startZ; _y = 0f;
         _rng = seed is int s ? new Random(s) : new Random();
     }
@@ -51,22 +70,27 @@ public sealed class HunterBehavior : IBotBrain
 
     public BotStep Think(RoomWorldState world)
     {
+        _tick++;
         var target = ResolveTarget(world);
         if (target is not null)
         {
-            _targetViewId = target.ViewId;
             double dx = target.X - _x, dz = target.Z - _z;
             double dist = Math.Sqrt(dx * dx + dz * dz);
 
             if (dist > AttackRange)
             {
-                StepToward(target);
+                StepToward(target.X, target.Z, target.Y);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"approach {Describe(target)}");
             }
 
-            // In range: act on the target, accrue XP, and maybe level up.
+            // In range: take the bot's own orbit slot around the target (so bots ring it, not stack), then act.
+            float ox = target.X + OrbitRadius * (float)Math.Cos(_orbitAngle);
+            float oz = target.Z + OrbitRadius * (float)Math.Sin(_orbitAngle);
+            StepToward(ox, oz, target.Y);
+
             var actions = new List<EventData>();
             string label = ActOn(target, actions);
+            _actsOnCurrent++;
             Xp += XpPerAction;
             if (Xp >= Level * XpPerLevel)
             {
@@ -77,57 +101,81 @@ public sealed class HunterBehavior : IBotBrain
             return new BotStep(new BotPositionUpdate(_x, _y, _z), actions, label);
         }
 
-        // No actionable target. Rather than sit at the spawn point (possibly inside geometry), drift toward
-        // the nearest KNOWN entity — a player's avatar, scene prop, anything the master has spawned — since
-        // those are real, reachable in-world points. This is the cold-start behavior that gets bots out of
-        // origin and toward where the action is, without any level geometry (waypoint-on-spawns). Never acts.
-        _targetViewId = 0;
+        // No actionable target. Drift toward the nearest KNOWN entity (a player avatar, scene prop — any real
+        // spawn point) so the bot leaves its spawn and gravitates to where the action is, rather than sitting
+        // (possibly inside geometry). Never acts on a non-target.
+        _targetViewId = 0; _actsOnCurrent = 0;
         var anchor = world.Nearest(e => e.ViewId != _viewId, _x, _z);
         if (anchor is not null)
         {
             double dx = anchor.X - _x, dz = anchor.Z - _z;
             if (Math.Sqrt(dx * dx + dz * dz) > AttackRange)
             {
-                StepToward(anchor);
+                StepToward(anchor.X, anchor.Z, anchor.Y);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"regroup {Describe(anchor)}");
             }
         }
         return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "idle");   // truly nothing known
     }
 
-    /// <summary>Step toward <paramref name="target"/> by at most <see cref="StepSpeed"/> (waypoint-on-spawns).</summary>
-    private void StepToward(RoomWorldState.Entity target)
+    /// <summary>Step toward (tx,tz) by at most <see cref="StepSpeed"/>; rise/sink to ty (waypoint-on-spawns).</summary>
+    private void StepToward(float tx, float tz, float ty)
     {
-        double dx = target.X - _x, dz = target.Z - _z;
+        double dx = tx - _x, dz = tz - _z;
         double dist = Math.Sqrt(dx * dx + dz * dz);
-        if (dist <= 0) { _y = target.Y; return; }
+        _y = ty;
+        if (dist <= 0) return;
         double f = Math.Min(1.0, StepSpeed / dist);
         _x += (float)(dx * f);
         _z += (float)(dz * f);
-        _y = target.Y;   // match the target's height so airborne entities are reachable
     }
 
-    /// <summary>Keep the current actionable target if still alive; otherwise pick the nearest enemy, then
-    /// Link, then loot. Returns null when nothing actionable is known (caller then regroups or idles).</summary>
+    /// <summary>
+    /// Picks the bot's target: keep the current one while it's alive, targetable, and not over-worked;
+    /// otherwise choose a fresh one (priority enemy → Link → loot), ranked by fleet index so bots fan out
+    /// and skipping recently-rotated targets. When a target is over-worked it is only abandoned if an
+    /// alternative exists — a lone enemy keeps getting hit rather than the bot going idle.
+    /// </summary>
     private RoomWorldState.Entity? ResolveTarget(RoomWorldState world)
     {
-        if (_targetViewId != 0 && world.Get(_targetViewId) is { Alive: true } current && IsTargetable(current))
-            return current;
+        if (_targetViewId != 0 && world.Get(_targetViewId) is { Alive: true } cur && IsTargetable(cur))
+        {
+            if (_actsOnCurrent < MaxActsPerTarget) return cur;
+            var alt = PickFresh(world, exclude: cur.ViewId);
+            if (alt is not null)
+            {
+                _cooldownUntil[cur.ViewId] = _tick + CooldownTicks;
+                _targetViewId = alt.ViewId; _actsOnCurrent = 0;
+                return alt;
+            }
+            return cur;   // nothing else to do — keep acting on the only target
+        }
 
-        return world.Nearest(IsEnemy, _x, _z)
-            ?? world.Nearest(IsHackNode, _x, _z)
-            ?? world.Nearest(IsLoot, _x, _z);
+        var fresh = PickFresh(world, exclude: 0);
+        _targetViewId = fresh?.ViewId ?? 0;
+        _actsOnCurrent = 0;
+        return fresh;
     }
+
+    /// <summary>Nearest-ranked eligible target by priority (enemy → hack → loot), excluding a viewId, the bot
+    /// itself, and on-cooldown targets.</summary>
+    private RoomWorldState.Entity? PickFresh(RoomWorldState world, int exclude)
+    {
+        bool Eligible(RoomWorldState.Entity e) => e.ViewId != _viewId && e.ViewId != exclude && !OnCooldown(e.ViewId);
+        return world.NearestRanked(e => Eligible(e) && IsEnemy(e), _x, _z, _fleetIndex)
+            ?? world.NearestRanked(e => Eligible(e) && IsHackNode(e), _x, _z, _fleetIndex)
+            ?? world.NearestRanked(e => Eligible(e) && IsLoot(e), _x, _z, _fleetIndex);
+    }
+
+    private bool OnCooldown(int viewId) => _cooldownUntil.TryGetValue(viewId, out var t) && t > _tick;
 
     private string ActOn(RoomWorldState.Entity target, List<EventData> actions)
     {
-        if (IsEnemy(target))   { actions.Add(DamageRpc(target.ViewId, 25f)); return $"attack {target.Kind}"; }
-        if (IsHackNode(target)){ actions.Add(HackRpc(target.ViewId));        return $"hack {target.Kind}"; }
+        if (IsEnemy(target))    { actions.Add(DamageRpc(target.ViewId, 25f)); return $"attack {target.Kind}"; }
+        if (IsHackNode(target)) { actions.Add(HackRpc(target.ViewId));        return $"hack {target.Kind}"; }
         actions.Add(LootRpc(target.ViewId));
         return $"loot {target.Kind}";
     }
-
-    // --- target classification (by observed prefab name) -----------------------------------------
 
     private bool IsTargetable(RoomWorldState.Entity e) =>
         e.ViewId != _viewId && (IsEnemy(e) || IsHackNode(e) || IsLoot(e));
@@ -147,13 +195,11 @@ public sealed class HunterBehavior : IBotBrain
         Rpc(targetView, "TakeDamage", new object[] { targetView, DamageData.BuildPacket(damage) });
 
     private EventData HackRpc(int targetView) =>
-        // SetupHack(nodeHp, sourcePos, range, a, b, power) — the bot supplies its own position as the source.
         Rpc(targetView, "SetupHack", new object[] { 100, Vec3(_x, _y, _z), 30f, 0, 0, 50f });
 
     private static EventData LootRpc(int targetView) => Rpc(targetView, "GetLock", Array.Empty<object>());
 
     private EventData LevelUpRpc() =>
-        // AddBuffRPC(buffId, stacks, duration, a, magnitude, b) on the bot's own avatar — a visible "got stronger".
         Rpc(_viewId, "AddBuffRPC", new object[] { 1, Level, 30f, 0, 1.5f, 0 });
 
     private static EventData Rpc(int viewId, string method, object[] args) =>

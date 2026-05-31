@@ -122,7 +122,7 @@ public sealed class BotManager
         float angle = index * goldenAngle;
         float sx = radius * (float)System.Math.Cos(angle);
         float sz = radius * (float)System.Math.Sin(angle);
-        return new HunterBehavior(bot.ViewId, sx, sz, seed: bot.Actor);
+        return new HunterBehavior(bot.ViewId, sx, sz, fleetIndex: index, seed: bot.Actor);
     }
 
     /// <summary>Relays the bot's next scripted game action through the room (so the interceptor chain

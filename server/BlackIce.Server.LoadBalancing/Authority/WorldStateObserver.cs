@@ -24,8 +24,11 @@ public sealed class WorldStateObserver : IEventInterceptor
         var ev = ctx.Event;
         if (ev.Code == PhotonCodes.PunEvent.Instantiation)
         {
-            if (TryReadSpawn(ev, out var viewId, out var kind, out var x, out var y, out var z))
-                _world.ObserveSpawn(viewId, kind, x, y, z);
+            if (TryReadSpawn(ev, out var viewId, out var kind, out var hasPos, out var x, out var y, out var z))
+            {
+                if (hasPos) _world.ObserveSpawn(viewId, kind, x, y, z);
+                else _world.ObserveSpawn(viewId, kind);   // known to exist, position unknown (don't fabricate 0,0,0)
+            }
         }
         else if (ev.Code == PhotonCodes.PunEvent.Destroy)
         {
@@ -36,12 +39,14 @@ public sealed class WorldStateObserver : IEventInterceptor
 
     /// <summary>
     /// Reads a 202 instantiation: viewID (key 7, required), prefab name (key 0, optional), and spawn
-    /// position (key 1, a Vector3 custom type, optional → 0,0,0). Best-effort: a payload without a
-    /// resolvable viewID is not tracked (the entity stays unknown → fail-open).
+    /// position (key 1, a Vector3 custom type, optional). <paramref name="hasPos"/> reports whether a real
+    /// position was present — when false the entity is tracked without a location. Best-effort: a payload
+    /// without a resolvable viewID is not tracked (the entity stays unknown → fail-open).
     /// </summary>
-    private static bool TryReadSpawn(EventData ev, out int viewId, out string? kind, out float x, out float y, out float z)
+    private static bool TryReadSpawn(EventData ev, out int viewId, out string? kind, out bool hasPos,
+                                     out float x, out float y, out float z)
     {
-        viewId = 0; kind = null; x = y = z = 0f;
+        viewId = 0; kind = null; hasPos = false; x = y = z = 0f;
         if (!ev.Parameters.TryGetValue(PhotonCodes.Param.Data, out var raw) || raw is not IDictionary<object, object> pdata)
             return false;
         if (!(pdata.TryGetValue(PhotonCodes.InstantiationKey.ViewId, out var v) && v is int i)) return false;
@@ -55,6 +60,7 @@ public sealed class WorldStateObserver : IEventInterceptor
             x = BinaryPrimitives.ReadSingleBigEndian(vec.Data.AsSpan(0, 4));
             y = BinaryPrimitives.ReadSingleBigEndian(vec.Data.AsSpan(4, 4));
             z = BinaryPrimitives.ReadSingleBigEndian(vec.Data.AsSpan(8, 4));
+            hasPos = true;
         }
         return true;
     }
