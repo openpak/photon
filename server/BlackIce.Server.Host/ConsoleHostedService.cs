@@ -23,9 +23,11 @@ public sealed class ConsoleHostedService : BackgroundService
     private readonly BotManager _bots;
     private readonly BotIdentityGenerator _botIdentities;
     private readonly PluginManager _plugins;
+    private readonly IServiceProvider _services;
 
     public ConsoleHostedService(IDbContextFactory<BlackIceDbContext> dbf, RoomRegistry registry,
-                                AdminActionQueue admin, BotManager bots, BotIdentityGenerator botIdentities, PluginManager plugins)
+                                AdminActionQueue admin, BotManager bots, BotIdentityGenerator botIdentities,
+                                PluginManager plugins, IServiceProvider services)
     {
         _dbf = dbf;
         _registry = registry;
@@ -33,6 +35,7 @@ public sealed class ConsoleHostedService : BackgroundService
         _bots = bots;
         _botIdentities = botIdentities;
         _plugins = plugins;
+        _services = services;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -42,7 +45,7 @@ public sealed class ConsoleHostedService : BackgroundService
             .Register(new MotdCommands(new MotdService(_dbf.CreateDbContext())))
             .Register(new RealmCommands(new RealmService(_dbf.CreateDbContext())))
             .Register(new ServerCommands(_registry, _admin, _bots, _botIdentities))
-            .Register(new PluginCommands(_plugins));
+            .Register(new PluginCommands(_plugins, _services));
         // Console commands contributed by plugins.
         foreach (var provider in _plugins.CommandProviders) commands.Register(provider);
 

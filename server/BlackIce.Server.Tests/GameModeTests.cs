@@ -145,13 +145,12 @@ public class GameModeTests
         mgr.Add(new GameModePlugin(), enabled: false);
         mgr.ConfigureAll(new TestServices(modes));
 
-        // One chain built from the plugin's (gated) interceptors; toggling the plugin changes it live.
-        var chain = new InterceptorChain(mgr.InterceptorsFor("r").Append((IEventInterceptor)new PassthroughInterceptor()).ToArray());
+        // The relay calls Evaluate per event, so toggling the plugin changes the verdict live — no rebuild.
         var friendlyFire = new EventContext("r", 1, PlayerDamage(3));
 
-        Assert.Equal(RelayAction.Forward, chain.Run(friendlyFire).Action);   // plugin off -> not filtered
+        Assert.Equal(RelayAction.Forward, mgr.Evaluate(friendlyFire).Action);   // plugin off -> not filtered
         mgr.SetEnabled("gamemodes", true);
-        Assert.Equal(RelayAction.Drop, chain.Run(friendlyFire).Action);      // plugin on -> friendly fire dropped
+        Assert.Equal(RelayAction.Drop, mgr.Evaluate(friendlyFire).Action);      // plugin on -> friendly fire dropped
     }
 
     /// <summary>Minimal IServiceProvider for wiring a plugin in tests.</summary>
