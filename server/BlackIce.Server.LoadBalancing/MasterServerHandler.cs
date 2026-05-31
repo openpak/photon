@@ -10,12 +10,16 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public sealed class MasterServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230, OpJoinLobby = 229, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte EvGameList = 230;
-    private const byte PAddress = 230, PSecret = 221, PRoomName = 255, PGameListMap = 222;
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpJoinLobby = PhotonCodes.Op.JoinLobby,
+                       OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
+    private const byte EvGameList = PhotonCodes.Event.GameList;
+    private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
+                       PRoomName = PhotonCodes.Param.RoomName, PGameListMap = PhotonCodes.Param.GameList;
 
     // Well-known room properties shown in the lobby room browser.
-    private const byte RoomIsVisible = 254, RoomIsOpen = 253, RoomPlayerCount = 252, RoomMaxPlayers = 255;
+    private const byte RoomIsVisible = PhotonCodes.RoomProperty.IsVisible, RoomIsOpen = PhotonCodes.RoomProperty.IsOpen,
+                       RoomPlayerCount = PhotonCodes.RoomProperty.PlayerCount, RoomMaxPlayers = PhotonCodes.RoomProperty.MaxPlayers;
 
     private readonly string _gameAddress;
     private readonly string _secret;
@@ -91,7 +95,7 @@ public sealed class MasterServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop
-            { 225, userId },                                 // ParameterCode.UserId
+            { PhotonCodes.Param.UserId, userId },
         });
     }
 

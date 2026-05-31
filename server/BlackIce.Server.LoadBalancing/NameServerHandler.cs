@@ -12,8 +12,9 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public sealed class NameServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230;
-    private const byte PAddress = 230, PSecret = 221, PUserId = 225;
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate;
+    private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret, PUserId = PhotonCodes.Param.UserId;
 
     private readonly string _masterAddress;
     private readonly string _secret;

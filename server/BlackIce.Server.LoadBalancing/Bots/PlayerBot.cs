@@ -11,9 +11,6 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 /// </summary>
 public sealed class PlayerBot
 {
-    private const byte EvJoin = 255, EvInstantiate = 202, EvRpc = 200, EvPropertiesChanged = 253;
-    private const byte PActorNr = 254, PActorList = 252, PProperties = 251, PTargetActorNr = 253, PData = 245;
-
     public int Actor { get; }
     public int ViewId { get; }
     public BotIdentity Identity { get; }
@@ -27,7 +24,7 @@ public sealed class PlayerBot
     public void Spawn(RoomSession session)
     {
         // 1) Join (255): announce the new actor.
-        session.RelayFrom(Actor, new EventData(EvJoin, new() { { PActorNr, Actor } }));
+        session.RelayFrom(Actor, new EventData(PhotonCodes.Event.Join, new() { { PhotonCodes.Param.ActorNr, Actor } }));
 
         // 2) Identity as a properties-changed (253): the client reads appearance from these.
         var props = new Dictionary<object, object>
@@ -45,35 +42,35 @@ public sealed class PlayerBot
             { "ModelTertiaryColor", Color(Identity.ModelColors[2]) },
             { "ModelQuaternaryColor", Color(Identity.ModelColors[3]) },
         };
-        session.RelayFrom(Actor, new EventData(EvPropertiesChanged, new()
+        session.RelayFrom(Actor, new EventData(PhotonCodes.Event.PropertiesChanged, new()
         {
-            { PProperties, props },
-            { PTargetActorNr, Actor },
+            { PhotonCodes.Param.Properties, props },
+            { PhotonCodes.Param.TargetActorNr, Actor },
         }));
 
         // 3) Instantiate the avatar (202): prefab "Player", our viewID, cached so late joiners see it.
         //    Key 6 is the server timestamp: PUN's NetworkInstantiate casts networkEvent[(byte)6] to
         //    int unconditionally, so omitting it NREs the client and nothing spawns.
-        session.RelayFrom(Actor, new EventData(EvInstantiate, new()
+        session.RelayFrom(Actor, new EventData(PhotonCodes.PunEvent.Instantiation, new()
         {
-            { PData, new Dictionary<object, object>
+            { PhotonCodes.Param.Data, new Dictionary<object, object>
                 {
-                    { (byte)0, "Player" },
-                    { (byte)6, System.Environment.TickCount },
-                    { (byte)7, ViewId },
+                    { PhotonCodes.InstantiationKey.PrefabName, "Player" },
+                    { PhotonCodes.InstantiationKey.ServerTime, System.Environment.TickCount },
+                    { PhotonCodes.InstantiationKey.ViewId, ViewId },
                 } },
         }));
 
         // 4) RefreshModel RPC (200): nudge clients to pull appearance from the props set in step 2.
-        session.RelayFrom(Actor, new EventData(EvRpc, new()
+        session.RelayFrom(Actor, new EventData(PhotonCodes.PunEvent.Rpc, new()
         {
-            { (byte)244, (byte)200 },
-            { PData, new Dictionary<object, object>
+            { PhotonCodes.Param.Code, PhotonCodes.PunEvent.Rpc },
+            { PhotonCodes.Param.Data, new Dictionary<object, object>
                 {
-                    { (byte)0, ViewId },
-                    { (byte)3, "RefreshModel" },
+                    { PhotonCodes.RpcKey.ViewId, ViewId },
+                    { PhotonCodes.RpcKey.MethodName, "RefreshModel" },
                     // PunRPC signature is RefreshModel(int playerViewID); an empty arg list never invokes it.
-                    { (byte)4, new object[] { ViewId } },
+                    { PhotonCodes.RpcKey.Args, new object[] { ViewId } },
                 } },
         }));
     }
@@ -84,6 +81,6 @@ public sealed class PlayerBot
         var b = new byte[16];
         for (int i = 0; i < 4; i++)
             System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(i * 4), rgba[i]);
-        return new PhotonCustomData(67, b);
+        return new PhotonCustomData(PhotonCodes.CustomType.Color, b);
     }
 }

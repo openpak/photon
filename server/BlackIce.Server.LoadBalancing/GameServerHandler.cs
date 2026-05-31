@@ -15,21 +15,24 @@ public sealed record PeerRoomState(string RoomName, int Actor);
 /// </summary>
 public sealed class GameServerHandler : IOperationHandler
 {
-    private const byte OpAuthenticate = 230, OpCreateGame = 227, OpJoinGame = 226;
-    private const byte OpRaiseEvent = 253, OpSetProperties = 252;
-    private const byte PEventCode = 244, PData = 245;     // RaiseEvent: event code + data/CustomData
-    private const byte EvJoin = 255;
-    private const byte EvLeave = 254;
-    private const byte EvPropertiesChanged = 253;         // LoadBalancing EventCode.PropertiesChanged
-    private const byte EvServerMessage = 199;             // our server->client message channel
-    private const byte PunRpcEvent = 200;                 // PUN's RPC event code
-    private const byte RpcMethodName = 3, RpcParams = 4;  // PUN RPC hashtable keys (method name / args)
-    private const byte RpcMethodShortcut = 5;             // PUN sends a byte index here instead of the name
-                                                          // when the method is in the project's RpcList
-    private const byte PRoomName = 255, PSecret = 221, PActorNr = 254, PActorList = 252,
-                       PGameProperties = 248, PActorProperties = 249, PProperties = 251;
-    private const byte PBroadcast = 250;                  // ParameterCode.Broadcast on OpSetProperties
-    private const byte PTargetActorNr = 253;              // EvPropertiesChanged: whose properties changed
+    // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
+    private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
+    private const byte OpRaiseEvent = PhotonCodes.Op.RaiseEvent, OpSetProperties = PhotonCodes.Op.SetProperties;
+    private const byte PEventCode = PhotonCodes.Param.Code, PData = PhotonCodes.Param.Data;  // RaiseEvent: event code + data
+    private const byte EvJoin = PhotonCodes.Event.Join;
+    private const byte EvLeave = PhotonCodes.Event.Leave;
+    private const byte EvPropertiesChanged = PhotonCodes.Event.PropertiesChanged;
+    private const byte EvServerMessage = PhotonCodes.Event.ServerMessage;  // our server->client message channel
+    private const byte PunRpcEvent = PhotonCodes.PunEvent.Rpc;
+    private const byte RpcMethodName = PhotonCodes.RpcKey.MethodName, RpcParams = PhotonCodes.RpcKey.Args;
+    private const byte RpcMethodShortcut = PhotonCodes.RpcKey.MethodShortcut;  // PUN sends a byte index here
+                                                                              // instead of the name when in RpcList
+    private const byte PRoomName = PhotonCodes.Param.RoomName, PSecret = PhotonCodes.Param.Secret,
+                       PActorNr = PhotonCodes.Param.ActorNr, PActorList = PhotonCodes.Param.ActorList,
+                       PGameProperties = PhotonCodes.Param.GameProperties, PActorProperties = PhotonCodes.Param.PlayerProperties,
+                       PProperties = PhotonCodes.Param.Properties;
+    private const byte PBroadcast = PhotonCodes.Param.Broadcast;
+    private const byte PTargetActorNr = PhotonCodes.Param.TargetActorNr;  // EvPropertiesChanged: whose properties changed
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
