@@ -20,6 +20,7 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly RoomRegistry _registry;
     private readonly BotManager _bots;
 
+    // NOTE: registry is resolved from DI; it is constructed with the configured AnticheatOptions in Program.
     public ListenersHostedService(ServerConfig config, IDbContextFactory<BlackIceDbContext> dbf,
                                   RoomRegistry registry, BotManager bots)
     {

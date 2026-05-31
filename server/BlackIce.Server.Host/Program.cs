@@ -49,7 +49,7 @@ Microsoft.Extensions.Logging.FilterLoggingBuilderExtensions.AddFilter(
 builder.Services.AddSingleton(config);
 builder.Services.AddDbContextFactory<BlackIceDbContext>(
     (sp, b) => sp.GetRequiredService<ServerConfig>().Database.Configure(b));
-builder.Services.AddSingleton<RoomRegistry>();
+builder.Services.AddSingleton(sp => new RoomRegistry(sp.GetRequiredService<ServerConfig>().Server.Anticheat));
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();
 builder.Services.AddHostedService<ListenersHostedService>();

@@ -132,10 +132,24 @@ public sealed class GameServerHandler : IOperationHandler
             && request.Parameters.TryGetValue(PEventCode, out var ecRaw) && ecRaw is byte ec
             && request.Parameters.TryGetValue(PData, out var data))
         {
+            // Packet validation: a client must not raise the server-only lifecycle events (Join/Leave/
+            // PropertiesChanged) — those are emitted by the server, and relaying a client-forged one would
+            // let it spoof another player joining/leaving or changing properties. Drop the attempt.
+            if (!IsClientRaisable(ec))
+            {
+                Log.Warn("GameServer", $"actor {state.Actor} in \"{state.RoomName}\" tried to raise reserved " +
+                                       $"server event {PhotonNames.Event(ec)} -> dropped");
+                return;
+            }
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
+
+    /// <summary>Event codes a client may legitimately raise. The server-emitted lifecycle events
+    /// (Join/Leave/PropertiesChanged) are off-limits so a client can't forge them onto other actors.</summary>
+    private static bool IsClientRaisable(byte eventCode) =>
+        eventCode is not (PhotonCodes.Event.Join or PhotonCodes.Event.Leave or PhotonCodes.Event.PropertiesChanged);
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
     {

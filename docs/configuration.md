@@ -38,7 +38,26 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
     // Keepalive / dead-peer cleanup cadence, in seconds. Defaults match Photon's behavior:
     // run maintenance every 1s, actively ping a peer silent for 3s, evict one silent for 10s.
     // DeadTimeoutSeconds must be greater than PingQuietSeconds.
-    "Listener": { "MaintenanceSeconds": 1, "PingQuietSeconds": 3, "DeadTimeoutSeconds": 10 }
+    "Listener": { "MaintenanceSeconds": 1, "PingQuietSeconds": 3, "DeadTimeoutSeconds": 10 },
+
+    // Server-authority / anti-cheat validators on the relay. Detection-only by default: a violation
+    // is logged and the event is still forwarded. Set Enforce:true to also DROP the offending event
+    // once thresholds are tuned against live play. Thresholds are generous to avoid false positives.
+    "Anticheat": {
+      "Enforce": false,
+      "MaxDamagePerHit": 100000.0,        // single-hit damage ceiling
+      "MaxSpeedUnitsPerSecond": 200.0,    // movement speedhack ceiling
+      "MaxTeleportDistance": 500.0,       // single-step position jump ceiling
+      "RateWindowSeconds": 1.0,           // sliding window for the per-actor rate checks below
+      "MaxEventsPerWindow": 200,          // per-actor event flood ceiling
+      "MaxHitsPerWindow": 30,             // per-actor damage-RPC rate (rapid-fire / aimbot)
+      "MaxDamagePerWindow": 5000.0,       // per-actor cumulative damage per window
+      "MaxHeadshotsPerWindow": 8,         // per-actor headshot rate (see HeadshotFlagOffset)
+      // Byte offset of the headshot flag inside the game's DamagePacket custom type. The layout is
+      // game-specific; until you set this from a local capture, headshot-rate checking is inert
+      // (the other rate checks still run). A non-zero byte at the offset = headshot.
+      "HeadshotFlagOffset": null
+    }
   },
 
   "Database": {

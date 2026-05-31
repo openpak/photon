@@ -46,4 +46,35 @@ public class MovementValidationInterceptorTests
         i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 1, 0)));   // 1 unit in ~0.05s = 20 u/s
         Assert.Equal(0, i.FlaggedCount);
     }
+
+    [Fact]
+    public void Teleport_distance_is_flagged_independent_of_timing()
+    {
+        // Huge per-step jump but generous speed limit: the teleport-distance check catches it.
+        var i = new MovementValidationInterceptor(maxUnitsPerSecond: float.MaxValue, maxTeleportDistance: 100f);
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 0, 0)));
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 5000, 0)));   // 5000u jump > 100
+        Assert.Equal(1, i.FlaggedCount);
+    }
+
+    [Fact]
+    public void Non_finite_position_is_flagged_and_does_not_poison_the_baseline()
+    {
+        var i = new MovementValidationInterceptor(maxUnitsPerSecond: 50f, maxTeleportDistance: 100f);
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 0, 0)));
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, float.NaN, 0)));   // garbage coordinate
+        Assert.Equal(1, i.FlaggedCount);
+        // A normal step from the original baseline is still fine (NaN never became the baseline).
+        System.Threading.Thread.Sleep(50);
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 1, 0)));
+        Assert.Equal(1, i.FlaggedCount);
+    }
+
+    [Fact]
+    public void Drops_violation_when_enforcing()
+    {
+        var i = new MovementValidationInterceptor(maxUnitsPerSecond: 50f, maxTeleportDistance: 100f, enforce: true);
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 0, 0)));
+        Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 5000, 0))).Action);
+    }
 }

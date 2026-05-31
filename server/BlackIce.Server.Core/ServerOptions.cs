@@ -42,6 +42,9 @@ public sealed class ServerOptions
     public ServerPorts Ports { get; set; } = new();
     public ListenerTimings Listener { get; set; } = new();
 
+    /// <summary>Server-authority / anti-cheat validator tunables (detection-only by default).</summary>
+    public AnticheatOptions Anticheat { get; set; } = new();
+
     /// <summary>True when <see cref="Secret"/> is still the shipped placeholder — insecure for anything public.</summary>
     public bool UsesDefaultSecret => Secret == DefaultSecret;
 
@@ -73,6 +76,7 @@ public sealed class ServerOptions
         if (Listener.DeadTimeoutSeconds <= Listener.PingQuietSeconds)
             errors.Add("Server.Listener.DeadTimeoutSeconds must be greater than PingQuietSeconds.");
 
+        errors.AddRange(Anticheat.Validate());
         return errors;
     }
 }

@@ -60,4 +60,21 @@ public class ServerOptionsTests
         Assert.Equal(System.TimeSpan.FromSeconds(4), t.PingQuiet);
         Assert.Equal(System.TimeSpan.FromSeconds(12), t.DeadTimeout);
     }
+
+    [Fact]
+    public void Anticheat_defaults_are_valid_and_detection_only()
+    {
+        var opts = new ServerOptions();
+        Assert.Empty(opts.Validate());
+        Assert.False(opts.Anticheat.Enforce);
+    }
+
+    [Fact]
+    public void Invalid_anticheat_options_surface_through_server_validate()
+    {
+        var opts = new ServerOptions { Anticheat = new AnticheatOptions { RateWindowSeconds = 0, MaxHitsPerWindow = 0 } };
+        var errors = opts.Validate();
+        Assert.Contains(errors, e => e.Contains("RateWindowSeconds"));
+        Assert.Contains(errors, e => e.Contains("MaxHitsPerWindow"));
+    }
 }

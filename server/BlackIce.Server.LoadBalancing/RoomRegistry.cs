@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using BlackIce.Server.Core;
 
 namespace BlackIce.Server.LoadBalancing;
 
@@ -63,21 +64,25 @@ public sealed class RoomRegistry
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<string, RoomSession> _sessions = new();
+    private readonly AnticheatOptions _anticheat;
+
+    public RoomRegistry(AnticheatOptions? anticheat = null) => _anticheat = anticheat ?? new AnticheatOptions();
 
     public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
-    /// <summary>The relay session for a room, created on first use with the default (pass-through)
-    /// interceptor chain. Phase 2b swaps in a chain that includes authority interceptors.</summary>
+    /// <summary>The relay session for a room, created on first use with the authority/anti-cheat
+    /// interceptor chain built from the configured <see cref="AnticheatOptions"/>. Detection-only unless
+    /// <see cref="AnticheatOptions.Enforce"/> is set; thresholds are generous to avoid false positives.</summary>
     public RoomSession Session(string name) =>
         _sessions.GetOrAdd(name, n => new RoomSession(n, new InterceptorChain(new IEventInterceptor[]
         {
-            // Authority validators (Phase 2b) — detection-only: they log violations and always forward,
-            // so relay behavior is unchanged. Thresholds are generous to avoid false positives on legit
-            // play; enforcement (clamp/drop) is a later, live-tuned step.
-            new Authority.DamageValidationInterceptor(maxDamage: 100000f),
-            new Authority.MovementValidationInterceptor(maxUnitsPerSecond: 200f),
+            new Authority.EventRateInterceptor(_anticheat),
+            new Authority.MovementValidationInterceptor(_anticheat.MaxSpeedUnitsPerSecond, _anticheat.MaxTeleportDistance, _anticheat.Enforce),
+            new Authority.DamageValidationInterceptor(_anticheat.MaxDamagePerHit, _anticheat.Enforce),
+            new Authority.HitRateInterceptor(_anticheat),
+            new Authority.ViewOwnershipInterceptor(_anticheat.Enforce),
             new PassthroughInterceptor(),
         })));
 }

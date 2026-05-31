@@ -48,4 +48,20 @@ public class DamageValidationInterceptorTests
         Assert.Equal(RelayAction.Forward, v.Action);
         Assert.Equal(0, i.FlaggedCount);
     }
+
+    [Fact]
+    public void Over_threshold_damage_drops_when_enforcing()
+    {
+        var i = new DamageValidationInterceptor(maxDamage: 1000f, enforce: true);
+        Assert.Equal(RelayAction.Forward, i.Intercept(new EventContext("co-op", 1, DamageRpc(50f))).Action);
+        Assert.Equal(RelayAction.Drop, i.Intercept(new EventContext("co-op", 1, DamageRpc(9999f))).Action);
+    }
+
+    [Fact]
+    public void Non_finite_damage_is_flagged()
+    {
+        var i = new DamageValidationInterceptor(maxDamage: 1000f);
+        i.Intercept(new EventContext("co-op", 1, DamageRpc(float.PositiveInfinity)));
+        Assert.Equal(1, i.FlaggedCount);
+    }
 }
