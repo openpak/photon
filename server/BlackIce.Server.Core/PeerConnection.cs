@@ -165,6 +165,24 @@ public sealed class PeerConnection
         _send(new[] { _enet.Ping() }, _enet.Challenge);
     }
 
+    /// <summary>Set once the server has decided to drop this peer (a hard kick); the listener evicts it
+    /// on the next maintenance pass. The eNet Disconnect command is sent immediately by <see cref="Disconnect"/>.</summary>
+    public bool WantsDisconnect { get; private set; }
+
+    /// <summary>
+    /// Hard-disconnects this peer: sends the client a reliable eNet Disconnect so it tears down promptly,
+    /// and flags the connection for eviction by the listener's next maintenance pass. Must be called on
+    /// the listener thread (it sends through the peer's transport state).
+    /// </summary>
+    public void Disconnect()
+    {
+        if (WantsDisconnect) return;
+        WantsDisconnect = true;
+        try { _send(new[] { _enet.Disconnect() }, _enet.Challenge); }
+        catch (Exception ex) { Log.Exception(_role, $"{Remote} disconnect send failed", ex); }
+        Log.Info(_role, $"{Remote} hard-disconnected (server kick)");
+    }
+
     /// <summary>Notifies the role handler that this peer is being dropped (graceful quit or eviction).</summary>
     public void NotifyDisconnect() => _handler.OnDisconnect(this);
 

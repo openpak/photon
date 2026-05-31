@@ -72,14 +72,16 @@ public sealed class RoomSession
     }
 
     /// <summary>
-    /// Removes an actor from the room (a "soft kick"): optionally notifies the kicked player with a
-    /// ServerMessage, drops it from the relay, and tells the remaining actors it left (event 254).
-    /// Listener thread only; false if the actor wasn't present.
+    /// Hard-kicks an actor: optionally messages the kicked player with a reason, tears down its
+    /// transport (eNet Disconnect + listener eviction), drops it from the relay, and tells the
+    /// remaining actors it left (event 254). Listener thread only; false if the actor wasn't present.
     /// </summary>
     public bool Kick(int actor, string? reason = null)
     {
-        lock (_gate) { if (!_members.ContainsKey(actor)) return false; }
-        if (reason is not null) SendToActor(actor, ChatCommandHandler.ServerMessageEvent(reason));
+        PeerConnection? peer;
+        lock (_gate) { if (!_members.TryGetValue(actor, out peer)) return false; }
+        if (reason is not null) peer.RaiseEvent(ChatCommandHandler.ServerMessageEvent(reason));
+        peer.Disconnect();                                       // hard kick: tear the connection down
         Leave(actor);
         SendToAll(new EventData(PhotonCodes.Event.Leave, new() { { PhotonCodes.Param.ActorNr, actor } }));
         return true;

@@ -80,20 +80,21 @@ public sealed class UdpListener
         Log.Info(_name, "listener loop exited");
     }
 
-    /// <summary>Pings quiet peers and evicts ones that have gone silent past <see cref="DeadTimeout"/>.</summary>
+    /// <summary>Pings quiet peers and evicts ones gone silent past <see cref="DeadTimeout"/> or hard-kicked.</summary>
     private void RunMaintenance(DateTime now)
     {
         List<IPEndPoint>? dead = null;
         foreach (var (ep, peer) in _peers)
         {
-            if (now - peer.LastInboundUtc >= _deadTimeout) (dead ??= new()).Add(ep);
+            if (peer.WantsDisconnect || now - peer.LastInboundUtc >= _deadTimeout) (dead ??= new()).Add(ep);
             else peer.MaybePing(now, _pingQuietAfter);
         }
         if (dead is not null)
             foreach (var ep in dead)
             {
                 if (!_peers.Remove(ep, out var peer)) continue;
-                Log.Info(_name, $"evicting silent peer {ep} (no inbound for {_deadTimeout.TotalSeconds:F0}s+); {_peers.Count} remain");
+                var why = peer.WantsDisconnect ? "kicked" : $"no inbound for {_deadTimeout.TotalSeconds:F0}s+";
+                Log.Info(_name, $"evicting peer {ep} ({why}); {_peers.Count} remain");
                 peer.NotifyDisconnect();
             }
 

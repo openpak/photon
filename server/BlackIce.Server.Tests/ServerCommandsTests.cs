@@ -85,15 +85,17 @@ public class ServerCommandsTests
     }
 
     [Fact]
-    public void Kick_removes_the_actor_and_notifies_both_sides()
+    public void Kick_hard_disconnects_the_actor_and_notifies_both_sides()
     {
         var (reg, rooms, admin) = Setup();
-        var s = RoomWith(rooms, "co-op", (1, Peer(out var aRaised)), (2, Peer(out var bRaised)));
+        var kicked = Peer(out var aRaised);
+        var s = RoomWith(rooms, "co-op", (1, kicked), (2, Peer(out var bRaised)));
 
         reg.TryExecute("kick co-op 1 cheating", PlayerLevel.Console, out _);
         admin.Drain();
 
-        Assert.Equal(1, s.Count);                                  // actor 1 gone
+        Assert.Equal(1, s.Count);                                  // actor 1 gone from the relay
+        Assert.True(kicked.WantsDisconnect);                       // and flagged for transport teardown
         Assert.Contains(aRaised, e => e.Code == 199);              // kicked player got the reason
         Assert.Contains(bRaised, e => e.Code == 254);              // others got a Leave for actor 1
     }
