@@ -35,6 +35,7 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
     private readonly float _maxUnitsPerSecond;
     private readonly AuthorityPolicy _policy;
     private readonly ViolationTracker _violations;
+    private readonly RoomWorldState? _world;   // optional: records accepted positions for lag-comp rewind (3c)
     private readonly ConcurrentDictionary<(string room, int viewId), (float x, float y, float z, DateTime t)> _last = new();
 
     // Single-thread tripwire. Off by default so concurrency-hardening tests (which deliberately drive the
@@ -48,11 +49,13 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
     public MovementValidationInterceptor(float maxUnitsPerSecond)
         : this(maxUnitsPerSecond, AuthorityPolicy.Default, new ViolationTracker(int.MaxValue, TimeSpan.FromMinutes(5))) { }
 
-    public MovementValidationInterceptor(float maxUnitsPerSecond, AuthorityPolicy policy, ViolationTracker violations)
+    public MovementValidationInterceptor(float maxUnitsPerSecond, AuthorityPolicy policy, ViolationTracker violations,
+                                         RoomWorldState? world = null)
     {
         _maxUnitsPerSecond = maxUnitsPerSecond;
         _policy = policy;
         _violations = violations;
+        _world = world;
     }
 
     public RelayVerdict Intercept(EventContext ctx)
@@ -68,7 +71,7 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
         if (!_last.TryGetValue(key, out var prev))
         {
             // No baseline yet — can't judge speed. Accept this position as the new baseline and forward.
-            _last[key] = (p.X, p.Y, p.Z, now);
+            AcceptPosition(key, p, now);
             return RelayVerdict.Forward(ctx.Event);
         }
 
@@ -84,7 +87,7 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
         if (!violation)
         {
             // Accepted: advance the shadow to this position (apply-after-validate).
-            _last[key] = (p.X, p.Y, p.Z, now);
+            AcceptPosition(key, p, now);
             return RelayVerdict.Forward(ctx.Event);
         }
 
@@ -108,8 +111,19 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
 
         // Observe/Warn: forward the original. The shadow advances to the (tolerated) reported position so
         // the next frame's delta is measured from where the client now believes it is.
-        _last[key] = (p.X, p.Y, p.Z, now);
+        AcceptPosition(key, p, now);
         return RelayVerdict.Forward(ctx.Event);
+    }
+
+    /// <summary>
+    /// Commits an accepted position: advances the per-view baseline AND (if a world-state is attached)
+    /// records the sample for lag-comp rewind. Called only on positions we accept — a snap-corrected
+    /// teleport is never committed here, keeping both the baseline and the rewind history apply-after-validate.
+    /// </summary>
+    private void AcceptPosition((string room, int viewId) key, PositionInfo p, DateTime now)
+    {
+        _last[key] = (p.X, p.Y, p.Z, now);
+        _world?.RecordPosition(p.ViewId, p.X, p.Y, p.Z, now);
     }
 
     [Conditional("DEBUG")]
