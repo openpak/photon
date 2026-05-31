@@ -17,6 +17,10 @@ public sealed class Room
     public int AddActor()
     {
         var actor = Interlocked.Increment(ref _nextActor);
+        // Real actor numbers must stay below the bot range so their viewID blocks (actor*1000) never
+        // overlap; this also catches the (absurd, ~2^31 joins) wraparound to a negative number.
+        if (actor <= 0 || actor >= Bots.BotManager.BotActorBase)
+            throw new InvalidOperationException($"Room '{Name}' exhausted its actor-number space ({actor})");
         lock (ActorNumbers) ActorNumbers.Add(actor);
         return actor;
     }

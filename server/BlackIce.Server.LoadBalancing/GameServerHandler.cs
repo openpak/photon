@@ -88,11 +88,21 @@ public sealed class GameServerHandler : IOperationHandler
 
     private void HandleEnterRoom(PeerConnection peer, OperationRequest request)
     {
+        // Reject a second join from a peer already in a room — otherwise it would orphan its previous
+        // actor (still in the room's membership) while overwriting peer.Tag with the new one.
+        if (peer.Tag is PeerRoomState already)
+        {
+            Log.Warn("GameServer", $"{peer.Remote} tried to join while already in \"{already.RoomName}\" -> rc=-7");
+            peer.SendResponse(new OperationResponse(request.OperationCode, -7, "Already in a room", new()));
+            return;
+        }
+
         var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
         peer.SendResponse(response);
         if (response.ReturnCode != 0) return;
 
-        var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) ? rn.ToString()! : "room";
+        // Room name is client-supplied: take it only if it's actually a string (never coerce/NRE a null).
+        var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) && rn is string rns ? rns : "room";
         var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
         peer.Tag = new PeerRoomState(roomName, actor);
         peer.Status = SessionStatus.InRoom;
@@ -145,7 +155,8 @@ public sealed class GameServerHandler : IOperationHandler
 
     public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r, string? joinPassword)
     {
-        var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : "room";
+        // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
+        var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : "room";
         var realm = _realms?.Get(name);
         Log.Debug("GameServer", $"EnterRoom name=\"{name}\" realm={(realm is null ? "<none>" : $"{realm.Name} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
 
@@ -163,6 +174,15 @@ public sealed class GameServerHandler : IOperationHandler
         }
 
         var room = _registry.GetOrCreate(name);
+
+        // Enforce the realm's capacity (MaxPlayers <= 0 means unlimited, so a misconfigured realm can't
+        // lock everyone out). Without realms configured (tests) the room is open.
+        if (realm is not null && realm.MaxPlayers > 0 && room.ActorNumbers.Count >= realm.MaxPlayers)
+        {
+            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": full ({room.ActorNumbers.Count}/{realm.MaxPlayers}) -> rc=-6");
+            return (new OperationResponse(r.OperationCode, -6, "Room full", new()), new EventData(EvJoin, new()));
+        }
+
         int actor = room.AddActor();
         Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
 

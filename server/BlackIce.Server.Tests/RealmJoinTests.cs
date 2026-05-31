@@ -33,6 +33,19 @@ public class RealmJoinTests
     }
 
     [Fact]
+    public void EnterRoom_rejects_when_realm_is_full()
+    {
+        var realms = TestAccounts.CreateRealms();
+        realms.Upsert(new Realm { Name = "Duo", MaxPlayers = 2 });
+        var handler = Make(realms);   // one handler -> one registry -> shared room
+        var req = new OperationRequest(227, new() { { 255, "Duo" } });
+
+        Assert.Equal(0, handler.EnterRoom(req, null).Response.ReturnCode);    // 1/2
+        Assert.Equal(0, handler.EnterRoom(req, null).Response.ReturnCode);    // 2/2
+        Assert.Equal(-6, handler.EnterRoom(req, null).Response.ReturnCode);   // full
+    }
+
+    [Fact]
     public void EnterRoom_rejects_wrong_password()
     {
         var realms = TestAccounts.CreateRealms();

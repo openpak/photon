@@ -17,6 +17,10 @@ public sealed class PlayerBot
 
     public PlayerBot(int actor, BotIdentity identity)
     {
+        ArgumentNullException.ThrowIfNull(identity);
+        // ViewId = actor * 1000 + 1 must not overflow int (PUN's MAX_VIEW_IDS block scheme).
+        if (actor <= 0 || actor > (int.MaxValue - 1) / 1000)
+            throw new ArgumentOutOfRangeException(nameof(actor), actor, "bot actor number out of viewID range");
         Actor = actor; Identity = identity; ViewId = actor * 1000 + 1;
     }
 

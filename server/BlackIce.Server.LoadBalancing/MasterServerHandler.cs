@@ -124,7 +124,8 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public OperationResponse CreateGame(OperationRequest r)
     {
-        var name = r.Parameters.TryGetValue(PRoomName, out var n) ? n.ToString()! : $"Room-{Guid.NewGuid():N}";
+        // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
+        var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : $"Room-{Guid.NewGuid():N}";
         _registry.GetOrCreate(name);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {
