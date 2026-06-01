@@ -43,3 +43,7 @@ PARALLEL_WORK.md
 
 # Claude Code transient scheduler lock (per-session, not shared state)
 .claude/scheduled_tasks.lock
+
+# Extracted map navmesh/collision — game-derived, local-only (clean-room). Tool: tools/MapExtractor
+maps/
+*.navmesh
