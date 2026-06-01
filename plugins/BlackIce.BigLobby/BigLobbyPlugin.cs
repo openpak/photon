@@ -50,8 +50,9 @@ public sealed class BigLobbyPlugin : BaseUnityPlugin
         Logger.LogInfo($"BlackIce Big Lobby armed -> requesting rooms up to {Clamp(MaxPlayers.Value)} players");
     }
 
-    /// <summary>The configured ceiling, clamped to the 1..255 range PUN's byte-typed MaxPlayers can hold.</summary>
-    internal static byte Clamp(int value) => (byte)System.Math.Clamp(value, 1, byte.MaxValue);
+    /// <summary>The configured ceiling, clamped to the 1..255 range PUN's byte-typed MaxPlayers can hold.
+    /// (Hand-rolled because <c>Math.Clamp</c> is unavailable on netstandard2.0 / the BepInEx Mono runtime.)</summary>
+    internal static byte Clamp(int value) => (byte)(value < 1 ? 1 : value > byte.MaxValue ? byte.MaxValue : value);
 }
 
 /// <summary>
