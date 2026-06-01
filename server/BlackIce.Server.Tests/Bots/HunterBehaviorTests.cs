@@ -133,10 +133,14 @@ public class HunterBehaviorTests
     [Fact]
     public void Gains_xp_and_levels_up_emitting_a_buff_rpc()
     {
+        // Several in-range enemies the bot rotates through (it no longer camps one — see
+        // HunterBehaviorFleetTests.Lone_over_worked_enemy_does_not_pin_the_bot_forever), accruing XP across
+        // them. XpPerAction=10, XpPerLevel=100 → ~10 attacks to reach level 2; cooldowns lapse over the loop
+        // so all targets stay in rotation.
         var bot = new HunterBehavior(BotView, 0, 0, seed: 1);
-        var world = World((1002, "SpiderEnemy", 1, 0));   // in range, stays alive → repeated attacks
+        var world = World((1002, "SpiderEnemy", 1, 0), (1003, "CrabEnemy", 1, 1), (1004, "HopperEnemy", 0, 1));
         EventData? buff = null;
-        for (int i = 0; i < 12 && buff is null; i++)      // XpPerAction=10, XpPerLevel=100 → ~10 hits to level
+        for (int i = 0; i < 40 && buff is null; i++)
         {
             var step = bot.Think(world);
             foreach (var ev in step.Actions)

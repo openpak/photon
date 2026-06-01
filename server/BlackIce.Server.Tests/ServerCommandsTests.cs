@@ -9,6 +9,7 @@ using Xunit;
 
 namespace BlackIce.Server.Tests;
 
+[Collection("Log")]   // Loglevel_changes_the_active_level mutates the global Log.Level — serialize with other Log tests
 public class ServerCommandsTests
 {
     private static (CommandRegistry reg, RoomRegistry rooms, AdminActionQueue admin) Setup()
@@ -163,5 +164,18 @@ public class ServerCommandsTests
         var (reg, _, _) = Setup();
         reg.TryExecute("say ghost hi there", PlayerLevel.Console, out var o);
         Assert.Contains("no such room", o);
+    }
+
+    [Fact]
+    public void Summon_matches_an_em_dash_realm_from_plain_ascii_input()
+    {
+        // The live game's room name uses a Unicode em-dash ("Black Ice — Co-op"), which can't be typed through
+        // a legacy-codepage console. Typing a plain-ASCII hyphen must still resolve it (not "no such room").
+        var (reg, rooms, _) = Setup();
+        RoomWith(rooms, "Black Ice — Co-op", (1, Peer(out _)));
+
+        Assert.True(reg.TryExecute("summon Black Ice - Co-op", PlayerLevel.Console, out var o));
+        Assert.DoesNotContain("no such room", o);
+        Assert.Contains("queued summon", o);
     }
 }

@@ -69,7 +69,7 @@ public class SmartBotIntegrationTests
 
         // The master spawns an enemy exactly at the bot's spawn point (in attack range immediately).
         session.RelayFrom(senderActor: 1, EnemySpawn("SpiderEnemy", viewId: 2002, x: 6f, z: 0f));
-        Assert.Equal(false, worlds.For(Room).IsAlive(2002) is null);   // observer populated the shared state
+        Assert.False(worlds.For(Room).IsAlive(2002) is null);   // observer populated the shared state
 
         sink.Clear();   // ignore spawn/join chatter; we only care what the tick relays
         bots.Tick();
