@@ -25,6 +25,18 @@ public sealed class NavMesh
     public int VertexCount => _verts.Length / 3;
     public int TriangleCount => _tris.Length / 3;
 
+    /// <summary>Axis-aligned bounding box over all vertices: the (min,max) corners. A cheap pre-filter for
+    /// "could a world position lie on this mesh?" (used by map auto-selection) without a nearest-point search.
+    /// For an empty mesh every component is 0.</summary>
+    public (float minX, float minY, float minZ, float maxX, float maxY, float maxZ) Bounds { get; }
+
+    /// <summary>True when (x,z) lies within the mesh's XZ bounding box (optionally expanded by <paramref
+    /// name="pad"/>). A coarse, cheap test — bbox overlap, not actual surface coverage; use as a pre-filter
+    /// before <see cref="NearestPoint"/>.</summary>
+    public bool ContainsXZ(float x, float z, float pad = 0f) =>
+        VertexCount > 0 && x >= Bounds.minX - pad && x <= Bounds.maxX + pad
+                        && z >= Bounds.minZ - pad && z <= Bounds.maxZ + pad;
+
     /// <param name="verts">Flat XYZ vertices (length multiple of 3).</param>
     /// <param name="tris">Flat triangle vertex indices (length multiple of 3).</param>
     /// <param name="neighbors">Optional flat per-edge neighbor triangle indices (-1 = boundary). If null,
@@ -40,6 +52,21 @@ public sealed class NavMesh
         _verts = verts;
         _tris = tris;
         _neighbors = neighbors ?? BuildAdjacency(tris);
+        Bounds = ComputeBounds(verts);
+    }
+
+    private static (float, float, float, float, float, float) ComputeBounds(float[] verts)
+    {
+        if (verts.Length < 3) return (0, 0, 0, 0, 0, 0);
+        float minX = float.MaxValue, minY = float.MaxValue, minZ = float.MaxValue;
+        float maxX = float.MinValue, maxY = float.MinValue, maxZ = float.MinValue;
+        for (int i = 0; i + 2 < verts.Length; i += 3)
+        {
+            float x = verts[i], y = verts[i + 1], z = verts[i + 2];
+            if (x < minX) minX = x; if (y < minY) minY = y; if (z < minZ) minZ = z;
+            if (x > maxX) maxX = x; if (y > maxY) maxY = y; if (z > maxZ) maxZ = z;
+        }
+        return (minX, minY, minZ, maxX, maxY, maxZ);
     }
 
     /// <summary>The three corner positions of triangle <paramref name="t"/>.</summary>

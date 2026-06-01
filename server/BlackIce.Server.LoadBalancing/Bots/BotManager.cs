@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
 using BlackIce.Server.Core.Navigation;
@@ -47,8 +48,14 @@ public sealed class BotManager
     public NavMeshRegistry? Navs { get; set; }
 
     /// <summary>Room name → navmesh map name (e.g. "Realm13" → "level13"), from each realm's
-    /// <c>ExtraJson</c> "navmesh" key. Rooms absent here have no navmesh and use the fallback movement.</summary>
+    /// <c>ExtraJson</c> "navmesh" key. An explicit operator pin used only as a FALLBACK while
+    /// <see cref="Maps"/> is still learning a room's map; auto-detection wins once it commits.</summary>
     public IReadOnlyDictionary<string, string>? RoomMaps { get; set; }
+
+    /// <summary>Auto-detects each room's actual map from live player positions (the game sends no map id) and
+    /// supplies the matching navmesh. Set from the host. When set it is the primary source of a room's
+    /// navmesh; null falls back to <see cref="RoomMaps"/>/none.</summary>
+    public MapSelector? Maps { get; set; }
 
     private int _nextBotActor = BotActorBase;
     private int _spawnedCount;   // monotonic, for deterministic spread placement of smart bots
@@ -119,12 +126,21 @@ public sealed class BotManager
             Spawn(req.session, req.identity, req.behavior);   // deferred spawn on this (listener) thread
         }
 
+        // Map auto-detect: feed each active room's live player positions to the selector ONCE per tick (not
+        // per bot), so it can converge on which extracted map the room is actually playing.
+        if (Maps is { CandidateCount: > 0 } selector && Worlds is { } w)
+            foreach (var room in _bots.Select(b => b.session.RoomName).Distinct())
+                selector.Observe(room, w.For(room));
+
         foreach (var (bot, session, behavior) in _bots)
         {
             // World-aware brain: read the room's shared world-state, move toward a real target, and relay
             // any contextual action RPCs it produced. Falls back to move-only when no world-state is wired.
             if (behavior is IBotBrain brain && Worlds is { } worlds)
             {
+                // Keep the bot's navmesh in sync with the room's (auto-detected) map. Cheap setter; the
+                // per-bot coverage gate handles the learning window and any mismatch.
+                if (behavior is HunterBehavior hunter) hunter.SetNavMesh(NavMeshFor(session.RoomName));
                 var step = brain.Think(worlds.For(session.RoomName));
                 session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, step.Position), unreliable: true);
                 foreach (var ev in step.Actions)
@@ -184,8 +200,14 @@ public sealed class BotManager
     /// absent (the graceful fallback to player-anchor movement).</summary>
     private NavMesh? NavMeshFor(string room)
     {
-        if (Navs is null || RoomMaps is null) return null;
-        return RoomMaps.TryGetValue(room, out var mapName) ? Navs.For(mapName) : null;
+        // Auto-detected map wins once the selector has committed one (the game sends no map id, so this is
+        // inferred from where players actually walk).
+        if (Maps?.Resolve(room) is { } auto) return auto;
+        // Fallback: an explicit operator pin (realm ExtraJson "navmesh"), used while auto-detect is still
+        // learning or when no extracted map matches.
+        if (Navs is not null && RoomMaps is not null && RoomMaps.TryGetValue(room, out var mapName))
+            return Navs.For(mapName);
+        return null;
     }
 
     /// <summary>A small golden-angle ring offset for bot <paramref name="index"/>, added to the spawn anchor

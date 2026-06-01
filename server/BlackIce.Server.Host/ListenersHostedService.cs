@@ -74,6 +74,7 @@ public sealed class ListenersHostedService : BackgroundService
             _bots.Smart = s.Bots.Smart;      // world-aware hunting bots (read the shared world-state)
             _bots.Worlds = _worlds;          // same per-room shadow the authority plugin writes
             _bots.Navs = _navs;              // walkable navmeshes the hunters path on (null per-room → fallback)
+            _bots.Maps = new BlackIce.Server.LoadBalancing.Navigation.MapSelector(_navs);  // auto-detect each room's map from live player positions (no client map id)
             _bots.Modes = _registry.Modes;   // so soak bots get team-assigned in team-mode realms
             // Realm → navmesh map name, read from each realm's ExtraJson {"navmesh":"level13"}. Only realms that
             // declare one (and whose maps/<name>.navmesh exists) get surface-aware bots; the rest fall back.
@@ -88,8 +89,9 @@ public sealed class ListenersHostedService : BackgroundService
             }
             _bots.RoomMaps = roomMaps;
             int withMesh = roomMaps.Count;
-            Log.Info("HOST", $"bot soak: {s.Bots.AutoSpawnPerRealm}/realm, gameActions={s.Bots.EmitGameActions}" +
-                             (withMesh > 0 ? $", navmesh realms={withMesh} (maps dir {_navs.MapsDirectory})" : ""));
+            Log.Info("HOST", $"bot soak: {s.Bots.AutoSpawnPerRealm}/realm, gameActions={s.Bots.EmitGameActions}, " +
+                             $"map auto-detect from {_bots.Maps.CandidateCount} candidate map(s) (maps dir {_navs.MapsDirectory})" +
+                             (withMesh > 0 ? $", pinned realms={withMesh}" : ""));
         }
 
         Log.Info("HOST", $"Listening — NS {s.Ports.NameServer} / Master {s.Ports.MasterServer} / Game {s.Ports.GameServer}");

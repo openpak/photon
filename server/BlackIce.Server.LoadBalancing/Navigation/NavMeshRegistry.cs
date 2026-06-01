@@ -1,4 +1,6 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 using BlackIce.Server.Core.Navigation;
 
 namespace BlackIce.Server.LoadBalancing.Navigation;
@@ -57,5 +59,21 @@ public sealed class NavMeshRegistry
     {
         if (string.IsNullOrWhiteSpace(mapName)) return null;
         return _byName.GetOrAdd(mapName, name => NavMeshFile.LoadOrNull(Path.Combine(_mapsDir, name + ".navmesh")));
+    }
+
+    /// <summary>Every navmesh present in the maps directory, keyed by map name (file stem). Loads each via
+    /// <see cref="For"/> so results are cached. Empty if the directory is absent. Used by the map auto-selector
+    /// to score a room's live player positions against all candidate maps — the clean-room stand-in for a
+    /// client-sent map id (the game doesn't send one).</summary>
+    public IReadOnlyDictionary<string, NavMesh> AllMaps()
+    {
+        var result = new Dictionary<string, NavMesh>(System.StringComparer.OrdinalIgnoreCase);
+        if (!Directory.Exists(_mapsDir)) return result;
+        foreach (var path in Directory.EnumerateFiles(_mapsDir, "*.navmesh"))
+        {
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (For(name) is { } mesh) result[name] = mesh;
+        }
+        return result;
     }
 }

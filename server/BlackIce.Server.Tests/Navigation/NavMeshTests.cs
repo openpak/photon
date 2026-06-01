@@ -35,6 +35,16 @@ public class NavMeshTests
     }
 
     [Fact]
+    public void Bounds_and_ContainsXZ_describe_the_mesh_extent()
+    {
+        var mesh = Quad();   // x∈[0,1], y=0, z∈[0,1]
+        Assert.Equal((0f, 0f, 0f, 1f, 0f, 1f), mesh.Bounds);
+        Assert.True(mesh.ContainsXZ(0.5f, 0.5f));     // inside
+        Assert.False(mesh.ContainsXZ(5f, 5f));        // outside
+        Assert.True(mesh.ContainsXZ(2f, 2f, pad: 2f)); // outside but within the pad
+    }
+
+    [Fact]
     public void NearestPoint_inside_a_triangle_returns_that_point_on_the_surface()
     {
         var mesh = Quad();

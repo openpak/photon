@@ -65,7 +65,8 @@ public sealed class HunterBehavior : IBotBrain
     private readonly int _fleetIndex;
     private readonly float _orbitAngle;
     private readonly Random _rng;
-    private readonly NavMesh? _navMesh;   // null = no extracted map → today's player-anchor movement
+    private NavMesh? _navMesh;   // null = no extracted map → today's player-anchor movement; swapped live by
+                                // the map auto-selector via SetNavMesh once a room's map is identified
     private float _x, _y, _z;
 
     private long _tick;
@@ -103,6 +104,16 @@ public sealed class HunterBehavior : IBotBrain
         _x = x; _y = y; _z = z;
         _targetViewId = 0; _actsOnCurrent = 0;
         SnapToSurface();
+    }
+
+    /// <summary>Swap the navmesh this bot paths on — the map auto-selector calls this once a room's live map
+    /// is identified (or changes). A no-op when unchanged. Clears the "navmesh doesn't cover us" warn-latch so
+    /// a genuinely new map gets a fresh coverage evaluation.</summary>
+    public void SetNavMesh(NavMesh? navMesh)
+    {
+        if (ReferenceEquals(navMesh, _navMesh)) return;
+        _navMesh = navMesh;
+        _navDisengagedWarned = false;
     }
 
     public BotStep Think(RoomWorldState world)
