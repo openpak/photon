@@ -63,6 +63,12 @@ public static class NavMeshDataParser
         ArgumentNullException.ThrowIfNull(navMeshData);
         ArgumentNullException.ThrowIfNull(sink);
 
+        // Diagnostic (gated): dump the NavMeshData's transform + first tile AABB so we can see whether the
+        // baked navmesh sits in a frame offset from the runtime world (it does for level12: surface ≈65u below
+        // the live floor). Set BLACKICE_DUMP_NAVMESH_TRANSFORM=1 to enable. Read-only; no effect on output.
+        if (Environment.GetEnvironmentVariable("BLACKICE_DUMP_NAVMESH_TRANSFORM") == "1")
+            DumpTransform(navMeshData);
+
         // NavMeshData.m_NavMeshTiles : vector of NavMeshTileData (each with an m_MeshData byte blob).
         var tiles = navMeshData["m_NavMeshTiles"]["Array"];
         if (tiles.IsDummy)
@@ -144,6 +150,37 @@ public static class NavMeshDataParser
         {
             // A truncated/malformed tile is skipped; the rest of the map still extracts.
         }
+    }
+
+    /// <summary>Diagnostic: print the NavMeshData transform fields and the first tile's AABB, to reveal a
+    /// frame offset between the baked navmesh and the runtime world. Best-effort; any missing field is skipped.</summary>
+    private static void DumpTransform(AssetTypeValueField navMeshData)
+    {
+        try
+        {
+            string V3(string name)
+            {
+                var f = navMeshData[name];
+                return f is null || f.IsDummy ? $"{name}=<absent>"
+                    : $"{name}=({f["x"].AsFloat:F2},{f["y"].AsFloat:F2},{f["z"].AsFloat:F2}" +
+                      (f["w"].IsDummy ? ")" : $",{f["w"].AsFloat:F2})");
+            }
+            Console.Error.WriteLine($"[probe] NavMeshData {V3("m_Position")} {V3("m_Rotation")}");
+            var tiles = navMeshData["m_NavMeshTiles"]["Array"];
+            if (!tiles.IsDummy)
+                foreach (var tile in tiles)
+                {
+                    var md = tile["m_MeshData"]["Array"];
+                    if (md.IsDummy) continue;
+                    byte[] b = ReadByteArray(md);
+                    if (b.Length < HeaderSize || BitConverter.ToInt32(b, OffMagic) != DtNavMeshMagic) continue;
+                    float bminY = BitConverter.ToSingle(b, 44 + 4), bmaxY = BitConverter.ToSingle(b, 56 + 4);
+                    Console.Error.WriteLine($"[probe] tile bmin.y={bminY:F2} bmax.y={bmaxY:F2} " +
+                                            $"(verts={BitConverter.ToInt32(b, OffVertCount)})");
+                    break;   // first tile is enough to see the frame
+                }
+        }
+        catch { /* probe is best-effort */ }
     }
 
     private static (float, float, float) Vertex(int vIdx, float[] verts)

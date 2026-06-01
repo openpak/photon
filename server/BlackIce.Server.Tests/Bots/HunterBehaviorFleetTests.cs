@@ -49,6 +49,20 @@ public class HunterBehaviorFleetTests
     }
 
     [Fact]
+    public void Stays_leashed_to_the_player_instead_of_walking_off_to_infinity()
+    {
+        // Regression for "bots walked in a straight axis off into the air far away": with no live terrain
+        // (the procedural world matches no static navmesh), a bot chasing a far target must stay in the
+        // playable area around the player rather than marching to the void.
+        var w = World((2001, "Player", 0, 0), (1002, "SpiderEnemy", 500, 0));   // enemy way out past the map
+        var bot = new HunterBehavior(BotView, 0, 0, fleetIndex: 0, seed: 1);
+        BotStep step = bot.Think(w);
+        for (int i = 0; i < 50; i++) step = bot.Think(w);
+        double dist = System.Math.Sqrt(step.Position.X * step.Position.X + step.Position.Z * step.Position.Z);
+        Assert.True(dist < 70, $"bot strayed {dist:F0}u from the player — past the leash (walking into the void)");
+    }
+
+    [Fact]
     public void Teleport_moves_the_bot_and_drops_its_target()
     {
         var w = World((1002, "SpiderEnemy", 2, 0));

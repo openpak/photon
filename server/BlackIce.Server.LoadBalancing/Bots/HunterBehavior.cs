@@ -60,6 +60,9 @@ public sealed class HunterBehavior : IBotBrain
                                                    // treat the bot as off-mesh (see SurfaceAt)
     private const float SnapVerticalTolerance = 15f;  // max |meshY - playerAnchoredY| before we treat the mesh
                                                       // as vertically misaligned and keep the anchored height
+    private const float LeashRadius = 60f;     // max XZ distance a bot may stray from the nearest player — with
+                                               // no live terrain to stand on, this keeps bots in the playable
+                                               // area around the human instead of walking straight off the map
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
 
@@ -121,6 +124,7 @@ public sealed class HunterBehavior : IBotBrain
     public BotStep Think(RoomWorldState world)
     {
         _tick++;
+        LeashToPlayer(world);   // keep the bot in the playable area around the human (no live terrain otherwise)
         var target = ResolveTarget(world);
         if (target is not null)
         {
@@ -220,6 +224,28 @@ public sealed class HunterBehavior : IBotBrain
             _z += (float)(dz * f);
         }
         SnapToSurface();
+    }
+
+    /// <summary>
+    /// Keep the bot within <see cref="LeashRadius"/> (XZ) of the nearest player. The server has no live terrain
+    /// for the procedurally-assembled world (the static navmeshes don't match it — see MapSelector), so nothing
+    /// otherwise stops a bot chasing a far target from walking in a straight line off the map into the void.
+    /// The player stands on provably-walkable ground, so leashing to them keeps bots in the playable area.
+    ///
+    /// <para>Runs at the top of <see cref="Think"/> before movement: if the bot is beyond the leash it is
+    /// pulled back onto the leash circle, so outward drift is capped at one step beyond the boundary while
+    /// inward movement (regrouping to the player) is unaffected. No player known → no leash (pre-join).</para>
+    /// </summary>
+    private void LeashToPlayer(RoomWorldState world)
+    {
+        var p = world.Nearest(IsPlayer, _x, _z);
+        if (p is null) return;
+        double dx = _x - p.X, dz = _z - p.Z;
+        double d = Math.Sqrt(dx * dx + dz * dz);
+        if (d <= LeashRadius || d < 1e-3) return;
+        double f = LeashRadius / d;
+        _x = p.X + (float)(dx * f);
+        _z = p.Z + (float)(dz * f);
     }
 
     /// <summary>Snaps the bot onto the nearest walkable point of the navmesh (adopting its surface Y) when a

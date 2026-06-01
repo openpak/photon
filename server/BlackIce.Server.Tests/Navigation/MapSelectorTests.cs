@@ -92,6 +92,28 @@ public class MapSelectorTests
     }
 
     [Fact]
+    public void Vertically_offset_map_with_matching_XZ_is_not_selected()
+    {
+        // The level12 false-match: a map whose XZ footprint contains the player but whose surface is far below
+        // (Y -64 vs player 2) must NOT be chosen — the player isn't standing on it, only above its footprint.
+        var dir = WriteMaps(("underground", Patch(0, 0, y: -64f)), ("rightfloor", Patch(0, 0, y: 2f)));
+        var sel = new MapSelector(new NavMeshRegistry(dir), MinSamples);
+        ObservePlayerAt(sel, "room", 0, 2, 0, MinSamples + 5);   // player at the live floor height
+        Assert.Equal("rightfloor", sel.ChosenMap("room"));
+    }
+
+    [Fact]
+    public void Only_a_vertically_offset_map_leaves_the_room_unresolved()
+    {
+        // Only a wrong-height map exists (Black Ice's likely case: the live procedural world matches no static
+        // level vertically). Resolve stays null → bots fall back to player-anchored movement, not underground.
+        var dir = WriteMaps(("underground", Patch(0, 0, y: -64f)));
+        var sel = new MapSelector(new NavMeshRegistry(dir), MinSamples);
+        ObservePlayerAt(sel, "room", 0, 2, 0, MinSamples + 5);
+        Assert.Null(sel.ChosenMap("room"));
+    }
+
+    [Fact]
     public void No_candidate_maps_is_a_clean_no_op()
     {
         var sel = new MapSelector(new NavMeshRegistry(WriteMaps()), MinSamples);   // empty dir

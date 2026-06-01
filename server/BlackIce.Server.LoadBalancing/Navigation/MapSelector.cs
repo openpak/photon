@@ -30,6 +30,12 @@ public sealed class MapSelector
     private const float CoverageRadius = 25f;
     private const float CoverageRadiusSq = CoverageRadius * CoverageRadius;
 
+    /// <summary>...and within this vertical distance. Many levels' XZ footprints overlap near the scene origin
+    /// (each level has geometry around its own (0,0)), so XZ alone false-matches a level the player isn't on.
+    /// Requiring the surface Y to be near the player's height rejects those: e.g. level12's surface sits at
+    /// Y≈-64 while a player stands near 0, so it's correctly NOT selected for that player.</summary>
+    private const float VerticalTolerance = 15f;
+
     private readonly IReadOnlyList<(string name, NavMesh mesh)> _candidates;
     private readonly int _minSamples;
 
@@ -69,7 +75,7 @@ public sealed class MapSelector
 
             // Fast path: once a map is chosen and still covers this player, just keep counting it — no need to
             // re-test all candidates every tick.
-            if (rs.Chosen is { } chosen && Covers(chosen, e.X, e.Z))
+            if (rs.Chosen is { } chosen && Covers(chosen, e.X, e.Y, e.Z))
             {
                 rs.Samples++;
                 rs.Hits[chosen] = rs.Hits.GetValueOrDefault(chosen) + 1;
@@ -80,7 +86,7 @@ public sealed class MapSelector
             foreach (var (name, mesh) in _candidates)
             {
                 if (!mesh.ContainsXZ(e.X, e.Z, CoverageRadius)) continue;       // cheap bbox pre-filter
-                if (!OnSurface(mesh, e.X, e.Z)) continue;                       // precise: real surface under the player
+                if (!OnSurface(mesh, e.X, e.Y, e.Z)) continue;                  // precise: real surface under the player (XZ + Y)
                 rs.Hits[name] = rs.Hits.GetValueOrDefault(name) + 1;
             }
         }
@@ -117,18 +123,21 @@ public sealed class MapSelector
         }
     }
 
-    private bool Covers(string mapName, float x, float z)
+    private bool Covers(string mapName, float x, float y, float z)
     {
         foreach (var (name, mesh) in _candidates)
             if (string.Equals(name, mapName, StringComparison.OrdinalIgnoreCase))
-                return mesh.ContainsXZ(x, z, CoverageRadius) && OnSurface(mesh, x, z);
+                return mesh.ContainsXZ(x, z, CoverageRadius) && OnSurface(mesh, x, y, z);
         return false;
     }
 
-    private static bool OnSurface(NavMesh mesh, float x, float z)
+    /// <summary>True when the mesh has a walkable surface point within <see cref="CoverageRadius"/> in XZ AND
+    /// <see cref="VerticalTolerance"/> in Y of (x,y,z) — i.e. the player is genuinely standing ON this mesh,
+    /// not merely above/below a level that shares its XZ footprint.</summary>
+    private static bool OnSurface(NavMesh mesh, float x, float y, float z)
     {
         if (!mesh.NearestPoint(x, z, out var p, out _)) return false;
         float dx = p.x - x, dz = p.z - z;
-        return dx * dx + dz * dz <= CoverageRadiusSq;
+        return dx * dx + dz * dz <= CoverageRadiusSq && Math.Abs(p.y - y) <= VerticalTolerance;
     }
 }
