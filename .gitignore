@@ -47,3 +47,8 @@ PARALLEL_WORK.md
 # Extracted map navmesh/collision — game-derived, local-only (clean-room). Tool: tools/MapExtractor
 maps/
 *.navmesh
+
+# AssetsTools.NET class database (classdata.tpk) — third-party tooling data the MapExtractor uses to read
+# the game's stripped-type-tree build. Not game data, but kept local (not committed) to be safe.
+*.tpk
+tools/MapExtractor/.classdata/

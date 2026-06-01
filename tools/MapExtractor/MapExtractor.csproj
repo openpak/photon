@@ -14,6 +14,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Expose internal decode entry points (e.g. NavMeshDataParser.ParseTileBlob) to the test project so the
+         verified Detour tile layout can be regression-tested with synthetic blobs (no game asset needed). -->
+    <InternalsVisibleTo Include="MapExtractor.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Reuse the server's BNAV format / NavMesh type so the tool never duplicates the on-disk format. -->
     <ProjectReference Include="..\..\server\BlackIce.Server.Core\BlackIce.Server.Core.csproj" />
   </ItemGroup>

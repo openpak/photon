@@ -64,9 +64,11 @@ static void PrintUsage()
         "\n" +
         "Options:\n" +
         "  --map-name <X>      Logical map name recorded in tool output (default: scene file name).\n" +
-        "  --source <S>        Geometry source: 'navmesh' (default, baked NavMeshData) or 'colliders'\n" +
-        "                      (MeshCollider/MeshFilter fallback).\n" +
-        "  --classdata <path>  Optional classdata.tpk for scenes saved without an embedded type tree.\n" +
+        "  --source <S>        Geometry source: 'navmesh' (default, baked NavMeshData reached via the scene's\n" +
+        "                      NavMeshSettings) or 'colliders' (MeshCollider/MeshFilter fallback).\n" +
+        "  --classdata <path>  Path to a classdata.tpk class package, required for the game's stripped\n" +
+        "                      type-tree (release) build. Auto-discovered if omitted: from $BLACKICE_CLASSDATA_TPK,\n" +
+        "                      a .classdata/classdata.tpk beside the tool, or classdata.tpk beside the scene.\n" +
         "\n" +
         "Clean-room: the .navmesh output is game-derived and must never be committed; the tool refuses to\n" +
         "write it into the git tree (write under maps/ or to an absolute path outside the repo).");

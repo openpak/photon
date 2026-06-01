@@ -6,16 +6,20 @@ namespace BlackIce.Tools.MapExtractor;
 /// <summary>
 /// Fallback geometry source: extracts triangles from the scene's <c>MeshCollider</c> / <c>MeshFilter</c>
 /// shared meshes rather than the baked NavMeshData. These are ordinary serialized <c>Mesh</c> objects whose
-/// vertex/index layout is well understood, so this path is the reliable ground truth while the Detour tile
-/// decode in <see cref="NavMeshDataParser"/> awaits live-asset verification. Note: collider geometry is the
-/// raw world surface (walls, ceilings) — not a walkable filter — so it is a coarser navmesh than the baked
-/// data; the spec documents NavMeshData as preferred and colliders as the fallback.
+/// vertex/index layout is well understood. Note: collider geometry is the raw world surface (walls,
+/// ceilings) — not a walkable filter — so it is a coarser navmesh than the baked data; the spec documents
+/// NavMeshData as preferred and colliders as the fallback.
+///
+/// <para>Every field access is guarded against dummy/missing fields: under the game's stripped type tree a
+/// mesh may legitimately lack a channel table, an index buffer, or have an empty submesh. A mesh we can't
+/// read is skipped, never fatal.</para>
 /// </summary>
 public static class ColliderMeshParser
 {
     /// <summary>
-    /// Walks MeshCollider (then MeshFilter) components, follows each <c>m_Mesh</c>/<c>m_Sharedmesh</c> PPtr to
-    /// its <c>Mesh</c>, and appends that mesh's triangles to <paramref name="sink"/>. Returns the mesh count.
+    /// Walks MeshCollider (then MeshFilter) components, follows each <c>m_Mesh</c> PPtr to its <c>Mesh</c>,
+    /// and appends that mesh's triangles to <paramref name="sink"/>. Returns the count of meshes that yielded
+    /// geometry.
     /// </summary>
     public static int ExtractTriangles(AssetsManager am, AssetsFileInstance scene, MeshTriangleSet sink)
     {
@@ -35,24 +39,31 @@ public static class ColliderMeshParser
         int count = 0;
         foreach (var info in scene.file.GetAssetsOfType(classId))
         {
-            var comp = am.GetBaseField(scene, info);
+            AssetTypeValueField? comp;
+            try { comp = am.GetBaseField(scene, info, AssetReadFlags.None); }
+            catch { continue; }
             if (comp is null) continue;
+
             var meshPtr = comp[meshPtrField];
             if (meshPtr.IsDummy) continue;
 
             // Resolve the PPtr<Mesh> (handles same-file and external-file references).
-            var ext = am.GetExtAsset(scene, meshPtr, onlyGetInfo: false, AssetReadFlags.None);
+            AssetExternal ext;
+            try { ext = am.GetExtAsset(scene, meshPtr, onlyGetInfo: false, AssetReadFlags.None); }
+            catch { continue; }
             if (ext.baseField is null) continue;
-            if (TryAddMesh(ext.baseField, sink)) count++;
+
+            try { if (TryAddMesh(ext.baseField, sink)) count++; }
+            catch { /* a single unreadable mesh must not abort the whole scene */ }
         }
         return count;
     }
 
     /// <summary>
-    /// Reads a <c>Mesh</c> base field into triangles. Unity stores vertices either in the per-vertex
-    /// <c>m_VertexData</c> stream or (older/uncompressed) in legacy float arrays; index data lives in
-    /// <c>m_IndexBuffer</c> with a 16- or 32-bit format selector. We handle the common uncompressed cases and
-    /// note where a packed/compressed mesh would need extra decoding.
+    /// Reads a <c>Mesh</c> base field into triangles. Unity stores vertices in the interleaved
+    /// <c>m_VertexData</c> stream (position is channel 0, the leading XYZ of each vertex); index data lives in
+    /// <c>m_IndexBuffer</c> with a 16- or 32-bit format selector. Returns false if the mesh has no readable
+    /// geometry (e.g. an empty submesh, or vertices stored in an external <c>.resS</c> we don't load).
     /// </summary>
     public static bool TryAddMesh(AssetTypeValueField mesh, MeshTriangleSet sink)
     {
@@ -71,17 +82,22 @@ public static class ColliderMeshParser
     {
         var result = new List<float>();
 
-        // Preferred: interleaved m_VertexData (position is the first channel, 3 floats, at the start of each
-        // vertex stride). We read stride and vertex count and pull the leading XYZ of every vertex.
-        var vertexData = mesh["m_VertexData"];
-        if (!vertexData.IsDummy)
+        // Interleaved m_VertexData: position is channel 0 (3 floats at the start of each vertex stride). We
+        // read the vertex count and the inline data blob, derive the stride, and pull the leading XYZ.
+        var vertexData = SafeChild(mesh, "m_VertexData");
+        if (vertexData is not null)
         {
-            int vertexCount = vertexData["m_VertexCount"].AsInt;
-            byte[] data = ReadBytes(vertexData["m_DataSize"]);
-            // Channel 0 (position) stride: derive from the channels table; fall back to 0 if unavailable.
-            var channels = vertexData["m_Channels"]["Array"];
-            int stride = DerivePositionStride(channels, vertexData);
-            if (vertexCount > 0 && stride >= 12 && data.Length >= (long)vertexCount * stride)
+            // If vertices live in an external .resS (m_StreamData.size > 0), we don't load it — skip; the
+            // navmesh source is the proper extractor and colliders are a best-effort fallback.
+            var streamData = SafeChild(mesh, "m_StreamData");
+            long streamSize = streamData is null ? 0 : SafeUInt(streamData, "size");
+
+            int vertexCount = (int)SafeUInt(vertexData, "m_VertexCount");
+            byte[] data = ReadBytes(SafeChild(vertexData, "m_DataSize"));
+            var channels = SafeArray(SafeChild(vertexData, "m_Channels"));
+            int stride = DerivePositionStride(channels);
+
+            if (streamSize == 0 && vertexCount > 0 && stride >= 12 && data.Length >= (long)vertexCount * stride)
             {
                 for (int v = 0; v < vertexCount; v++)
                 {
@@ -94,25 +110,25 @@ public static class ColliderMeshParser
             }
         }
 
-        // Legacy/uncompressed fallback: m_Vertices float array of [x,y,z, x,y,z, ...].
-        var legacy = mesh["m_Vertices"]["Array"];
-        if (!legacy.IsDummy)
+        // Legacy/uncompressed fallback: m_Vertices float array of [x,y,z, x,y,z, ...] (rare in 2020.3).
+        var legacy = SafeArray(SafeChild(mesh, "m_Vertices"));
+        if (legacy is not null)
             foreach (var f in legacy) result.Add(f.AsFloat);
         return result;
     }
 
     // The position channel (index 0) packs 3 floats at the front of each vertex; the stride is the sum of all
     // channel sizes for the same stream. We compute it from dimension * format-size across channels.
-    private static int DerivePositionStride(AssetTypeValueField channels, AssetTypeValueField vertexData)
+    private static int DerivePositionStride(AssetTypeValueField? channels)
     {
+        if (channels is null) return 12; // no channel table: assume a tight position-only stride.
         int stride = 0;
         foreach (var ch in channels)
         {
-            int dimension = ch["dimension"].AsInt & 0x0F; // low nibble = component count in 2020.3
-            int format = ch["format"].AsByte;
+            int dimension = SafeInt(ch, "dimension") & 0x0F; // low nibble = component count in 2020.3
+            int format = SafeByte(ch, "format");
             stride += dimension * FormatSize(format);
         }
-        // If channel parsing yields nothing useful, infer a tight position-only stride.
         return stride > 0 ? stride : 12;
     }
 
@@ -136,11 +152,12 @@ public static class ColliderMeshParser
     private static List<int> ReadIndices(AssetTypeValueField mesh)
     {
         var result = new List<int>();
-        byte[] indexBuffer = ReadBytes(mesh["m_IndexBuffer"]);
+        byte[] indexBuffer = ReadBytes(SafeChild(mesh, "m_IndexBuffer"));
         if (indexBuffer.Length == 0) return result;
 
         // m_IndexFormat: 0 = UInt16, 1 = UInt32 (2017+). Default to 16-bit when absent.
-        int indexFormat = mesh["m_IndexFormat"].IsDummy ? 0 : mesh["m_IndexFormat"].AsInt;
+        var fmt = SafeChild(mesh, "m_IndexFormat");
+        int indexFormat = fmt is null ? 0 : fmt.AsInt;
         if (indexFormat == 1)
             for (int i = 0; i + 3 < indexBuffer.Length; i += 4)
                 result.Add(BitConverter.ToInt32(indexBuffer, i));
@@ -148,23 +165,68 @@ public static class ColliderMeshParser
             for (int i = 0; i + 1 < indexBuffer.Length; i += 2)
                 result.Add(BitConverter.ToUInt16(indexBuffer, i));
 
-        // m_SubMeshes describe (firstByte, indexCount, topology). We assume triangle lists (topology 0); the
-        // accumulator simply groups successive indices into triangles, which is correct for triangle lists.
+        // We assume triangle-list topology (the accumulator groups successive indices into triangles, which
+        // is correct for triangle lists — the only topology MeshColliders use).
         return result;
     }
 
-    private static byte[] ReadBytes(AssetTypeValueField field)
+    // --- dummy-safe field helpers ---------------------------------------------------------------------
+
+    /// <summary>Returns the named child, or null if the parent is null/dummy or the child is missing/dummy.</summary>
+    private static AssetTypeValueField? SafeChild(AssetTypeValueField? parent, string name)
     {
-        if (field.IsDummy) return Array.Empty<byte>();
+        if (parent is null || parent.IsDummy) return null;
+        var child = parent[name];
+        return child.IsDummy ? null : child;
+    }
+
+    /// <summary>Returns the <c>Array</c> child of a vector field, or null if absent/dummy.</summary>
+    private static AssetTypeValueField? SafeArray(AssetTypeValueField? vectorField) =>
+        SafeChild(vectorField, "Array");
+
+    private static int SafeInt(AssetTypeValueField parent, string name)
+    {
+        var c = SafeChild(parent, name);
+        return c is null ? 0 : c.AsInt;
+    }
+
+    private static byte SafeByte(AssetTypeValueField parent, string name)
+    {
+        var c = SafeChild(parent, name);
+        return c is null ? (byte)0 : c.AsByte;
+    }
+
+    private static long SafeUInt(AssetTypeValueField parent, string name)
+    {
+        var c = SafeChild(parent, name);
+        return c is null ? 0 : c.AsLong;
+    }
+
+    /// <summary>
+    /// Reads a byte payload from either a <c>TypelessData</c> field (direct bytes) or a <c>vector&lt;UInt8&gt;</c>
+    /// (an <c>Array</c> of byte elements). Returns empty for a null/dummy field.
+    /// </summary>
+    private static byte[] ReadBytes(AssetTypeValueField? field)
+    {
+        if (field is null || field.IsDummy) return Array.Empty<byte>();
+
+        // TypelessData / byte-typed fields expose the bytes directly.
         try
         {
             var direct = field.AsByteArray;
             if (direct is { Length: > 0 }) return direct;
         }
-        catch { /* not a byte array field; try array of bytes */ }
+        catch { /* not a direct byte field; try an Array-of-bytes vector */ }
 
-        var arr = field["Array"];
-        if (arr.IsDummy) return Array.Empty<byte>();
+        var arr = SafeArray(field);
+        if (arr is null) return Array.Empty<byte>();
+        try
+        {
+            var direct = arr.AsByteArray;
+            if (direct is { Length: > 0 }) return direct;
+        }
+        catch { /* fall through to element-wise */ }
+
         var list = new List<byte>(arr.Children.Count);
         foreach (var e in arr) list.Add(e.AsByte);
         return list.ToArray();
