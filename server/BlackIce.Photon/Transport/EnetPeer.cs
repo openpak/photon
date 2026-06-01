@@ -56,8 +56,8 @@ public sealed class EnetPeer
             case NCommand.SendUnreliable:
                 appPayload = cmd.Payload;
                 break;
-            // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
-            // needs to keep the peer alive. Acknowledge (1) and Disconnect (4) emit nothing.
+                // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
+                // needs to keep the peer alive. Acknowledge (1) and Disconnect (4) emit nothing.
         }
         return outgoing;
     }

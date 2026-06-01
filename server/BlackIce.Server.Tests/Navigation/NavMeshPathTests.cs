@@ -57,7 +57,7 @@ public class NavMeshPathTests
             0,0,0,  1,0,0,  0,0,1,  1,0,1,     // quad A near origin
             5,0,0,  6,0,0,  5,0,1,  6,0,1,     // quad B far away
         };
-        int[] tris = { 0,1,2,  1,3,2,   4,5,6,  5,7,6 };
+        int[] tris = { 0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6 };
         var mesh = new NavMesh(verts, tris);
         var path = NavMeshPath.Find(mesh, 0.5f, 0.5f, 5.5f, 0.5f);
         Assert.Empty(path);   // no corridor connects the two islands

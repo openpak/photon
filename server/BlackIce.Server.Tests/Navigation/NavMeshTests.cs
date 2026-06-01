@@ -16,8 +16,8 @@ public class NavMeshTests
     //   tri0 = 0,1,2   tri1 = 1,3,2   (share edge v1-v2)
     private static NavMesh Quad()
     {
-        float[] verts = { 0,0,0,  1,0,0,  0,0,1,  1,0,1 };
-        int[] tris = { 0,1,2,  1,3,2 };
+        float[] verts = { 0, 0, 0, 1, 0, 0, 0, 0, 1, 1, 0, 1 };
+        int[] tris = { 0, 1, 2, 1, 3, 2 };
         return new NavMesh(verts, tris);
     }
 
@@ -59,8 +59,8 @@ public class NavMeshTests
     public void SampleHeight_interpolates_a_sloped_triangle()
     {
         // One triangle sloping from y=0 at origin to y=10 at (1,_,0).
-        float[] verts = { 0,0,0,  1,10,0,  0,0,1 };
-        int[] tris = { 0,1,2 };
+        float[] verts = { 0, 0, 0, 1, 10, 0, 0, 0, 1 };
+        int[] tris = { 0, 1, 2 };
         var mesh = new NavMesh(verts, tris);
         var h = mesh.SampleHeight(0.5f, 0.1f);
         Assert.NotNull(h);

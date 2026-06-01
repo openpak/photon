@@ -71,7 +71,7 @@ public sealed class HunterBehavior : IBotBrain
     private readonly float _orbitAngle;
     private readonly Random _rng;
     private NavMesh? _navMesh;   // null = no extracted map → today's player-anchor movement; swapped live by
-                                // the map auto-selector via SetNavMesh once a room's map is identified
+                                 // the map auto-selector via SetNavMesh once a room's map is identified
     private float _x, _y, _z;
 
     private long _tick;
@@ -369,8 +369,8 @@ public sealed class HunterBehavior : IBotBrain
 
     private string ActOn(RoomWorldState.Entity target, List<EventData> actions)
     {
-        if (IsEnemy(target))    { actions.Add(DamageRpc(target.ViewId, 25f)); return $"attack {target.Kind}"; }
-        if (IsHackNode(target)) { actions.Add(HackRpc(target.ViewId));        return $"hack {target.Kind}"; }
+        if (IsEnemy(target)) { actions.Add(DamageRpc(target.ViewId, 25f)); return $"attack {target.Kind}"; }
+        if (IsHackNode(target)) { actions.Add(HackRpc(target.ViewId)); return $"hack {target.Kind}"; }
         actions.Add(LootRpc(target.ViewId));
         return $"loot {target.Kind}";
     }

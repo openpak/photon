@@ -97,7 +97,7 @@ public class TransportTests
     {
         var c = new NCommand(NCommand.SendUnreliable, ChannelId: 0, Flags: 0, ReservedByte: 4,
                              ReliableSequenceNumber: 51, Payload: new byte[] { 0xF3, 0x04, 1, 2, 3 })
-                { UnreliableSequenceNumber = 1234 };
+        { UnreliableSequenceNumber = 1234 };
         var bytes = c.ToBytes();
         var parsed = NCommand.Parse(bytes, out int consumed);
         Assert.Equal(bytes.Length, consumed);
@@ -154,7 +154,7 @@ public class TransportTests
         // 16-byte header (extra unreliableSeq int32 BE at offset 12), length includes it.
         var c = new NCommand(NCommand.SendUnreliable, ChannelId: 0, Flags: 0, ReservedByte: 4,
                              ReliableSequenceNumber: 0x11223344, Payload: new byte[] { 0xF3, 0x04, 0xAA, 0xBB, 0xCC })
-                { UnreliableSequenceNumber = 0x55667788 };
+        { UnreliableSequenceNumber = 0x55667788 };
         var expected = new byte[]
         {
             0x07, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x15,

@@ -113,7 +113,8 @@ public class ConnectionStormTests
                     case 0: session.Join(actor, Peer()); break;
                     case 1: session.Leave(actor); break;
                     case 2: session.RelayFrom(0, Position(actor, i, i, i)); break;
-                    case 3: session.RelayFrom(0, new EventData(202, new() {
+                    case 3:
+                        session.RelayFrom(0, new EventData(202, new() {
                                 { 245, new Dictionary<object, object> { { (byte)0, "Player" }, { (byte)7, actor } } } })); break;
                     case 4: session.ReplayCacheTo(actor); break;
                 }

@@ -116,8 +116,11 @@ public class RateInterceptorTests
     {
         var opt = new AnticheatOptions
         {
-            MaxHitsPerWindow = 1000, MaxDamagePerWindow = float.MaxValue,
-            MaxHeadshotsPerWindow = 2, HeadshotFlagOffset = 4, RateWindowSeconds = 60,
+            MaxHitsPerWindow = 1000,
+            MaxDamagePerWindow = float.MaxValue,
+            MaxHeadshotsPerWindow = 2,
+            HeadshotFlagOffset = 4,
+            RateWindowSeconds = 60,
         };
         var i = new HitRateInterceptor(opt);
         for (int n = 0; n < 3; n++) i.Intercept(new EventContext("co-op", 1, DamageRpc(10f, headshotOffset: 4)));
@@ -130,8 +133,12 @@ public class RateInterceptorTests
         // offset 39, mask 0x02 (WeakPoint): crit-only hits (bit0) must NOT count as headshots.
         var opt = new AnticheatOptions
         {
-            MaxHitsPerWindow = 1000, MaxDamagePerWindow = float.MaxValue,
-            MaxHeadshotsPerWindow = 1, HeadshotFlagOffset = 39, HeadshotFlagMask = 0x02, RateWindowSeconds = 60,
+            MaxHitsPerWindow = 1000,
+            MaxDamagePerWindow = float.MaxValue,
+            MaxHeadshotsPerWindow = 1,
+            HeadshotFlagOffset = 39,
+            HeadshotFlagMask = 0x02,
+            RateWindowSeconds = 60,
         };
         var i = new HitRateInterceptor(opt);
         for (int n = 0; n < 5; n++) i.Intercept(new EventContext("co-op", 1, DamageRpc(10f, critOffset: 39)));   // crit bit only

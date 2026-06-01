@@ -12,8 +12,8 @@ public static class PluginLoader
     public static IEnumerable<IServerPlugin> Discover(params Assembly[] assemblies)
     {
         foreach (var asm in assemblies)
-        foreach (var plugin in FromAssembly(asm))
-            yield return plugin;
+            foreach (var plugin in FromAssembly(asm))
+                yield return plugin;
     }
 
     /// <summary>Built-in plugins (those shipped in this assembly).</summary>

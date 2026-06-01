@@ -147,7 +147,7 @@ public sealed class PluginManager : IRoomLifecycleListener
                     if (verdict.Event is not null) current = verdict.Event;
                     if (verdict.Originated.Count > 0) (extras ??= new()).AddRange(verdict.Originated);
                     break;
-                // Forward: no opinion — keep the working event and continue.
+                    // Forward: no opinion — keep the working event and continue.
             }
         }
 
