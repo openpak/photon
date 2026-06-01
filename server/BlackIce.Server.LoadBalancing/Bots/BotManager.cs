@@ -2,7 +2,9 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
+using BlackIce.Server.Core.Navigation;
 using BlackIce.Server.LoadBalancing.Authority;
+using BlackIce.Server.LoadBalancing.Navigation;
 
 namespace BlackIce.Server.LoadBalancing.Bots;
 
@@ -40,6 +42,14 @@ public sealed class BotManager
     /// and the authority plugin observe the same world. Null = bots fall back to move-only behavior.</summary>
     public RoomWorldStateRegistry? Worlds { get; set; }
 
+    /// <summary>Navmesh cache (by map name) the smart bots path on. Set from the host. Null, or no map
+    /// associated with a room, → bots fall back to today's player-anchor movement (no navmesh).</summary>
+    public NavMeshRegistry? Navs { get; set; }
+
+    /// <summary>Room name → navmesh map name (e.g. "Realm13" → "level13"), from each realm's
+    /// <c>ExtraJson</c> "navmesh" key. Rooms absent here have no navmesh and use the fallback movement.</summary>
+    public IReadOnlyDictionary<string, string>? RoomMaps { get; set; }
+
     private int _nextBotActor = BotActorBase;
     private int _spawnedCount;   // monotonic, for deterministic spread placement of smart bots
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
@@ -71,7 +81,7 @@ public sealed class BotManager
         float sx = anchor.x + ox, sy = anchor.y, sz = anchor.z + oz;
         var bot = new PlayerBot(_nextBotActor++, identity);
         bot.Spawn(session, sx, sy, sz);   // 202 carries this position so the client renders the bot on safe ground
-        _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, index, sx, sy, sz)));
+        _bots.Add((bot, session, behavior ?? DefaultBehavior(bot, index, sx, sy, sz, session.RoomName)));
         _countByRoom.AddOrUpdate(session.RoomName, 1, (_, n) => n + 1);
         // In a team-mode room, give the bot a team so it participates in friendly-fire/PvE enforcement.
         if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
@@ -134,11 +144,23 @@ public sealed class BotManager
     /// <see cref="Smart"/> + <see cref="Worlds"/> are set, otherwise the blind <see cref="WanderBehavior"/>.
     /// Smart bots start spread on a deterministic spiral (so they aren't stacked before they find targets) —
     /// they then path to real entities the master spawns. The spiral uses the golden angle for even coverage.
+    /// When the room's realm associated a navmesh (and the artifact is present), the hunter is handed it so it
+    /// paths on the real walkable surface; otherwise it's null and the hunter keeps today's behavior.
     /// </summary>
-    private IBotBehavior DefaultBehavior(PlayerBot bot, int index, float sx, float sy, float sz)
+    private IBotBehavior DefaultBehavior(PlayerBot bot, int index, float sx, float sy, float sz, string room)
     {
         if (!Smart || Worlds is null) return new WanderBehavior(sx, sz);
-        return new HunterBehavior(bot.ViewId, sx, sz, startY: sy, fleetIndex: index, seed: bot.Actor);
+        return new HunterBehavior(bot.ViewId, sx, sz, startY: sy, fleetIndex: index, seed: bot.Actor,
+                                  navMesh: NavMeshFor(room));
+    }
+
+    /// <summary>The navmesh for <paramref name="room"/> — its realm's mapped map name resolved through the
+    /// <see cref="Navs"/> cache — or null when no registry is wired, no map is associated, or the artifact is
+    /// absent (the graceful fallback to player-anchor movement).</summary>
+    private NavMesh? NavMeshFor(string room)
+    {
+        if (Navs is null || RoomMaps is null) return null;
+        return RoomMaps.TryGetValue(room, out var mapName) ? Navs.For(mapName) : null;
     }
 
     /// <summary>A small golden-angle ring offset for bot <paramref name="index"/>, added to the spawn anchor

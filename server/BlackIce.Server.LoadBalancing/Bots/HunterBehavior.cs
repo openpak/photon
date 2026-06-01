@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Buffers.Binary;
 using BlackIce.Photon;
+using BlackIce.Server.Core.Navigation;
 using BlackIce.Server.LoadBalancing.Authority;
 
 namespace BlackIce.Server.LoadBalancing.Bots;
@@ -27,11 +28,19 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 /// circles its anchor (the player / last known point) rather than freezing — so bots stay visibly alive
 /// between spawns.</para>
 ///
-/// <para><b>Clean-room navigation + its hard limit:</b> the server owns no level mesh — the master only
-/// relays dynamic gameplay entities (loot, powerups, barrels, players), never terrain/buildings/navmesh, so
-/// there is genuinely nothing on the wire to collide against. Bots therefore move only toward entities with a
-/// KNOWN position the master spawned (provably reachable points) and CLIP THROUGH static geometry; true
-/// physics collision is impossible without extracting the map assets (out of scope). See the smart-bots spec.</para>
+/// <para><b>Navmesh-aware movement (when available):</b> if the room's map was extracted to a
+/// <c>maps/&lt;name&gt;.navmesh</c> artifact, the manager hands this brain a <see cref="NavMesh"/>. Then every
+/// move SNAPS to the nearest walkable point (<see cref="NavMesh.NearestPoint"/>) — no floating, no clipping
+/// into hazards — adopting the mesh's surface Y, and APPROACH routes via <see cref="NavMeshPath.Find"/>
+/// waypoints (around walls) instead of a straight line. The seek/attack/orbit/patrol logic is unchanged;
+/// only the <em>movement</em> becomes surface-aware.</para>
+///
+/// <para><b>Clean-room navigation + the fallback when no mesh is present:</b> without an extracted map the
+/// server owns no level mesh — the master only relays dynamic gameplay entities (loot, powerups, barrels,
+/// players), never terrain/buildings/navmesh, so there is genuinely nothing on the wire to collide against.
+/// In that (default) case the bot moves only toward entities with a KNOWN position the master spawned
+/// (provably reachable points), keeps the player-anchored ground height, and CLIPS THROUGH static geometry —
+/// exactly today's behavior. See the smart-bots and map-navmesh specs.</para>
 ///
 /// <para>Deterministic given a seed + fleet index; fully unit-testable against a hand-built world-state.</para>
 /// </summary>
@@ -53,6 +62,7 @@ public sealed class HunterBehavior : IBotBrain
     private readonly int _fleetIndex;
     private readonly float _orbitAngle;
     private readonly Random _rng;
+    private readonly NavMesh? _navMesh;   // null = no extracted map → today's player-anchor movement
     private float _x, _y, _z;
 
     private long _tick;
@@ -64,13 +74,18 @@ public sealed class HunterBehavior : IBotBrain
     public int Xp { get; private set; }
     public int Level { get; private set; } = 1;
 
-    public HunterBehavior(int viewId, float startX, float startZ, float startY = 0f, int fleetIndex = 0, int? seed = null)
+    public HunterBehavior(int viewId, float startX, float startZ, float startY = 0f, int fleetIndex = 0,
+                          int? seed = null, NavMesh? navMesh = null)
     {
         _viewId = viewId;
         _fleetIndex = Math.Max(0, fleetIndex);
         _orbitAngle = _fleetIndex * 2.399963f;   // golden angle → even spread of orbit slots
         _x = startX; _z = startZ; _y = startY;    // start on the safe ground height the manager anchored us to
         _rng = seed is int s ? new Random(s) : new Random();
+        _navMesh = navMesh;
+        // With a navmesh, the spawn anchor may be slightly off-surface (it came from a player's 201 stream,
+        // not the mesh); snap onto the walkable surface immediately so we never start floating/clipping.
+        if (_navMesh is { } nav && nav.NearestPoint(_x, _z, out var p, out _)) { _x = p.x; _y = p.y; _z = p.z; }
     }
 
     /// <summary>Move-only fallback (no world): hold position. The brain path drives real behavior.</summary>
@@ -87,7 +102,7 @@ public sealed class HunterBehavior : IBotBrain
 
             if (dist > AttackRange)
             {
-                StepToward(target.X, target.Z);
+                ApproachToward(target.X, target.Z);   // navmesh-routed when a mesh is present, straight otherwise
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"approach {Describe(target)}");
             }
 
@@ -119,10 +134,12 @@ public sealed class HunterBehavior : IBotBrain
             double dx = anchor.X - _x, dz = anchor.Z - _z;
             if (Math.Sqrt(dx * dx + dz * dz) > AttackRange)
             {
-                // Regrouping toward a real player's avatar: adopt their ground height — a player's Y is a
-                // known-walkable height, unlike a loot/enemy spawn Y which may be arbitrary/airborne.
-                if (IsPlayer(anchor)) _y = anchor.Y;
-                StepToward(anchor.X, anchor.Z);
+                // Regrouping toward a real player's avatar: with no navmesh, adopt their ground height — a
+                // player's Y is a known-walkable height, unlike a loot/enemy spawn Y which may be
+                // arbitrary/airborne. With a navmesh the surface Y is authoritative, so ApproachToward's snap
+                // supersedes this (it overwrites _y from the mesh).
+                if (_navMesh is null && IsPlayer(anchor)) _y = anchor.Y;
+                ApproachToward(anchor.X, anchor.Z);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"regroup {Describe(anchor)}");
             }
 
@@ -148,23 +165,66 @@ public sealed class HunterBehavior : IBotBrain
         double a = _patrolAngle + _orbitAngle;
         _x = cx + PatrolRadius * (float)Math.Cos(a);
         _z = cz + PatrolRadius * (float)Math.Sin(a);
+        SnapToSurface();   // keep the patrol circle on the walkable surface when a navmesh is present
         return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "patrol");
     }
 
     /// <summary>
-    /// Step toward (tx,tz) by at most <see cref="StepSpeed"/>, in the XZ plane only — the bot keeps its
-    /// current ground height <c>_y</c>. The server has no level geometry, so the only height it can trust is
-    /// the safe ground the manager anchored the bot to (a player's walkable Y); adopting a loot/enemy spawn's
-    /// Y would float the bot into the air. Vertical changes happen only when regrouping to a player.
+    /// Step toward (tx,tz) by at most <see cref="StepSpeed"/> in the XZ plane.
+    ///
+    /// <para><b>Without a navmesh</b> (default): XZ only — the bot keeps its current ground height <c>_y</c>.
+    /// The server has no level geometry, so the only height it can trust is the safe ground the manager
+    /// anchored the bot to (a player's walkable Y); adopting a loot/enemy spawn's Y would float the bot into
+    /// the air. Vertical changes happen only when regrouping to a player.</para>
+    ///
+    /// <para><b>With a navmesh:</b> after the XZ step, snap onto the walkable surface
+    /// (<see cref="NavMesh.NearestPoint"/>) and adopt its Y — so the bot stays on real ground (no float, no
+    /// clipping into a hazard) without needing a player as its height anchor.</para>
     /// </summary>
     private void StepToward(float tx, float tz)
     {
         double dx = tx - _x, dz = tz - _z;
         double dist = Math.Sqrt(dx * dx + dz * dz);
-        if (dist <= 0) return;
-        double f = Math.Min(1.0, StepSpeed / dist);
-        _x += (float)(dx * f);
-        _z += (float)(dz * f);
+        if (dist > 0)
+        {
+            double f = Math.Min(1.0, StepSpeed / dist);
+            _x += (float)(dx * f);
+            _z += (float)(dz * f);
+        }
+        SnapToSurface();
+    }
+
+    /// <summary>Snaps the bot onto the nearest walkable point of the navmesh (adopting its surface Y) when a
+    /// mesh is present; a no-op otherwise — so the no-navmesh path keeps the player-anchored height exactly.</summary>
+    private void SnapToSurface()
+    {
+        if (_navMesh is { } nav && nav.NearestPoint(_x, _z, out var p, out _)) { _x = p.x; _y = p.y; _z = p.z; }
+    }
+
+    /// <summary>
+    /// Move toward (tx,tz) for one tick, routing on the navmesh when one is present.
+    ///
+    /// <para><b>With a navmesh:</b> compute an A* corridor of waypoints (<see cref="NavMeshPath.Find"/>) that
+    /// stays on the walkable surface and step toward the FIRST one — so the bot walks around walls/hazards
+    /// instead of straight through them. If pathing yields nothing (target off-mesh / unreachable corridor),
+    /// fall back to a straight surface-snapped step rather than freezing.</para>
+    ///
+    /// <para><b>Without a navmesh</b> (default): identical to <see cref="StepToward"/> — a straight XZ step,
+    /// today's behavior.</para>
+    /// </summary>
+    private void ApproachToward(float tx, float tz)
+    {
+        if (_navMesh is { } nav)
+        {
+            var path = NavMeshPath.Find(nav, _x, _z, tx, tz);
+            if (path.Count > 0)
+            {
+                var next = path[0];   // first waypoint along the walkable corridor
+                StepToward(next.x, next.z);
+                return;
+            }
+        }
+        StepToward(tx, tz);   // no mesh, or no corridor → straight step (snapped to surface if a mesh exists)
     }
 
     /// <summary>

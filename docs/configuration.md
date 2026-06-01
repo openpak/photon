@@ -68,7 +68,10 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
     // CountInLobby: when true, bots are added to a realm's advertised player count in the lobby server
     // browser (so a stocked realm looks populated); false (default) advertises only real players. Either
     // way, the server console's own 'rooms' listing always shows the real bot count ("N + M bots").
-    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false, "CountInLobby": false },
+    // Smart: when true (and AutoSpawnPerRealm > 0), bots use the world-aware HunterBehavior — they seek and
+    // act on the real enemies/hack-nodes/loot the master spawns. If a realm associates a navmesh (see below),
+    // those bots also path on the real walkable surface; otherwise they keep the player-anchored fallback.
+    "Bots": { "AutoSpawnPerRealm": 0, "EmitGameActions": false, "CountInLobby": false, "Smart": false },
 
     // Server plugins. The custom features (anti-cheat, game modes) are plugins; vanilla runs with them
     // disabled. "Directory" is scanned for external plugin DLLs; "Disabled" lists plugins that start off
@@ -101,6 +104,22 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
 }
 ```
 
+## Realm navmesh association (surface-aware bots)
+
+A realm can associate a walkable navmesh so its smart bots path on the real map surface instead of the
+player-anchored fallback. Put the map name in the realm's `ExtraJson` under a `"navmesh"` key:
+
+```json
+{ "Name": "Black Ice — Co-op", "ExtraJson": "{\"navmesh\":\"level13\"}" }
+```
+
+At startup the server loads `maps/level13.navmesh` (resolved next to the server binary, overridable with
+`BLACKICE_MAPS_DIR`). When that artifact exists the realm's smart bots snap every move onto the surface and
+route around walls via the navmesh; **when it is absent — or a realm declares no `navmesh` — bots behave
+exactly as before** (player-anchor, straight steps), so this is purely additive. The `.navmesh` artifacts
+are game-derived and are produced offline by `tools/MapExtractor`; they are **gitignored** and never
+committed (clean-room — see `docs/superpowers/specs/2026-06-01-map-navmesh-design.md`).
+
 ## Environment overrides
 
 Any value can be overridden by a `BLACKICE_`-prefixed environment variable, using `__` (double
@@ -115,6 +134,7 @@ container can set secrets and connection strings without baking them into an ima
 | Database provider | `BLACKICE_Database__Provider` | `MySql` |
 | Connection string | `BLACKICE_Database__ConnectionString` | `Server=db;Database=blackice;User=...` |
 | Log level | `BLACKICE_LOG` | `Debug` |
+| Navmesh maps directory | `BLACKICE_MAPS_DIR` | `/srv/blackice/maps` |
 
 Quick launch overrides also exist: the first command-line argument sets `AdvertisedHost`,
 `--require-token` forces `AllowAnonymousLan=false`, and `--trace` / `--debug` set the log level.
