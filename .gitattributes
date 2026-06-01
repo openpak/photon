@@ -1,0 +1,13 @@
+# Shell scripts MUST stay LF-only — they run under bash (Git Bash / WSL / CI). On Windows the repo's
+# autocrlf would otherwise rewrite them to CRLF, which corrupts the shebang line and breaks execution.
+*.sh text eol=lf
+
+# C# / project / doc text: normalize to LF in the repo, let Git restore the platform's native EOL on
+# checkout. Keeps diffs clean across the Windows dev box and CI without committing CRLF.
+*.cs   text
+*.csproj text
+*.sln  text
+*.md   text
+*.json text
+*.yml  text
+*.yaml text

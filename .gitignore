@@ -37,3 +37,6 @@ __pycache__/
 # Local memory (not for public repo)
 memory/
 *.local.json
+
+# Parallel-session coordinator (local bookkeeping; managed by tools/parallel/)
+PARALLEL_WORK.md
