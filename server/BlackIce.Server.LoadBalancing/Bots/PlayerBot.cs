@@ -24,8 +24,11 @@ public sealed class PlayerBot
         Actor = actor; Identity = identity; ViewId = actor * 1000 + 1;
     }
 
-    /// <summary>Emits join → identity properties → avatar instantiate → model-refresh, to the room's real players.</summary>
-    public void Spawn(RoomSession session)
+    /// <summary>Emits join → identity properties → avatar instantiate → model-refresh, to the room's real
+    /// players. The avatar is instantiated AT <paramref name="x"/>,<paramref name="y"/>,<paramref name="z"/>
+    /// (carried in the 202's position slot) so the client renders each bot at its own spot — without a
+    /// position the client spawns every bot at world origin, which looks like a single stacked bot.</summary>
+    public void Spawn(RoomSession session, float x = 0f, float y = 0f, float z = 0f)
     {
         // 1) Join (255): announce the new actor.
         session.RelayFrom(Actor, new EventData(PhotonCodes.Event.Join, new() { { PhotonCodes.Param.ActorNr, Actor } }));
@@ -60,6 +63,11 @@ public sealed class PlayerBot
             { PhotonCodes.Param.Data, new Dictionary<object, object>
                 {
                     { PhotonCodes.InstantiationKey.PrefabName, "Player" },
+                    // Position (key 1) + rotation (key 2): PUN instantiates the prefab here. Omitting them
+                    // spawns every bot at origin (they visually merge into one). Vec3/Quat are PUN custom
+                    // types (big-endian floats), the same encoding the real client's spawns use.
+                    { PhotonCodes.InstantiationKey.Position, Vec3(x, y, z) },
+                    { PhotonCodes.InstantiationKey.Rotation, Quat() },
                     { PhotonCodes.InstantiationKey.ServerTime, System.Environment.TickCount },
                     { PhotonCodes.InstantiationKey.ViewId, ViewId },
                 } },
@@ -86,5 +94,23 @@ public sealed class PlayerBot
         for (int i = 0; i < 4; i++)
             System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(i * 4), rgba[i]);
         return new PhotonCustomData(PhotonCodes.CustomType.Color, b);
+    }
+
+    /// <summary>PUN Vector3 custom type (code 86): three big-endian floats (x,y,z).</summary>
+    private static PhotonCustomData Vec3(float x, float y, float z)
+    {
+        var b = new byte[12];
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), x);
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
+        return new PhotonCustomData(PhotonCodes.CustomType.Vector3, b);
+    }
+
+    /// <summary>PUN Quaternion custom type (code 81): identity rotation (x=y=z=0, w=1), big-endian floats.</summary>
+    private static PhotonCustomData Quat()
+    {
+        var b = new byte[16];
+        System.Buffers.Binary.BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(12), 1f);
+        return new PhotonCustomData(PhotonCodes.CustomType.Quaternion, b);
     }
 }

@@ -78,4 +78,50 @@ public class BotManagerTests
         // A position event (201) for the bot, sent unreliably (like real movement).
         Assert.Contains(raised, r => r.ev.Code == 201 && r.unreliable);
     }
+
+    [Fact]
+    public void Bot_avatar_202_carries_a_spawn_position_so_the_client_does_not_render_it_at_origin()
+    {
+        // Regression: bots used to omit the 202 position, so PUN spawned every avatar at world origin and
+        // 10 bots merged into one stack. PlayerBot.Spawn must now put a Vector3 position (key 1) in the 202.
+        var session = Session();
+        var human = RealPeer(out var raised); session.Join(1, human);
+
+        new PlayerBot(5, new BotIdentityGenerator(seed: 1).Next()).Spawn(session, x: 7f, y: 0f, z: -3f);
+
+        var inst = raised.Find(r => r.ev.Code == PhotonCodes.PunEvent.Instantiation).ev;
+        Assert.NotNull(inst);
+        var pdata = Assert.IsAssignableFrom<IDictionary<object, object>>(inst.Parameters[PhotonCodes.Param.Data]);
+        Assert.True(pdata.ContainsKey(PhotonCodes.InstantiationKey.Position), "202 must carry a position (key 1)");
+        var pos = Assert.IsType<PhotonCustomData>(pdata[PhotonCodes.InstantiationKey.Position]);
+        Assert.Equal(PhotonCodes.CustomType.Vector3, pos.Code);
+        float x = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(pos.Data.AsSpan(0, 4));
+        float z = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(pos.Data.AsSpan(8, 4));
+        Assert.Equal(7f, x, 3);
+        Assert.Equal(-3f, z, 3);
+    }
+
+    [Fact]
+    public void Auto_spawned_bots_get_distinct_spawn_positions()
+    {
+        // The manager's spiral placement gives each bot a different spot, so they don't visually stack.
+        var session = Session();
+        var human = RealPeer(out var raised); session.Join(1, human);
+        var mgr = new BotManager();
+        mgr.Spawn(session, new BotIdentityGenerator(seed: 1).Next());
+        mgr.Spawn(session, new BotIdentityGenerator(seed: 2).Next());
+
+        var positions = new List<(float, float)>();
+        foreach (var (ev, _) in raised)
+            if (ev.Code == PhotonCodes.PunEvent.Instantiation
+                && ev.Parameters[PhotonCodes.Param.Data] is IDictionary<object, object> pd
+                && pd.TryGetValue(PhotonCodes.InstantiationKey.Position, out var p) && p is PhotonCustomData v)
+            {
+                float x = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(v.Data.AsSpan(0, 4));
+                float z = System.Buffers.Binary.BinaryPrimitives.ReadSingleBigEndian(v.Data.AsSpan(8, 4));
+                positions.Add((x, z));
+            }
+        Assert.Equal(2, positions.Count);
+        Assert.NotEqual(positions[0], positions[1]);   // distinct, not stacked
+    }
 }

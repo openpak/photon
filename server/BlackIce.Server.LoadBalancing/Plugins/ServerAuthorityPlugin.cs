@@ -24,37 +24,52 @@ public sealed class ServerAuthorityPlugin : IServerPlugin
     public void Configure(PluginBuilder builder)
     {
         var opt = (AnticheatOptions?)builder.Services.GetService(typeof(AnticheatOptions)) ?? new AnticheatOptions();
-        builder.AddInterceptor(() => new ServerAuthorityInterceptor(opt.Enforce));
+        // Share the per-room world-state via the registry so world-aware playerbots read the same shadow the
+        // observer writes. Fall back to a private registry if none is registered (e.g. a unit-test host).
+        var worlds = (RoomWorldStateRegistry?)builder.Services.GetService(typeof(RoomWorldStateRegistry)) ?? new RoomWorldStateRegistry();
+        builder.AddInterceptor(() => new ServerAuthorityInterceptor(opt.Enforce, worlds));
     }
 }
 
 /// <summary>
 /// Per-room composition of the server-authority pieces over one <see cref="RoomWorldState"/>: observes
 /// spawn/destroy to keep the shadow current, records accepted positions for lag-comp rewind, and runs the
-/// zero-trust outcome rules on damage/kill/loot RPCs. A fresh instance per room (the plugin factory is
-/// invoked per room) gives each room its own isolated shadow state without any cross-room sharing.
+/// zero-trust outcome rules on damage/kill/loot RPCs. The world-state is the room's SHARED instance from
+/// <see cref="RoomWorldStateRegistry"/> (resolved lazily on first event by room name), so bots and authority
+/// observe the same world. The plugin factory still yields one interceptor per room, so the lazy binding is
+/// stable per room.
 /// </summary>
 internal sealed class ServerAuthorityInterceptor : IEventInterceptor
 {
-    private readonly RoomWorldState _world = new();
-    private readonly WorldStateObserver _observer;
-    private readonly OutcomeValidationInterceptor _outcome;
+    private readonly bool _enforce;
+    private readonly RoomWorldStateRegistry _worlds;
+    private RoomWorldState? _world;
+    private WorldStateObserver? _observer;
+    private OutcomeValidationInterceptor? _outcome;
 
-    public ServerAuthorityInterceptor(bool enforce)
+    public ServerAuthorityInterceptor(bool enforce, RoomWorldStateRegistry worlds)
     {
-        _observer = new WorldStateObserver(_world);
-        _outcome = new OutcomeValidationInterceptor(_world, new IOutcomeRule[] { new DeadTargetOutcomeRule() }, enforce);
+        _enforce = enforce;
+        _worlds = worlds;
     }
 
     public RelayVerdict Intercept(EventContext ctx)
     {
+        // Lazily bind to this room's shared world-state on the first event we see (the instance is per-room).
+        if (_world is null)
+        {
+            _world = _worlds.For(ctx.RoomName);
+            _observer = new WorldStateObserver(_world);
+            _outcome = new OutcomeValidationInterceptor(_world, new IOutcomeRule[] { new DeadTargetOutcomeRule() }, _enforce);
+        }
+
         // Keep the shadow current from spawn/destroy facts (observer always forwards), and record accepted
         // positions for the lag-comp rewind timeline. Then let the outcome validator judge a 200 RPC.
-        _observer.Intercept(ctx);
+        _observer!.Intercept(ctx);
 
         if (ctx.Event.Code == PhotonCodes.PunEvent.SendSerialize && PositionInfo.From(ctx.Event) is { } p)
             _world.RecordPosition(p.ViewId, p.X, p.Y, p.Z, DateTime.UtcNow);
 
-        return _outcome.Intercept(ctx);
+        return _outcome!.Intercept(ctx);
     }
 }

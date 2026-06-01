@@ -11,6 +11,12 @@ public sealed class BotOptions
     public int AutoSpawnPerRealm { get; set; } = 0;
     public bool EmitGameActions { get; set; } = false;
 
+    /// <summary>When true, auto-spawned bots use the world-aware HunterBehavior — they seek and act on the
+    /// real enemies / hack-nodes / loot the master client spawns (and visibly level up) — instead of the
+    /// blind random-walk. Independent of <see cref="EmitGameActions"/> (the older fixed soak script).
+    /// Off by default.</summary>
+    public bool Smart { get; set; } = false;
+
     /// <summary>When true, auto-spawned bots are added to a realm's advertised player count in the lobby
     /// server browser, so a stocked realm looks populated to connecting players. Off by default — some
     /// operators prefer the browser to show only real players. (The server console's own <c>rooms</c>
