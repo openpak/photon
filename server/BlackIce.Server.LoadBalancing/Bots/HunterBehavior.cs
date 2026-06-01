@@ -56,8 +56,10 @@ public sealed class HunterBehavior : IBotBrain
     private const long CooldownTicks = 10;     // how long a rotated-off target stays deprioritized
     private const float PatrolRadius = 5f;     // radius of the idle-patrol circle around the anchor
     private const double PatrolSpeed = 0.6;    // radians/tick the patrol angle advances (a slow circle)
-    private const float SnapCoverageRadius = 25f;  // max distance the nearest navmesh point may be before we
+    private const float SnapCoverageRadius = 25f;  // max XZ distance the nearest navmesh point may be before we
                                                    // treat the bot as off-mesh (see SurfaceAt)
+    private const float SnapVerticalTolerance = 15f;  // max |meshY - playerAnchoredY| before we treat the mesh
+                                                      // as vertically misaligned and keep the anchored height
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
 
@@ -229,27 +231,35 @@ public sealed class HunterBehavior : IBotBrain
     }
 
     /// <summary>
-    /// The nearest walkable surface point to (x,z) — but ONLY if the mesh actually covers that spot (the
-    /// nearest point is within <see cref="SnapCoverageRadius"/>). Returns null otherwise.
+    /// The nearest walkable surface point to (x,z) — but ONLY if the mesh genuinely aligns with the bot's
+    /// current position: the nearest point must be within <see cref="SnapCoverageRadius"/> in XZ AND within
+    /// <see cref="SnapVerticalTolerance"/> in Y of the bot's player-anchored height. Returns null otherwise.
     ///
     /// <para><see cref="NavMesh.NearestPoint"/> always returns SOME point, even for a query far outside the
-    /// extracted region — so an unconditional snap silently teleports the bot into mesh-space. That is exactly
-    /// what made a summoned bot snap back: the live map's coordinates didn't match the extracted navmesh, so
-    /// every snap yanked the bot hundreds of units away from the player. This gate keeps the navmesh a
-    /// best-effort enhancement: it helps where it fits and disengages (raw player-anchored movement) where it
-    /// doesn't — e.g. the realm's mapped navmesh isn't the level actually being played.</para>
+    /// extracted region, and matching XZ does not imply a matching vertical frame. Two real failures this
+    /// guards: (1) the realm's mapped navmesh is a different level — nearest point is hundreds of units away in
+    /// XZ (the summon snap-back); (2) the navmesh footprint matches the level but its Y frame is offset — the
+    /// surface sits tens of units below the live floor, so snapping drops the bot underground (level12's mesh
+    /// Y is ≈[-90,-21] while the player stands near 0). Either way we disengage and keep the player-anchored
+    /// position, which is a known-good walkable height. The navmesh is thus a best-effort enhancement: used
+    /// only where it truly fits, otherwise today's player-anchor movement.</para>
     /// </summary>
     private (float x, float y, float z)? SurfaceAt(float x, float z)
     {
         if (_navMesh is not { } nav || !nav.NearestPoint(x, z, out var p, out _)) return null;
         float dx = p.x - x, dz = p.z - z;
-        if (dx * dx + dz * dz > SnapCoverageRadius * SnapCoverageRadius)
+        bool xzFar = dx * dx + dz * dz > SnapCoverageRadius * SnapCoverageRadius;
+        bool yFar = Math.Abs(p.y - _y) > SnapVerticalTolerance;
+        if (xzFar || yFar)
         {
             if (!_navDisengagedWarned)
             {
                 _navDisengagedWarned = true;
-                Log.Warn("Bots", $"navmesh does not cover bot {_viewId} at ({x:F0},{z:F0}) — nearest surface " +
-                                 $"{Math.Sqrt(dx * dx + dz * dz):F0}u away; using player-anchored movement (wrong map for this realm?)");
+                string why = xzFar
+                    ? $"nearest surface {Math.Sqrt(dx * dx + dz * dz):F0}u away in XZ"
+                    : $"surface Y {p.y:F0} vs bot Y {_y:F0} (Δ{Math.Abs(p.y - _y):F0}) — vertical frame mismatch";
+                Log.Warn("Bots", $"navmesh does not align for bot {_viewId} at ({x:F0},{z:F0}) — {why}; " +
+                                 "using player-anchored movement (wrong map/frame for this realm?)");
             }
             return null;
         }

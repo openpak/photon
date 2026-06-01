@@ -125,13 +125,27 @@ public class HunterBehaviorNavMeshTests
     [Fact]
     public void Teleport_onto_the_mesh_still_snaps_to_the_surface()
     {
-        // The positive half: when the summon spot IS on the mesh, the bot still adopts the surface height —
-        // the coverage gate only disengages when the mesh genuinely doesn't cover the spot.
+        // The positive half: when the summon spot IS on the mesh (XZ in range AND Y close to the surface),
+        // the bot adopts the surface height. The strip is at y=5; teleport with a nearby Y (within the
+        // vertical tolerance) so the gate engages.
         var mesh = FlatStrip();
-        var bot = new HunterBehavior(BotView, startX: 1f, startZ: 2f, startY: 0f, seed: 1, navMesh: mesh);
-        bot.Teleport(10f, 99f, 2f);                      // on the strip in XZ, wrong Y
+        var bot = new HunterBehavior(BotView, startX: 1f, startZ: 2f, startY: 4f, seed: 1, navMesh: mesh);
+        bot.Teleport(10f, 4f, 2f);                       // on the strip in XZ, Y within tolerance of the surface (5)
         var p = bot.Tick();
         Assert.Equal(5f, p.Y, precision: 3);             // snapped to the mesh surface height
+    }
+
+    [Fact]
+    public void Teleport_onto_the_mesh_XZ_but_at_a_far_off_height_keeps_the_player_Y()
+    {
+        // Regression for "bots under the floor": the navmesh footprint matches in XZ but its vertical frame is
+        // offset (level12's surface sits tens of units below the live floor). The bot must NOT adopt that
+        // surface Y and drop underground — it keeps its player-anchored height and stays put in XZ.
+        var mesh = FlatStrip();                          // surface at y=5
+        var bot = new HunterBehavior(BotView, startX: 1f, startZ: 2f, startY: 60f, seed: 1, navMesh: mesh);
+        bot.Teleport(10f, 60f, 2f);                      // on the strip in XZ, but 55u above its surface
+        var p = bot.Tick();
+        Assert.Equal(60f, p.Y, precision: 3);            // kept the player-anchored height, did NOT snap to 5
     }
 
     [Fact]
