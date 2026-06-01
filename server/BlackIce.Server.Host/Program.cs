@@ -80,6 +80,9 @@ builder.Services.AddSingleton(sp => new RoomRegistry(
 
 // Shared per-room world-state: the authority plugin's observer writes it, the world-aware bots read it.
 builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry>();
+// Walkable-surface navmeshes (loaded lazily from maps/<name>.navmesh; null when absent → bots fall back to
+// player-anchor movement). Mirrors RoomWorldStateRegistry; the bots path on it when a realm maps a map name.
+builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Navigation.NavMeshRegistry>();
 builder.Services.AddSingleton<AdminActionQueue>();
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();
