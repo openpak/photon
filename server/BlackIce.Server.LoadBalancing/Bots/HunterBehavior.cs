@@ -91,6 +91,15 @@ public sealed class HunterBehavior : IBotBrain
     /// <summary>Move-only fallback (no world): hold position. The brain path drives real behavior.</summary>
     public BotPositionUpdate Tick() => new(_x, _y, _z);
 
+    /// <summary>Force the bot to a position (admin <c>summon</c>), then snap onto the navmesh if present and
+    /// clear the current target so it re-evaluates from the new spot rather than walking straight back.</summary>
+    public void Teleport(float x, float y, float z)
+    {
+        _x = x; _y = y; _z = z;
+        _targetViewId = 0; _actsOnCurrent = 0;
+        SnapToSurface();
+    }
+
     public BotStep Think(RoomWorldState world)
     {
         _tick++;
@@ -124,11 +133,12 @@ public sealed class HunterBehavior : IBotBrain
             return new BotStep(new BotPositionUpdate(_x, _y, _z), actions, label);
         }
 
-        // No actionable target. Drift toward the nearest KNOWN entity (a player avatar, scene prop — any real
-        // spawn point) so the bot leaves its spawn and gravitates to where the action is, rather than sitting
-        // (possibly inside geometry). Never acts on a non-target.
+        // No actionable target. Regroup toward the PLAYER if one is known (so an idle fleet gathers on the
+        // human and is easy to find), else the nearest known entity (scene prop / spawn) so the bot still
+        // leaves its spot and gravitates to where the action is. Never acts on a non-target.
         _targetViewId = 0; _actsOnCurrent = 0;
-        var anchor = world.Nearest(e => e.ViewId != _viewId, _x, _z);
+        var anchor = world.Nearest(IsPlayer, _x, _z)
+                     ?? world.Nearest(e => e.ViewId != _viewId, _x, _z);
         if (anchor is not null)
         {
             double dx = anchor.X - _x, dz = anchor.Z - _z;
@@ -245,7 +255,13 @@ public sealed class HunterBehavior : IBotBrain
                 _targetViewId = alt.ViewId; _actsOnCurrent = 0;
                 return alt;
             }
-            return cur;   // nothing else to do — keep acting on the only target
+            // Over-worked the only available target and nothing fresh is off cooldown. Don't re-pin to it
+            // (that's the "all bots camp one enemy forever, looking stopped" bug) — cool it down too and
+            // drop to the no-target path, which regroups toward the player so the fleet drifts to where the
+            // action / the human is. Once a cooldown lapses, the bot re-engages.
+            _cooldownUntil[cur.ViewId] = _tick + CooldownTicks;
+            _targetViewId = 0; _actsOnCurrent = 0;
+            return null;
         }
 
         var fresh = PickFresh(world, exclude: 0);

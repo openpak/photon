@@ -20,6 +20,46 @@ public class HunterBehaviorFleetTests
         return i is { } x ? (x.ViewId, x.DamageValue, x.Method) : (0, null, null);
     }
 
+    private static RoomWorldState World(params (int view, string kind, float x, float z)[] entities)
+    {
+        var w = new RoomWorldState();
+        foreach (var (view, kind, x, z) in entities) w.ObserveSpawn(view, kind, x, 0f, z);
+        return w;
+    }
+
+    [Fact]
+    public void Lone_over_worked_enemy_does_not_pin_the_bot_forever()
+    {
+        // Regression for "all bots camp one enemy and look stopped": a single in-range enemy that never dies.
+        // After MaxActsPerTarget the bot must STOP re-pinning to it (cool it down + fall through), not keep
+        // attacking it every tick. With a player present, the bot then regroups toward the player.
+        var w = World((1002, "SpiderEnemy", 1, 0), (2001, "Player", 40, 0));
+        var bot = new HunterBehavior(BotView, 0, 0, fleetIndex: 0, seed: 1);
+
+        int attacks = 0; bool regrouped = false;
+        for (int i = 0; i < 30; i++)
+        {
+            var step = bot.Think(w);
+            foreach (var ev in step.Actions) if (Decode(ev).method == "TakeDamage") attacks++;
+            if (step.Label.Contains("regroup")) regrouped = true;
+        }
+        // It attacks a bounded number of times (a few bursts as cooldown lapses), NOT all 30 ticks.
+        Assert.True(attacks < 30, $"bot pinned the lone enemy every tick ({attacks}/30) — the camp bug");
+        Assert.True(regrouped, "bot never regrouped toward the player while the enemy was on cooldown");
+    }
+
+    [Fact]
+    public void Teleport_moves_the_bot_and_drops_its_target()
+    {
+        var w = World((1002, "SpiderEnemy", 2, 0));
+        var bot = new HunterBehavior(BotView, 0, 0, fleetIndex: 0, seed: 1);
+        bot.Think(w);                       // acquire the enemy
+        bot.Teleport(100, 0, 100);          // summoned far away
+        var step = bot.Think(w);
+        // After teleport it is at the new spot (not snapped back), and re-evaluates from there.
+        Assert.True(System.Math.Abs(step.Position.X - 2) > 50, "teleported bot should not be back at the old enemy");
+    }
+
     [Fact]
     public void Entity_with_unknown_position_is_not_chased()
     {

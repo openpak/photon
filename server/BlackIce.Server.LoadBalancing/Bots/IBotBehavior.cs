@@ -11,6 +11,11 @@ public readonly record struct BotPositionUpdate(float X, float Y, float Z);
 public interface IBotBehavior
 {
     BotPositionUpdate Tick();
+
+    /// <summary>Force the bot's position (e.g. the admin <c>summon</c> command bringing the fleet to the
+    /// player). Default no-op so simple behaviors don't have to implement it; <see cref="HunterBehavior"/>
+    /// overrides it to move its internal position and re-snap to the navmesh.</summary>
+    void Teleport(float x, float y, float z) { }
 }
 
 /// <summary>The result of a world-aware bot's think: where it moves to, plus any RPC/events it emits this

@@ -140,6 +140,31 @@ public sealed class BotManager
     }
 
     /// <summary>
+    /// Teleports every bot in <paramref name="room"/> to that room's player position (a small ring around it),
+    /// relaying the move so clients see them arrive — the admin <c>summon</c> command's worker. Brings the
+    /// fleet to the human so they're reachable. Returns the number summoned, or -1 if no player position is
+    /// known yet. MUST run on the Game listener thread (it relays per-peer): the console queues it via
+    /// <see cref="AdminActionQueue"/>.
+    /// </summary>
+    public int SummonAll(string room)
+    {
+        if (PlayerAnchor(room) is not { } anchor) return -1;
+        int n = 0;
+        int i = 0;
+        foreach (var (bot, session, behavior) in _bots)
+        {
+            if (!string.Equals(session.RoomName, room, System.StringComparison.Ordinal)) continue;
+            var (ox, oz) = RingOffset(i++);
+            float x = anchor.x + ox, y = anchor.y, z = anchor.z + oz;
+            behavior.Teleport(x, y, z);
+            session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, new BotPositionUpdate(x, y, z)), unreliable: true);
+            n++;
+        }
+        if (n > 0) Log.Info("Bots", $"summoned {n} bot(s) to the player in \"{room}\"");
+        return n;
+    }
+
+    /// <summary>
     /// Picks the default behavior for an auto-spawned bot: the world-aware <see cref="HunterBehavior"/> when
     /// <see cref="Smart"/> + <see cref="Worlds"/> are set, otherwise the blind <see cref="WanderBehavior"/>.
     /// Smart bots start spread on a deterministic spiral (so they aren't stacked before they find targets) —

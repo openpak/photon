@@ -163,6 +163,23 @@ public sealed class ServerCommands
         return $"queued bot spawn for \"{realm}\" (runs on next listener tick)";
     }
 
+    [ConsoleCommand("summon", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Admin)]
+    private string Summon(CommandLine line)
+    {
+        // Teleport every bot in the realm to the player's position so you can reach them instantly. The
+        // server can't move YOUR character (it's client-owned, and the SteamID gate blocks networked control
+        // of a real player) — but moving the server-owned bots to you achieves the same "get to them" goal,
+        // clean. Queued onto the listener thread (it relays per-peer); takes effect on the next tick.
+        var realm = AfterArg(line, 0);   // realm name may contain spaces
+        if (_rooms.Find(realm) is null) return $"no such room: {realm}";
+        _admin.Enqueue(() =>
+        {
+            int n = _bots.SummonAll(realm);
+            if (n < 0) Log.Warn("Bots", $"summon \"{realm}\": no player position known yet (is someone in the realm?)");
+        });
+        return $"queued summon of all bots to the player in \"{realm}\" (runs on next listener tick)";
+    }
+
     // --- helpers ---------------------------------------------------------------------------------
 
     private static string Arg(CommandLine line, int index) => index < line.Parts.Count ? line.Parts[index] : "";
