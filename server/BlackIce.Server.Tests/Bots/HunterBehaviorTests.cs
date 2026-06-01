@@ -27,14 +27,24 @@ public class HunterBehaviorTests
     }
 
     [Fact]
-    public void No_entities_at_all_holds_position_and_idles()
+    public void No_entities_at_all_patrols_without_acting()
     {
+        // With nothing known the bot patrols (circles its spot) rather than freezing — but never acts.
         var bot = new HunterBehavior(BotView, startX: 3, startZ: 4, seed: 1);
         var step = bot.Think(new RoomWorldState());
         Assert.Empty(step.Actions);
-        Assert.Equal("idle", step.Label);
-        Assert.Equal(3f, step.Position.X, 3);
-        Assert.Equal(4f, step.Position.Z, 3);
+        Assert.Equal("patrol", step.Label);
+    }
+
+    [Fact]
+    public void Patrol_keeps_the_bot_moving_across_ticks()
+    {
+        // The original "stops after ~30s" bug: a bot with nothing to hunt must keep moving, not freeze.
+        var bot = new HunterBehavior(BotView, startX: 0, startZ: 0, seed: 1);
+        var p1 = bot.Think(new RoomWorldState()).Position;
+        var p2 = bot.Think(new RoomWorldState()).Position;
+        bool moved = System.Math.Abs(p1.X - p2.X) > 0.01f || System.Math.Abs(p1.Z - p2.Z) > 0.01f;
+        Assert.True(moved, $"patrol should move the bot between ticks: ({p1.X},{p1.Z}) -> ({p2.X},{p2.Z})");
     }
 
     [Fact]

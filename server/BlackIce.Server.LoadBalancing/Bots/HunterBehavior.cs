@@ -23,9 +23,15 @@ namespace BlackIce.Server.LoadBalancing.Bots;
 /// removes a looted/killed thing from the bot's view, so without this they'd spam one target indefinitely.</item>
 /// </list>
 ///
-/// <para><b>Clean-room navigation:</b> the server owns no level mesh, so bots only ever move toward entities
-/// with a KNOWN position the master spawned (provably reachable) — never to an unknown/defaulted (0,0,0) —
-/// and hold when nothing is known. True physics collision is impossible server-side. See the smart-bots spec.</para>
+/// <para><b>Idle patrol:</b> with nothing to hunt (e.g. a realm of only loot, all on cooldown), the bot
+/// circles its anchor (the player / last known point) rather than freezing — so bots stay visibly alive
+/// between spawns.</para>
+///
+/// <para><b>Clean-room navigation + its hard limit:</b> the server owns no level mesh — the master only
+/// relays dynamic gameplay entities (loot, powerups, barrels, players), never terrain/buildings/navmesh, so
+/// there is genuinely nothing on the wire to collide against. Bots therefore move only toward entities with a
+/// KNOWN position the master spawned (provably reachable points) and CLIP THROUGH static geometry; true
+/// physics collision is impossible without extracting the map assets (out of scope). See the smart-bots spec.</para>
 ///
 /// <para>Deterministic given a seed + fleet index; fully unit-testable against a hand-built world-state.</para>
 /// </summary>
@@ -38,9 +44,10 @@ public sealed class HunterBehavior : IBotBrain
     private const int XpPerLevel = 100;        // XP to advance a level
     private const int MaxActsPerTarget = 3;    // after this many acts, rotate to another target (if one exists)
     private const long CooldownTicks = 10;     // how long a rotated-off target stays deprioritized
+    private const float PatrolRadius = 5f;     // radius of the idle-patrol circle around the anchor
+    private const double PatrolSpeed = 0.6;    // radians/tick the patrol angle advances (a slow circle)
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
-    private static readonly Func<RoomWorldState.Entity, bool> AnyEntity = static _ => true;
 
     private readonly int _viewId;
     private readonly int _fleetIndex;
@@ -49,6 +56,7 @@ public sealed class HunterBehavior : IBotBrain
     private float _x, _y, _z;
 
     private long _tick;
+    private double _patrolAngle;                // advances while idle-patrolling around the anchor
     private int _targetViewId;                 // 0 = no current target
     private int _actsOnCurrent;
     private readonly Dictionary<int, long> _cooldownUntil = new();
@@ -117,8 +125,30 @@ public sealed class HunterBehavior : IBotBrain
                 StepToward(anchor.X, anchor.Z);
                 return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, $"regroup {Describe(anchor)}");
             }
+
+            // Reached the anchor and nothing to hunt → PATROL: orbit slowly around the anchor (the player
+            // or last known point) instead of freezing. Keeps bots visibly alive between loot/enemy spawns.
+            // XZ-only at the bot's current ground height; radius/angle per-bot so the group circles, not stacks.
+            return Patrol(anchor.X, anchor.Z);
         }
-        return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "idle");   // truly nothing known
+
+        // Truly nothing known yet (no entities observed at all): patrol around our own spot so we still move.
+        return Patrol(_x, _z);
+    }
+
+    /// <summary>
+    /// Idle patrol: walk a slow circle of radius <see cref="PatrolRadius"/> around (cx,cz), advancing the
+    /// per-bot patrol angle each tick. Keeps a bot visibly moving (not frozen) when it has nothing to hunt,
+    /// at its current ground height, in XZ only. The angle is offset by the bot's orbit slot so a group of
+    /// idle bots circles the anchor at spread phases rather than overlapping.
+    /// </summary>
+    private BotStep Patrol(float cx, float cz)
+    {
+        _patrolAngle += PatrolSpeed;
+        double a = _patrolAngle + _orbitAngle;
+        _x = cx + PatrolRadius * (float)Math.Cos(a);
+        _z = cz + PatrolRadius * (float)Math.Sin(a);
+        return new BotStep(new BotPositionUpdate(_x, _y, _z), NoActions, "patrol");
     }
 
     /// <summary>

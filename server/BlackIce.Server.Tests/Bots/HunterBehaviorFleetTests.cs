@@ -24,15 +24,17 @@ public class HunterBehaviorFleetTests
     public void Entity_with_unknown_position_is_not_chased()
     {
         // A 202 arrived with a kind but NO position (HasPosition stays false). The bot must not path to a
-        // phantom (0,0,0) — with nothing else known it idles in place rather than swarming origin.
+        // phantom (0,0,0) — it never acts on / chases the unknown-position entity (it patrols instead of
+        // swarming origin). The key assertion is "no action and not chasing 0,0,0", not the exact label.
         var w = new RoomWorldState();
         w.ObserveSpawn(1002, "SpiderEnemy");   // kind known, position unknown
         var bot = new HunterBehavior(BotView, startX: 7, startZ: 7, seed: 1);
         var step = bot.Think(w);
         Assert.Empty(step.Actions);
-        Assert.Equal("idle", step.Label);
-        Assert.Equal(7f, step.Position.X, 3);
-        Assert.Equal(7f, step.Position.Z, 3);
+        Assert.DoesNotContain("approach", step.Label);   // not chasing the unknown-position enemy
+        // Patrol keeps it near its own spot (radius ~5), never near phantom origin far away.
+        double distFromStart = System.Math.Sqrt(System.Math.Pow(step.Position.X - 7, 2) + System.Math.Pow(step.Position.Z - 7, 2));
+        Assert.True(distFromStart < 12, $"bot should stay near its spot, not chase origin; moved {distFromStart:F1}");
     }
 
     [Fact]
