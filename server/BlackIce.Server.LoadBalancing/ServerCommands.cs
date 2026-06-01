@@ -170,8 +170,12 @@ public sealed class ServerCommands
         // server can't move YOUR character (it's client-owned, and the SteamID gate blocks networked control
         // of a real player) — but moving the server-owned bots to you achieves the same "get to them" goal,
         // clean. Queued onto the listener thread (it relays per-peer); takes effect on the next tick.
-        var realm = AfterArg(line, 0);   // realm name may contain spaces
-        if (_rooms.Find(realm) is null) return $"no such room: {realm}";
+        var typed = AfterArg(line, 0);   // realm name may contain spaces
+        // Resolve tolerantly: the live game's room name uses a Unicode em-dash ("Black Ice — Co-op"), which
+        // can't be typed through a console whose input code page is legacy OEM. Match dash-variant/case/space-
+        // insensitively so a plain-ASCII "Black Ice - Co-op" still finds it.
+        var realm = ResolveRoomName(typed);
+        if (realm is null) return $"no such room: {typed}";
         _admin.Enqueue(() =>
         {
             int n = _bots.SummonAll(realm);
@@ -183,6 +187,36 @@ public sealed class ServerCommands
     // --- helpers ---------------------------------------------------------------------------------
 
     private static string Arg(CommandLine line, int index) => index < line.Parts.Count ? line.Parts[index] : "";
+
+    /// <summary>Maps an operator-typed realm/room name to an actual registry key, tolerating dash variants
+    /// (ASCII hyphen vs Unicode en/em-dash), case, and whitespace. Lets a plain-ASCII name match a room whose
+    /// real name carries a Unicode dash the console code page can't represent. Returns the canonical stored
+    /// name, or null if none matches.</summary>
+    private string? ResolveRoomName(string input)
+    {
+        if (_rooms.Find(input) is not null) return input;        // exact, fast path
+        var want = NormalizeRoomName(input);
+        foreach (var name in _rooms.RoomNames)
+            if (NormalizeRoomName(name) == want) return name;
+        return null;
+    }
+
+    private static string NormalizeRoomName(string s)
+    {
+        var sb = new System.Text.StringBuilder(s.Length);
+        bool prevSpace = false;
+        foreach (var ch in s.Trim())
+        {
+            char c = ch is '‐' or '‑' or '‒' or '–' or '—' or '―' ? '-' : ch;
+            if (char.IsWhiteSpace(c))
+            {
+                if (prevSpace) continue;   // collapse runs of whitespace
+                prevSpace = true; sb.Append(' ');
+            }
+            else { prevSpace = false; sb.Append(char.ToLowerInvariant(c)); }
+        }
+        return sb.ToString();
+    }
 
     /// <summary>Everything after the token at <paramref name="index"/> (so trailing text can contain spaces).</summary>
     private static string AfterArg(CommandLine line, int index)
