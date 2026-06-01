@@ -19,22 +19,51 @@ public static class Log
     /// <summary>Minimum level emitted. Set from config/env before serving; defaults to Info.</summary>
     public static LogLevel Level { get; set; } = LogLevel.Info;
 
-    /// <summary>Opens (or replaces) the file sink. Safe to call once at startup.</summary>
+    /// <summary>Opens (or replaces) the file sink. Safe to call once at startup. A failure to open the file
+    /// (bad path, full/read-only disk) degrades to console-only rather than throwing — a logging problem must
+    /// never take the server down.</summary>
     public static void ToFile(string path)
     {
         lock (_gate)
         {
-            _file?.Flush();
-            _file?.Dispose();
-            _file = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read))
+            try { _file?.Flush(); _file?.Dispose(); } catch (IOException) { /* discarding a broken sink */ }
+            _file = null;
+            try
             {
-                AutoFlush = true,   // crash-safety: we want every line on disk even if the process dies
-            };
-            _file.WriteLine($"# BlackIce.Server log — {DateTime.UtcNow:O}");
+                _file = new StreamWriter(new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.Read))
+                {
+                    AutoFlush = true,   // crash-safety: we want every line on disk even if the process dies
+                };
+                _file.WriteLine($"# BlackIce.Server log — {DateTime.UtcNow:O}");
+                FileSinkDisabled = false;   // a fresh, healthy sink re-enables file logging
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                _file = null;
+                FileSinkDisabled = true;
+                try { Console.Error.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [WRN] [Log] could not open log file '{path}' ({ex.GetType().Name}); continuing console-only"); }
+                catch (IOException) { /* console gone too — nothing we can do */ }
+            }
         }
     }
 
-    public static void Flush() { lock (_gate) _file?.Flush(); }
+    public static void Flush() { lock (_gate) { try { _file?.Flush(); } catch (IOException) { DisableFileSink(); } } }
+
+    /// <summary>True once a file-write failure (e.g. disk full) has disabled the file sink for this run.</summary>
+    public static bool FileSinkDisabled { get; private set; }
+
+    /// <summary>Drops the file sink after an I/O failure so logging never again touches the bad file. Must
+    /// hold <c>_gate</c>. Console logging continues; a disk problem must not be able to stall the server.</summary>
+    private static void DisableFileSink()
+    {
+        if (FileSinkDisabled) return;
+        FileSinkDisabled = true;
+        try { _file?.Dispose(); } catch (IOException) { /* already broken — nothing more to do */ }
+        _file = null;
+        // Console-only from here; surfaces once so an operator knows the log file stopped (e.g. disk full).
+        try { Console.Error.WriteLine($"{DateTime.UtcNow:HH:mm:ss.fff} [WRN] [Log] file sink disabled after an I/O error (disk full?); continuing console-only"); }
+        catch (IOException) { /* console gone too — give up silently rather than throw into a caller */ }
+    }
 
     public static void Trace(string cat, string msg) => Write(LogLevel.Trace, cat, msg);
     public static void Debug(string cat, string msg) => Write(LogLevel.Debug, cat, msg);
@@ -57,7 +86,14 @@ public static class Log
         {
             if (level >= LogLevel.Warn) Console.Error.WriteLine(line);
             else Console.WriteLine(line);
-            _file?.WriteLine(line);
+            // A file-write failure (classically a full disk) must NOT propagate — Write runs on the UDP
+            // listener thread (per-packet under --trace), so an exception here would stall gameplay. Drop the
+            // file sink and carry on console-only; that's exactly the bug that froze the bots on a full disk.
+            if (_file is { } f)
+            {
+                try { f.WriteLine(line); }
+                catch (IOException) { DisableFileSink(); }
+            }
         }
     }
 

@@ -9,6 +9,7 @@ using Xunit;
 
 namespace BlackIce.Server.Tests;
 
+[Collection("Log")]   // Loglevel_changes_the_active_level mutates the global Log.Level — serialize with other Log tests
 public class ServerCommandsTests
 {
     private static (CommandRegistry reg, RoomRegistry rooms, AdminActionQueue admin) Setup()
