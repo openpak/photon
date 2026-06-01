@@ -40,3 +40,6 @@ memory/
 
 # Parallel-session coordinator (local bookkeeping; managed by tools/parallel/)
 PARALLEL_WORK.md
+
+# Claude Code transient scheduler lock (per-session, not shared state)
+.claude/scheduled_tasks.lock
