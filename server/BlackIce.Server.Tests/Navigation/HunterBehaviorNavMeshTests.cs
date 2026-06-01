@@ -99,6 +99,42 @@ public class HunterBehaviorNavMeshTests
     }
 
     [Fact]
+    public void Teleport_far_off_the_mesh_keeps_the_bot_there_instead_of_snapping_onto_it()
+    {
+        // Regression for the summon snap-back: when the realm's navmesh covers a region far from where the
+        // player actually is (wrong map / different arena), a bot summoned to the player must STAY at the
+        // summon spot — the post-teleport surface snap must disengage rather than yank the bot onto the
+        // distant mesh (the bug that made summoned bots snap right back).
+        var mesh = FlatStrip();                          // covers x∈[0,24], z∈[0,4], y=5
+        var bot = new HunterBehavior(BotView, startX: 1f, startZ: 2f, startY: 5f, seed: 1, navMesh: mesh);
+        bot.Teleport(500f, 12f, 500f);                   // summoned far outside the mesh region
+        var p = bot.Tick();                              // what the manager would broadcast next
+        Assert.True(System.Math.Abs(p.X - 500f) < 1f && System.Math.Abs(p.Z - 500f) < 1f,
+            $"bot was yanked off its summon spot onto the far mesh: ({p.X},{p.Z})");
+        Assert.Equal(12f, p.Y, precision: 3);            // kept the player-anchored height, not the mesh y=5
+
+        // And an idle Think keeps it near the summon spot (patrol radius), never back at the mesh.
+        var step = bot.Think(new RoomWorldState());
+        double dist = System.Math.Sqrt(System.Math.Pow(step.Position.X - 500f, 2) + System.Math.Pow(step.Position.Z - 500f, 2));
+        Assert.True(dist < PatrolRadiusBound, $"idle bot drifted off the summon spot toward the mesh: moved {dist:F1}u");
+    }
+
+    // Patrol radius (5) plus a small slack — an idle off-mesh bot circles its summon spot, it doesn't return to the mesh.
+    private const double PatrolRadiusBound = 8.0;
+
+    [Fact]
+    public void Teleport_onto_the_mesh_still_snaps_to_the_surface()
+    {
+        // The positive half: when the summon spot IS on the mesh, the bot still adopts the surface height —
+        // the coverage gate only disengages when the mesh genuinely doesn't cover the spot.
+        var mesh = FlatStrip();
+        var bot = new HunterBehavior(BotView, startX: 1f, startZ: 2f, startY: 0f, seed: 1, navMesh: mesh);
+        bot.Teleport(10f, 99f, 2f);                      // on the strip in XZ, wrong Y
+        var p = bot.Tick();
+        Assert.Equal(5f, p.Y, precision: 3);             // snapped to the mesh surface height
+    }
+
+    [Fact]
     public void Without_a_navmesh_movement_is_unchanged_keeping_the_anchored_height()
     {
         // The graceful-fallback contract: no navmesh → exactly today's behavior. The bot keeps its anchored

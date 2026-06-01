@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Buffers.Binary;
 using BlackIce.Photon;
+using BlackIce.Server.Core;
 using BlackIce.Server.Core.Navigation;
 using BlackIce.Server.LoadBalancing.Authority;
 
@@ -55,6 +56,8 @@ public sealed class HunterBehavior : IBotBrain
     private const long CooldownTicks = 10;     // how long a rotated-off target stays deprioritized
     private const float PatrolRadius = 5f;     // radius of the idle-patrol circle around the anchor
     private const double PatrolSpeed = 0.6;    // radians/tick the patrol angle advances (a slow circle)
+    private const float SnapCoverageRadius = 25f;  // max distance the nearest navmesh point may be before we
+                                                   // treat the bot as off-mesh (see SurfaceAt)
 
     private static readonly EventData[] NoActions = Array.Empty<EventData>();
 
@@ -69,6 +72,7 @@ public sealed class HunterBehavior : IBotBrain
     private double _patrolAngle;                // advances while idle-patrolling around the anchor
     private int _targetViewId;                 // 0 = no current target
     private int _actsOnCurrent;
+    private bool _navDisengagedWarned;         // warn-once when the navmesh doesn't cover the bot's region
     private readonly Dictionary<int, long> _cooldownUntil = new();
 
     public int Xp { get; private set; }
@@ -84,8 +88,9 @@ public sealed class HunterBehavior : IBotBrain
         _rng = seed is int s ? new Random(s) : new Random();
         _navMesh = navMesh;
         // With a navmesh, the spawn anchor may be slightly off-surface (it came from a player's 201 stream,
-        // not the mesh); snap onto the walkable surface immediately so we never start floating/clipping.
-        if (_navMesh is { } nav && nav.NearestPoint(_x, _z, out var p, out _)) { _x = p.x; _y = p.y; _z = p.z; }
+        // not the mesh); snap onto the walkable surface immediately so we never start floating/clipping —
+        // but only if the mesh actually covers the spawn point (SurfaceAt guards the coordinate-mismatch case).
+        SnapToSurface();
     }
 
     /// <summary>Move-only fallback (no world): hold position. The brain path drives real behavior.</summary>
@@ -205,10 +210,39 @@ public sealed class HunterBehavior : IBotBrain
     }
 
     /// <summary>Snaps the bot onto the nearest walkable point of the navmesh (adopting its surface Y) when a
-    /// mesh is present; a no-op otherwise — so the no-navmesh path keeps the player-anchored height exactly.</summary>
+    /// mesh is present AND actually covers this spot; a no-op otherwise — so the no-navmesh path (and the
+    /// off-mesh fallback) keeps the player-anchored position exactly.</summary>
     private void SnapToSurface()
     {
-        if (_navMesh is { } nav && nav.NearestPoint(_x, _z, out var p, out _)) { _x = p.x; _y = p.y; _z = p.z; }
+        if (SurfaceAt(_x, _z) is { } p) { _x = p.x; _y = p.y; _z = p.z; }
+    }
+
+    /// <summary>
+    /// The nearest walkable surface point to (x,z) — but ONLY if the mesh actually covers that spot (the
+    /// nearest point is within <see cref="SnapCoverageRadius"/>). Returns null otherwise.
+    ///
+    /// <para><see cref="NavMesh.NearestPoint"/> always returns SOME point, even for a query far outside the
+    /// extracted region — so an unconditional snap silently teleports the bot into mesh-space. That is exactly
+    /// what made a summoned bot snap back: the live map's coordinates didn't match the extracted navmesh, so
+    /// every snap yanked the bot hundreds of units away from the player. This gate keeps the navmesh a
+    /// best-effort enhancement: it helps where it fits and disengages (raw player-anchored movement) where it
+    /// doesn't — e.g. the realm's mapped navmesh isn't the level actually being played.</para>
+    /// </summary>
+    private (float x, float y, float z)? SurfaceAt(float x, float z)
+    {
+        if (_navMesh is not { } nav || !nav.NearestPoint(x, z, out var p, out _)) return null;
+        float dx = p.x - x, dz = p.z - z;
+        if (dx * dx + dz * dz > SnapCoverageRadius * SnapCoverageRadius)
+        {
+            if (!_navDisengagedWarned)
+            {
+                _navDisengagedWarned = true;
+                Log.Warn("Bots", $"navmesh does not cover bot {_viewId} at ({x:F0},{z:F0}) — nearest surface " +
+                                 $"{Math.Sqrt(dx * dx + dz * dz):F0}u away; using player-anchored movement (wrong map for this realm?)");
+            }
+            return null;
+        }
+        return p;
     }
 
     /// <summary>
@@ -224,7 +258,11 @@ public sealed class HunterBehavior : IBotBrain
     /// </summary>
     private void ApproachToward(float tx, float tz)
     {
-        if (_navMesh is { } nav)
+        // Route on the mesh only when the bot is actually ON it. If the bot is off-mesh (the navmesh doesn't
+        // cover this region), NavMeshPath would snap the off-mesh start into mesh-space and walk the bot away —
+        // the same coordinate-mismatch trap SurfaceAt guards. Off-mesh → straight step (left un-yanked by the
+        // guarded SnapToSurface), i.e. today's player-anchored movement.
+        if (_navMesh is { } nav && SurfaceAt(_x, _z) is not null)
         {
             var path = NavMeshPath.Find(nav, _x, _z, tx, tz);
             if (path.Count > 0)
@@ -234,7 +272,7 @@ public sealed class HunterBehavior : IBotBrain
                 return;
             }
         }
-        StepToward(tx, tz);   // no mesh, or no corridor → straight step (snapped to surface if a mesh exists)
+        StepToward(tx, tz);   // no mesh, off-mesh, or no corridor → straight step (player-anchored)
     }
 
     /// <summary>
