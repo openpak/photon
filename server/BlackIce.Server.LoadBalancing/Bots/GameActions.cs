@@ -109,14 +109,7 @@ public static class GameActions
     private static PhotonCustomData DamagePacket(float damage, bool crit = false, bool weakPoint = false) =>
         DamageData.BuildPacket(damage, crit, weakPoint);
 
-    private static PhotonCustomData Vec3(float x, float y, float z)
-    {
-        var b = new byte[12];
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(0), x);
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(4), y);
-        BinaryPrimitives.WriteSingleBigEndian(b.AsSpan(8), z);
-        return new PhotonCustomData(PhotonCodes.CustomType.Vector3, b);
-    }
+    private static PhotonCustomData Vec3(float x, float y, float z) => PhotonCustomData.Vector3(x, y, z);
 
     private static PhotonCustomData Quat()
     {
