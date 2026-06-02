@@ -69,12 +69,13 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
             case "col": case "colliders": _colliders = !_colliders; if (_colliders) Refresh(); break;
             case "ent": case "entities": _entities = !_entities; break;
             case "perf": case "heat": case "heatmap": ToggleHeat(); break;
+            case "top": LogTop(RankRenderers(), 10); break;
             case "all": _grid = _nav = _colliders = _entities = true; Refresh(); break;
             case "off": _grid = _nav = _colliders = _entities = false; if (_heat) ToggleHeat(); break;
             default: break;   // bare /dbg → just show status
         }
         _status = $"DBG  grid:{On(_grid)} nav:{On(_nav)} col:{On(_colliders)} ent:{On(_entities)} perf:{On(_heat)}   " +
-                  "(/dbg grid|nav|col|ent|perf|all|off)";
+                  "(/dbg grid|nav|col|ent|perf|top|all|off)";
         _statusUntil = Time.unscaledTime + 6f;
         Logger.LogInfo(_status);
     }
@@ -91,7 +92,7 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
     private void Update()
     {
         if ((_nav || _colliders) && Time.unscaledTime >= _nextRefresh) Refresh();
-        if (_heat && Time.unscaledTime >= _nextHeat) ApplyHeatmap();
+        if (_heat && Time.unscaledTime >= _nextHeat) ApplyHeatmap(logTop: false);   // periodic re-tint, quiet
     }
 
     // --- Performance heatmap: tint every renderer green→red by an estimated per-object cost ---------------
@@ -101,34 +102,71 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
     private void ToggleHeat()
     {
         _heat = !_heat;
-        if (_heat) ApplyHeatmap();
+        if (_heat) ApplyHeatmap(logTop: true);   // log the top-10 once, on enable (not every refresh)
         else ClearHeatmap();
+    }
+
+    /// <summary>One renderer plus its estimated cost and the geometry stats we print in the top-N log.</summary>
+    private readonly struct RenderCost
+    {
+        public readonly Renderer R; public readonly float Cost; public readonly int Verts; public readonly int Mats; public readonly string Name;
+        public RenderCost(Renderer r, float cost, int verts, int mats, string name) { R = r; Cost = cost; Verts = verts; Mats = mats; Name = name; }
+    }
+
+    /// <summary>Scans every renderer once and returns them ranked by estimated cost (descending).</summary>
+    private List<RenderCost> RankRenderers()
+    {
+        var list = new List<RenderCost>();
+        foreach (var r in FindObjectsOfType<Renderer>())
+        {
+            if (r is null) continue;
+            var go = r.gameObject;
+            Mesh? mesh = (r as SkinnedMeshRenderer)?.sharedMesh ?? go.GetComponent<MeshFilter>()?.sharedMesh;
+            list.Add(new RenderCost(r, CostOf(r), mesh?.vertexCount ?? 0, r.sharedMaterials.Length, go.name));
+        }
+        list.Sort((a, b) => b.Cost.CompareTo(a.Cost));
+        return list;
+    }
+
+    /// <summary>Logs the N costliest objects by name (to the game's BepInEx log) — a ranked optimization list.</summary>
+    private void LogTop(List<RenderCost> ranked, int n)
+    {
+        Logger.LogInfo($"=== perf: top {n} costliest renderers (of {ranked.Count}) ===");
+        for (int i = 0; i < n && i < ranked.Count; i++)
+        {
+            var e = ranked[i];
+            Logger.LogInfo($"  #{i + 1,2}  cost={e.Cost,7:0}  verts={e.Verts,6}  mats={e.Mats,2}  \"{e.Name}\"");
+        }
+        _status = $"DBG  logged top {Mathf.Min(n, ranked.Count)} costliest objects to the BepInEx log";
+        _statusUntil = Time.unscaledTime + 6f;
     }
 
     /// <summary>Scans all renderers and tints each (via a non-destructive <see cref="MaterialPropertyBlock"/>)
     /// on a green→yellow→red scale by an ESTIMATED cost: geometry (vertices), material count, script/component
     /// count, and a bump for per-frame-dynamic systems (skinned mesh, animator, particles, non-kinematic
     /// rigidbody, MeshCollider, real-time light). This is a static complexity proxy for hunting hotspots, not a
-    /// live CPU profile — but it reliably surfaces the heavy meshes/objects to optimize.</summary>
-    private void ApplyHeatmap()
+    /// live CPU profile — but it reliably surfaces the heavy meshes/objects to optimize. When <paramref name="logTop"/>
+    /// is set, also writes the 10 costliest objects to the BepInEx log.</summary>
+    private void ApplyHeatmap(bool logTop)
     {
         _nextHeat = Time.unscaledTime + Mathf.Max(0.25f, _refreshSeconds.Value);
         ClearHeatmap();
         _block ??= new MaterialPropertyBlock();
         float max = Mathf.Max(1f, _heatMaxCost.Value);
-        foreach (var r in FindObjectsOfType<Renderer>())
+        var ranked = RankRenderers();
+        foreach (var e in ranked)
         {
-            if (r is null) continue;
-            float t = Mathf.Clamp01(Mathf.Sqrt(CostOf(r) / max));   // sqrt so mid-cost reads orange, not green
+            float t = Mathf.Clamp01(Mathf.Sqrt(e.Cost / max));   // sqrt so mid-cost reads orange, not green
             var c = Heat(t);
-            r.GetPropertyBlock(_block);
+            e.R.GetPropertyBlock(_block);
             _block.SetColor("_Color", c);          // built-in/standard pipeline tint
             _block.SetColor("_BaseColor", c);      // URP/HDRP tint
             _block.SetColor("_EmissionColor", c * (t * 2f));   // make hotspots glow
-            r.SetPropertyBlock(_block);
-            _tinted.Add(r);
+            e.R.SetPropertyBlock(_block);
+            _tinted.Add(e.R);
         }
-        _status = $"DBG  perf heatmap: tinted {_tinted.Count} renderers (green=cheap → red=hot, max={max:0})";
+        if (logTop) LogTop(ranked, 10);   // a ranked list to go with the visual (enable only, not every refresh)
+        _status = $"DBG  perf heatmap: tinted {_tinted.Count} renderers (green=cheap → red=hot, max={max:0}); top 10 in the log";
         _statusUntil = Time.unscaledTime + 6f;
     }
 
