@@ -42,6 +42,23 @@ public class WalkableMapTests
     }
 
     [Fact]
+    public void TryGround_returns_the_nearby_floor_closest_to_the_target_height()
+    {
+        var map = new WalkableMap(3f);
+        map.Record(0, 0, 0);      // ground floor cell at y=0
+        map.Record(0, 30, 0);     // an upper floor cell at the same XZ, y=30
+
+        // Near a query at the same XZ: asking near y=2 grounds on the ground floor; near y=28 → upper floor.
+        Assert.True(map.TryGround(0.5f, 0.5f, nearY: 2f, xzRadius: 10f, out var low));
+        Assert.Equal(0f, low, 3);
+        Assert.True(map.TryGround(0.5f, 0.5f, nearY: 28f, xzRadius: 10f, out var high));
+        Assert.Equal(30f, high, 3);
+
+        // No walked cell within range → not grounded (outside the explored area).
+        Assert.False(map.TryGround(500f, 500f, nearY: 0f, xzRadius: 10f, out _));
+    }
+
+    [Fact]
     public void Save_and_load_round_trips_the_cells()
     {
         var map = new WalkableMap(2.5f);

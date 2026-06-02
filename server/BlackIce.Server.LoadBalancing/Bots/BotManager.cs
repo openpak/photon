@@ -159,6 +159,7 @@ public sealed class BotManager
                 {
                     var (nav, yOff) = NavMeshFor(session.RoomName);
                     hunter.SetNavMesh(nav, yOff);
+                    hunter.SetWalkable(Walkable?.For(session.RoomName));   // dense learned ground (preferred)
                 }
                 var step = brain.Think(worlds.For(session.RoomName));
                 session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, step.Position), unreliable: true);

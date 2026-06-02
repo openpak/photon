@@ -42,6 +42,32 @@ public sealed class WalkableMap
     /// <summary>True if the cell containing (x,y,z) has been observed walkable.</summary>
     public bool Contains(float x, float y, float z) => _cells.Contains(Key(x, y, z));
 
+    /// <summary>
+    /// The walkable ground height at (x,z): among recorded cells within <paramref name="xzRadius"/> in XZ,
+    /// the height closest to <paramref name="nearY"/> (so a bot grounds on its own storey in a multi-level
+    /// area). Returns false when no walked cell is near (x,z) — the position is outside the explored area.
+    ///
+    /// <para>This is the exact, live-frame ground truth from real-player movement — unlike a static navmesh it
+    /// carries no coordinate-offset error, so it's the preferred grounding source where coverage exists.</para>
+    /// </summary>
+    public bool TryGround(float x, float z, float nearY, float xzRadius, out float y)
+    {
+        y = 0f;
+        float r2 = xzRadius * xzRadius;
+        double bestGap = double.MaxValue;
+        bool found = false;
+        foreach (var (gx, gy, gz) in _cells)
+        {
+            float cx = gx * _cell, cz = gz * _cell;
+            float dx = cx - x, dz = cz - z;
+            if (dx * dx + dz * dz > r2) continue;
+            float cy = gy * _cell;
+            double gap = cy - nearY; if (gap < 0) gap = -gap;
+            if (gap < bestGap) { bestGap = gap; y = cy; found = true; }
+        }
+        return found;
+    }
+
     /// <summary>Cell-center positions of every walkable cell (for export / nearest-walkable queries).</summary>
     public IEnumerable<(float x, float y, float z)> Points()
     {

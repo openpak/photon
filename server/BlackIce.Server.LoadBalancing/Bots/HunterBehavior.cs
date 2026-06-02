@@ -60,6 +60,8 @@ public sealed class HunterBehavior : IBotBrain
                                                    // treat the bot as off-mesh (see SurfaceAt)
     private const float SnapVerticalTolerance = 15f;  // max |meshY - playerAnchoredY| before we treat the mesh
                                                       // as vertically misaligned and keep the anchored height
+    private const float GroundXZRadius = 10f;  // a walked cell within this XZ distance grounds the bot on the
+                                               // learned walkable map (preferred over the static navmesh)
     private const float LeashRadius = 60f;     // max XZ distance a bot may stray from the nearest player — with
                                                // no live terrain to stand on, this keeps bots in the playable
                                                // area around the human instead of walking straight off the map
@@ -82,6 +84,8 @@ public sealed class HunterBehavior : IBotBrain
     private float _navYOffset;                  // added to mesh surface Y to rebase the navmesh into the live
                                                // world's frame (baked level sits ~63u below); measured per room
                                                // from the player by the map auto-selector
+    private WalkableMap? _walkable;             // dense, live-frame ground truth learned from real players —
+                                               // the preferred grounding source (no coordinate-offset error)
     private readonly Dictionary<int, long> _cooldownUntil = new();
 
     public int Xp { get; private set; }
@@ -124,6 +128,10 @@ public sealed class HunterBehavior : IBotBrain
         _navMesh = navMesh;
         _navDisengagedWarned = false;
     }
+
+    /// <summary>Supply the room's learned walkable map — the preferred grounding source (dense, live-frame,
+    /// no offset error). The manager re-supplies it each tick as it grows. Null = none yet (use navmesh/leash).</summary>
+    public void SetWalkable(WalkableMap? walkable) => _walkable = walkable;
 
     public BotStep Think(RoomWorldState world)
     {
@@ -276,9 +284,15 @@ public sealed class HunterBehavior : IBotBrain
     /// </summary>
     private (float x, float y, float z)? SurfaceAt(float x, float z)
     {
-        // Floor-aware: ask for the surface whose height is nearest the bot's CURRENT world Y (expressed in the
-        // mesh's frame, i.e. minus the rebase offset), so in a multi-storey navmesh we snap to the bot's own
-        // floor rather than an upper floor sharing the XZ.
+        // Preferred: the dense, live-frame walkable map learned from the real player — exact ground height at
+        // this XZ (floor-aware via nearY), with NO coordinate-offset error. Where the player has walked, this
+        // beats the static navmesh (whose live offset isn't perfectly uniform).
+        if (_walkable is { } walk && walk.TryGround(x, z, _y, GroundXZRadius, out var gy))
+            return (x, gy, z);
+
+        // Fallback: the offset-calibrated static navmesh, for areas not yet walked. Floor-aware: ask for the
+        // surface whose height is nearest the bot's current world Y (in the mesh's frame, minus the rebase
+        // offset), so in a multi-storey navmesh we snap to the bot's own floor, not an upper one.
         if (_navMesh is not { } nav || !nav.NearestPoint(x, z, _y - _navYOffset, out var p, out _)) return null;
         p.y += _navYOffset;   // rebase the mesh surface into the live world's vertical frame before any check
         float dx = p.x - x, dz = p.z - z;
