@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using BlackIce.Photon;
@@ -7,92 +8,70 @@ using BlackIce.Server.Data;
 namespace BlackIce.Server.LoadBalancing.Plugins;
 
 /// <summary>
-/// Built-in plugin that keeps a <b>server-authoritative kill feed / killstreak</b> with zero client support.
-/// The server doesn't know real hit points, so it models them: it sums the damage each player receives and,
-/// when the running total crosses an assumed max-HP, credits the attacker with a kill, resets the victim,
-/// and announces it (plus milestone streaks) to the room via a <c>ReceiveChatMessage</c> RPC — the same
-/// vanilla chat channel the client already renders, so the feed shows up with no mod. It is an approximation
-/// (the assumed HP won't match the game exactly) and is <b>off by default</b>; an admin enables it with
-/// <c>killfeed on</c> and tunes the model with <c>killfeed hp &lt;n&gt;</c>. Each kill is also published on
-/// the <see cref="KillBus"/> so the <c>arena</c> match plugin can score on it.
+/// Built-in plugin that detects <b>real player deaths</b> from the relay and announces them, with zero
+/// client support. The game broadcasts a player's death as a <c>KilledPlayerRemote</c> RPC carrying the
+/// victim's pawn viewId (captured live — see <c>docs/protocol/03-rpc-catalog.md</c>); this plugin watches
+/// for it, announces the elimination over vanilla chat, and publishes a <see cref="DeathNotice"/> on the
+/// <see cref="KillBus"/> so the <c>arena</c> match plugin can score it. (It replaces an earlier model that
+/// summed <c>TakeDamage</c> toward an assumed max-HP — which never fired, since damage is resolved
+/// master-side and no <c>TakeDamage</c> transits the wire.) Off by default; an admin runs <c>killfeed on</c>.
 /// </summary>
 public sealed class KillfeedPlugin : IServerPlugin
 {
     public string Name => "killfeed";
-    public string Description => "Server-authoritative killstreak feed: models HP from relayed damage and announces kills/streaks via vanilla chat. Off by default.";
-    public int Order => 100;   // react AFTER the validators: only count hits that actually land
+    public string Description => "Real-death elimination feed: detects KilledPlayerRemote, announces it via vanilla chat, and publishes deaths for the arena scorer. Off by default.";
+    public int Order => 100;   // react AFTER the validators
 
     public void Configure(PluginBuilder builder)
     {
         var state = new KillfeedState();
-        var rooms = (RoomRegistry?)builder.Services.GetService(typeof(RoomRegistry));
-        var modes = (GameModeRegistry?)builder.Services.GetService(typeof(GameModeRegistry));
         var bus = (KillBus?)builder.Services.GetService(typeof(KillBus));
 
-        // Clear a room's tallies when a match resets, so the next round's streaks/HP start fresh.
-        if (bus is not null) bus.RoomReset += state.ForgetRoom;
+        if (bus is not null) bus.RoomReset += state.ClearDead;   // a new round lets everyone die again
 
         builder
-            .AddInterceptor(() => new KillfeedInterceptor(state, rooms, modes, bus))
+            .AddInterceptor(() => new KillfeedInterceptor(state, bus))
             .OnActorLeft(ctx => state.Forget(ctx.RoomName, ctx.Actor))
             .AddCommands(new KillfeedCommands(state));
     }
 }
 
-/// <summary>
-/// Global kill-feed settings plus the modelled per-player tallies (damage taken toward the next "death",
-/// and current killstreak), keyed by (room, actor). Held here rather than inside the per-room interceptor
-/// so a leaver's entries can be dropped on <c>OnActorLeft</c> and a whole room's cleared on a match reset.
-/// Accessed on the Game listener thread (relay + join/leave hooks) with the settings also written from the
-/// console thread; concurrent maps and atomic scalars cover that.
-/// </summary>
+/// <summary>Kill-feed on/off plus the per-room "currently dead" set used to debounce repeated death RPCs
+/// (the game may resend). Accessed on the Game listener thread with the flag also written from the console
+/// thread; a concurrent map and an atomic bool cover that.</summary>
 internal sealed class KillfeedState
 {
     public bool On;
-    public int AssumedMaxHp = 100;
-    public int StreakAnnounceThreshold = 3;   // first streak size that earns its own "on fire" line
 
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Room, int Actor), float> _damageTaken = new();
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<(string Room, int Actor), int> _streak = new();
+    private readonly ConcurrentDictionary<(string Room, int Actor), bool> _dead = new();
 
-    public float DamageTaken(string room, int actor) => _damageTaken.GetValueOrDefault((room, actor));
-    public void SetDamageTaken(string room, int actor, float value) => _damageTaken[(room, actor)] = value;
-    public int IncStreak(string room, int actor) => _streak.AddOrUpdate((room, actor), 1, (_, v) => v + 1);
-    public void ResetStreak(string room, int actor) => _streak[(room, actor)] = 0;
+    /// <summary>Marks a victim dead; returns true only the first time (so the caller scores once per death).</summary>
+    public bool MarkDead(string room, int actor) => _dead.TryAdd((room, actor), true);
 
-    /// <summary>Drops a departed player's tallies (called from the leave hook).</summary>
-    public void Forget(string room, int actor)
+    /// <summary>Drops a departed player's dead-flag (called from the leave hook).</summary>
+    public void Forget(string room, int actor) => _dead.TryRemove((room, actor), out _);
+
+    /// <summary>Clears every dead-flag for a room (called on a round/match reset).</summary>
+    public void ClearDead(string room)
     {
-        _damageTaken.TryRemove((room, actor), out _);
-        _streak.TryRemove((room, actor), out _);
-    }
-
-    /// <summary>Drops every tally for a room (called on a match/round reset).</summary>
-    public void ForgetRoom(string room)
-    {
-        foreach (var key in _damageTaken.Keys.Where(k => k.Room == room).ToArray()) _damageTaken.TryRemove(key, out _);
-        foreach (var key in _streak.Keys.Where(k => k.Room == room).ToArray()) _streak.TryRemove(key, out _);
+        foreach (var key in _dead.Keys.Where(k => k.Room == room).ToArray()) _dead.TryRemove(key, out _);
     }
 }
 
 /// <summary>
-/// Per-room kill tracker: accumulates received damage per victim and credits a kill (and streak) to the
-/// attacker that crosses the assumed max-HP. Announcements ride the Originate path so they reach every
-/// member including the killer; each kill is also published on the <see cref="KillBus"/> for the arena scorer.
+/// Per-relay death detector: when a <c>KilledPlayerRemote</c> RPC passes through, derives the victim actor
+/// from the pawn viewId in the first arg, debounces, publishes a <see cref="DeathNotice"/>, and announces
+/// the elimination (forwarded alongside the original RPC so clients still process the death).
 /// </summary>
 internal sealed class KillfeedInterceptor : IEventInterceptor
 {
-    private const int MaxViewIdsPerActor = 1000;   // viewID / 1000 = owning actor
+    private const int MaxViewIdsPerActor = 1000;   // viewId / 1000 = owning actor
     private readonly KillfeedState _state;
-    private readonly RoomRegistry? _rooms;
-    private readonly GameModeRegistry? _modes;
     private readonly KillBus? _bus;
 
-    public KillfeedInterceptor(KillfeedState state, RoomRegistry? rooms, GameModeRegistry? modes, KillBus? bus)
+    public KillfeedInterceptor(KillfeedState state, KillBus? bus)
     {
         _state = state;
-        _rooms = rooms;
-        _modes = modes;
         _bus = bus;
     }
 
@@ -101,68 +80,35 @@ internal sealed class KillfeedInterceptor : IEventInterceptor
         if (!_state.On) return RelayVerdict.Forward(ctx.Event);
 
         var info = PunRpcInfo.From(ctx.Event);
-        if (info is not { DamageValue: { } dmg } rpc || !float.IsFinite(dmg) || dmg <= 0f)
-            return RelayVerdict.Forward(ctx.Event);
+        if (info is not { Method: "KilledPlayerRemote" } rpc) return RelayVerdict.Forward(ctx.Event);
+        if (rpc.Args is not { Length: > 0 } || rpc.Args[0] is not int victimView) return RelayVerdict.Forward(ctx.Event);
 
-        int attacker = ctx.SenderActor;
-        int victim = rpc.ViewId / MaxViewIdsPerActor;
-        if (victim == attacker) return RelayVerdict.Forward(ctx.Event);
+        int victim = victimView / MaxViewIdsPerActor;
+        if (!_state.MarkDead(ctx.RoomName, victim)) return RelayVerdict.Forward(ctx.Event);   // already dead -> debounce
 
-        // Count only player-vs-player damage that actually lands: the victim must be a combatant (a room
-        // member, or a team-assigned participant such as a soak bot), and the game mode must not forbid the
-        // hit (friendly fire is dropped by the game-mode plugin, so it would never reach the victim).
-        if (!IsCombatant(ctx.RoomName, victim)) return RelayVerdict.Forward(ctx.Event);
-        if (_modes?.BlocksDamage(ctx.RoomName, attacker, victim) == true) return RelayVerdict.Forward(ctx.Event);
-
-        float total = _state.DamageTaken(ctx.RoomName, victim) + dmg;
-        if (total < _state.AssumedMaxHp) { _state.SetDamageTaken(ctx.RoomName, victim, total); return RelayVerdict.Forward(ctx.Event); }
-
-        // Kill: credit the attacker, reset the victim's pool and streak, publish for the arena scorer.
-        _state.SetDamageTaken(ctx.RoomName, victim, 0f);
-        _state.ResetStreak(ctx.RoomName, victim);
-        int streak = _state.IncStreak(ctx.RoomName, attacker);
-        _bus?.Publish(new KillNotice(ctx.RoomName, attacker, victim, streak));
-
-        var announce = new List<EventData> { ServerRpc.Chat(attacker, $"☠ Actor {attacker} eliminated Actor {victim}") };
-        if (streak >= _state.StreakAnnounceThreshold)
-            announce.Add(ServerRpc.Chat(attacker, $"\U0001F525 Actor {attacker} is on a {streak} kill streak!"));
-
-        Log.Info("Killfeed", $"\"{ctx.RoomName}\": actor {attacker} killed actor {victim} (streak {streak})");
-        return RelayVerdict.Originate(ctx.Event, announce);
+        _bus?.PublishDeath(new DeathNotice(ctx.RoomName, victim));
+        Log.Info("Killfeed", $"\"{ctx.RoomName}\": actor {victim} was eliminated");
+        return RelayVerdict.Originate(ctx.Event, new List<EventData> { ServerRpc.Chat(victim, $"☠ Actor {victim} was eliminated") });
     }
-
-    /// <summary>A combatant is anyone the server treats as a player here: a live room member, or a
-    /// team-assigned participant (which also covers soak bots, who hold a team but no peer membership).</summary>
-    private bool IsCombatant(string room, int actor) =>
-        (_rooms?.FindSession(room)?.Actors().Contains(actor) ?? false) || _modes?.TeamOf(room, actor) is not null;
 }
 
-/// <summary>Console commands to toggle and tune the kill feed live (Admin).</summary>
+/// <summary>Console command to toggle the kill feed live (Admin).</summary>
 internal sealed class KillfeedCommands
 {
     private readonly KillfeedState _state;
     public KillfeedCommands(KillfeedState state) => _state = state;
 
-    [ConsoleCommand("killfeed", Usage = "[on|off|hp <n>]", MinLevel = PlayerLevel.Admin)]
+    [ConsoleCommand("killfeed", Usage = "[on|off]", MinLevel = PlayerLevel.Admin)]
     private string Cmd(CommandLine line)
     {
-        if (line.Parts.Count == 1)
-            return $"killfeed: {(_state.On ? "on" : "off")}, assumed max-HP {_state.AssumedMaxHp}";
+        if (line.Parts.Count == 1) return $"killfeed: {(_state.On ? "on" : "off")} (announces real deaths)";
 
         var verb = line.Parts[1].ToLowerInvariant();
         switch (verb)
         {
-            case "on": _state.On = true; return $"killfeed: on (assumed max-HP {_state.AssumedMaxHp})";
+            case "on": _state.On = true; return "killfeed: on";
             case "off": _state.On = false; return "killfeed: off";
-            case "hp":
-                if (line.Parts.Count >= 3 && int.TryParse(line.Parts[2], out var hp) && hp > 0)
-                {
-                    _state.AssumedMaxHp = hp;
-                    return $"killfeed: assumed max-HP {hp}";
-                }
-                return "usage: killfeed hp <n>   (n > 0)";
-            default:
-                return "usage: killfeed [on|off|hp <n>]";
+            default: return "usage: killfeed [on|off]";
         }
     }
 }

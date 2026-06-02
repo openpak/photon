@@ -122,24 +122,8 @@ public class ServerPluginsTests
         Assert.Equal(RelayAction.Forward, i.Intercept(Ctx(1, Dmg(9, 40f))).Action);
     }
 
-    // --- killfeed (server-authoritative kills via Originate) ------------------------------------
-
-    [Fact]
-    public void Killfeed_credits_a_kill_when_modelled_HP_is_exhausted_and_announces_it()
-    {
-        var reg = new RoomRegistry();
-        var session = reg.Session("r");
-        session.Join(1, Peer());
-        session.Join(2, Peer());
-
-        var state = new KillfeedState { On = true, AssumedMaxHp = 100 };
-        var i = new KillfeedInterceptor(state, reg, modes: null, bus: null);
-
-        Assert.Equal(RelayAction.Forward, i.Intercept(Ctx(1, Dmg(2, 60f))).Action);     // 60 < 100: accumulate
-        var v = i.Intercept(Ctx(1, Dmg(2, 60f)));                                        // 120 >= 100: kill
-        Assert.Equal(RelayAction.Originate, v.Action);
-        Assert.Equal("ReceiveChatMessage", PunRpcInfo.From(v.Originated[0])!.Value.Method);
-    }
+    // Killfeed unit coverage now lives in KillfeedDeathTests (the HP-summing model was retired for a
+    // real-death detector — see the 2026-06-02 arena-down-and-respawn plan, Task 6).
 
     // --- full stack: command -> plugin manager -> relay -> reflected hit delivered to attacker ---
 
@@ -217,45 +201,9 @@ public class ServerPluginsTests
         Assert.Equal(1, state.Score("r", t1));
     }
 
-    [Fact]
-    public void Killfeed_kills_drive_arena_score_to_a_win_and_reset_through_the_real_relay()
-    {
-        var modes = new GameModeRegistry();
-        modes.SetMode("r", GameMode.TeamVsTeam);
-        var bus = new KillBus();
-        var mgr = new PluginManager();
-        var reg = new RoomRegistry(mgr.Evaluate, modes);
-        mgr.Add(new KillfeedPlugin(), enabled: true);
-        mgr.Add(new ArenaPlugin(), enabled: true);
-        mgr.ConfigureAll(new ServicesWith(reg, modes, bus, new ArenaOptions { Enabled = true, ScoreCap = 2 }));
-
-        // Arm the kill model so a single 25-damage hit is a kill.
-        var console = new CommandRegistry();
-        foreach (var p in mgr.CommandProviders) console.Register(p);
-        console.TryExecute("killfeed on", PlayerLevel.Console, out _);
-        console.TryExecute("killfeed hp 20", PlayerLevel.Console, out _);
-
-        var session = reg.Session("r");
-        var p1 = Peer(out _); session.Join(1, p1);
-        var p2 = Peer(out var p2Raised); session.Join(2, p2);
-        modes.AssignTeam("r", 1);   // team 0
-        modes.AssignTeam("r", 2);   // team 1
-
-        session.RelayFrom(senderActor: 1, Dmg(2, 25f));   // actor 1 (team A) kills actor 2 -> A scores 1
-        session.RelayFrom(senderActor: 1, Dmg(2, 25f));   // A scores 2 == cap -> A wins -> reset
-
-        var chat = p2Raised.Select(ChatText).Where(t => t is not null).ToList();
-        Assert.Contains(chat, t => t!.Contains("Team A scores"));
-        Assert.Contains(chat, t => t!.Contains("Team A WINS"));
-        Assert.Contains(chat, t => t!.Contains("New round"));
-    }
-
-    private static string? ChatText(EventData ev)
-    {
-        if (PunRpcInfo.From(ev)?.Method != "ReceiveChatMessage") return null;
-        if (!ev.Parameters.TryGetValue((byte)245, out var d) || d is not System.Collections.IDictionary rpc) return null;
-        return rpc[(byte)4] is object[] { Length: > 0 } args && args[0] is string s ? s : null;
-    }
+    // The killfeed -> arena -> win -> reset integration ran on the retired HP-summing model and
+    // arming it via "killfeed hp"; arena now scores on real deaths (KilledPlayerRemote), so that
+    // end-to-end coverage is rebuilt in ArenaMatchTests (2026-06-02 arena-down-and-respawn plan, Task 8).
 
     // --- cumulative composition in PluginManager.Evaluate ---------------------------------------
 
