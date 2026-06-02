@@ -78,6 +78,16 @@ public sealed class NameServerHandler : IOperationHandler
         }
 
         // Public peer: a Steam-validated ticket is REQUIRED (fail closed).
+        // ...but first, refuse to grant a VERIFIED identity at all if the HMAC secret is the shipped default:
+        // the verified flag is signed with it, so a default secret (public in the GPLv3 source) lets anyone
+        // forge a verified token and present it straight to Master/Game, bypassing this validation entirely.
+        // Fail closed for public until the operator sets a real secret. (Security review C1.)
+        if (_secret == ServerOptions.DefaultSecret)
+        {
+            Log.Warn("NameServer", $"{peer.Remote} public auth refused: Server.Secret is the shipped default — " +
+                                   "a verified identity would be forgeable. Set a strong Server.Secret.");
+            peer.SendResponse(Fail("Server is not configured for public authentication")); return;
+        }
         if (validId is null)
         {
             Log.Warn("NameServer", $"{peer.Remote} public auth without a valid SteamID -> rc=-1");

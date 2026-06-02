@@ -46,23 +46,33 @@ public sealed class SteamGameServerValidator : ISteamTicketValidator, IDisposabl
     public Task<SteamAuthResult> ValidateAsync(byte[] ticket, ulong assertedSteamId, CancellationToken ct)
     {
         var tcs = new TaskCompletionSource<SteamAuthResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-        // One in-flight validation per SteamID; replace any stale one (the caller times out independently).
-        _pending[assertedSteamId] = tcs;
+        // One in-flight validation per SteamID. If another is already pending for this SteamID (e.g. a client
+        // griefing a victim's id, or a fast retry), supersede it cleanly rather than clobbering silently
+        // (security review M1). The Steam BeginAuthSession is itself keyed by SteamID, so concurrent sessions
+        // for the same id conflict at Steam's level anyway; this just keeps our bookkeeping consistent.
+        _pending.AddOrUpdate(assertedSteamId, tcs, (_, old) =>
+        {
+            old.TrySetResult(SteamAuthResult.Unavailable("superseded by a newer validation"));
+            return tcs;
+        });
 
         var begin = SteamServer.BeginAuthSession(ticket, assertedSteamId);
         if (begin != BeginAuthResult.OK)
         {
-            _pending.TryRemove(assertedSteamId, out _);
+            if (_pending.TryGetValue(assertedSteamId, out var cur) && ReferenceEquals(cur, tcs))
+                _pending.TryRemove(assertedSteamId, out _);
             return Task.FromResult(SteamAuthResult.Rejected($"BeginAuthSession returned {begin}"));
         }
 
-        // Tie the awaited result to the caller's cancellation (the NameServer's timeout) and clean up the session.
+        // Tie the awaited result to the caller's cancellation (the NameServer's timeout) and clean up the
+        // session — but only if THIS request is still the current one (don't tear down a newer session).
         ct.Register(() =>
         {
-            if (_pending.TryRemove(assertedSteamId, out var pending))
+            if (_pending.TryGetValue(assertedSteamId, out var cur) && ReferenceEquals(cur, tcs)
+                && _pending.TryRemove(assertedSteamId, out _))
             {
                 SafeEndSession(assertedSteamId);
-                pending.TrySetResult(SteamAuthResult.Unavailable("validation timed out"));
+                tcs.TrySetResult(SteamAuthResult.Unavailable("validation timed out"));
             }
         });
         return tcs.Task;
@@ -72,9 +82,21 @@ public sealed class SteamGameServerValidator : ISteamTicketValidator, IDisposabl
     {
         if (!_pending.TryRemove(steamId.Value, out var tcs)) return;   // unknown/already-resolved
         SafeEndSession(steamId.Value);
-        tcs.TrySetResult(response == AuthResponse.OK
-            ? SteamAuthResult.Verified(steamId.Value)
-            : SteamAuthResult.Rejected($"AuthResponse={response}"));
+
+        if (response != AuthResponse.OK)
+        {
+            tcs.TrySetResult(SteamAuthResult.Rejected($"AuthResponse={response}"));
+            return;
+        }
+        // Family Sharing / borrowed license: the ticket validates but the SteamID playing (steamId) is not the
+        // license owner (ownerId). Reject so a banned owner can't farm verified alts via shared copies, and so a
+        // borrowed license never receives admin trust (security review H1).
+        if (ownerId.Value != steamId.Value)
+        {
+            tcs.TrySetResult(SteamAuthResult.Rejected($"borrowed license (owner {ownerId.Value} != player {steamId.Value})"));
+            return;
+        }
+        tcs.TrySetResult(SteamAuthResult.Verified(steamId.Value));
     }
 
     private static void SafeEndSession(ulong steamId)

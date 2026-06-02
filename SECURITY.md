@@ -46,6 +46,14 @@ privilege changes on the console.
 
 ## Other notes
 - The shared `secret` for HMAC auth tokens is currently a hardcoded placeholder
-  (`change-me-platform-sp1`); move it to config/secret storage before any public deployment.
+  (`ServerOptions.DefaultSecret`); move it to config/secret storage before any public deployment. The token
+  now carries the Steam-`verified` flag, so a known secret lets an attacker forge a verified identity — for
+  that reason **public auth now fails closed under the default secret** (`NameServerHandler`), but the secret
+  must still be set (ideally auto-generated + persisted) for public play. (Security review C1.)
+- **Ticket replay:** a Steam auth-session ticket is not bound to the network session beyond Steam's own
+  single-session `BeginAuthSession` dedup; the transport AES protects it in transit. Acceptable for now;
+  revisit if stronger per-connection binding is needed. (Security review M2.)
+- **Async auth drain:** the NameServer's validation response is sent from `OnMaintenance`; on shutdown an
+  in-flight validation may not be drained and the client relies on its own timeout. (Security review M3.)
 - The repo ships only original code + protocol docs; never commit the game's binaries, the
   decompiled sources, packet captures, or `oplog.jsonl` (which contains live credentials).

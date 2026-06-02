@@ -116,6 +116,22 @@ public class SteamTicketAuthTests
     }
 
     [Fact]
+    public void Public_auth_is_refused_under_the_default_secret_even_with_a_valid_ticket()
+    {
+        // Security review C1: the verified flag is HMAC-signed with the secret; the shipped default is public,
+        // so a verified token would be forgeable. Public auth must fail closed until a real secret is set.
+        var ns = new NameServerHandler("127.0.0.1:5055", BlackIce.Server.Core.ServerOptions.DefaultSecret,
+            TestAccounts.Create(), new FakeValidator(SteamAuthResult.Verified(76561198000000009UL)),
+            allowAnonymousLan: true);
+        var (peer, last) = Peer(Public);
+
+        ns.OnOperationRequest(peer, AuthReq(SteamId, new byte[] { 1, 2, 3 }));
+
+        Assert.Equal(-1, last()!.ReturnCode);
+        Assert.False(peer.IsVerified);
+    }
+
+    [Fact]
     public void Lan_peer_keeps_the_anonymous_unverified_path()
     {
         var ns = Handler(new NullSteamTicketValidator());   // no ticket needed on LAN
