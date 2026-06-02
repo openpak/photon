@@ -34,21 +34,40 @@ public class PunRpcDecodeTests
     }
 
     [Fact]
-    public void Handles_shortcut_rpc_with_null_method_name()
+    public void Resolves_shortcut_rpc_to_a_method_name_and_index()
     {
         var ev = new EventData(200, new()
         {
             { 245, new Dictionary<object, object>
                 {
                     { (byte)0, 1001 },
-                    { (byte)5, (byte)73 },                      // shortcut index, no name
+                    { (byte)5, (byte)73 },                      // shortcut index 73 = WakeEnemyAfterDelay
                     { (byte)4, new object[] { DamagePacket(10f) } },
                 } },
         });
         var info = PunRpcInfo.From(ev);
         Assert.True(info.HasValue);
-        Assert.Null(info!.Value.Method);
+        Assert.Equal("WakeEnemyAfterDelay", info!.Value.Method);   // now resolved via RpcShortcuts
+        Assert.Equal(73, info.Value.MethodIndex);
         Assert.Equal(10f, info.Value.DamageValue!.Value, 3);
+    }
+
+    [Fact]
+    public void Exposes_rpc_args_for_inspection()
+    {
+        var ev = new EventData(200, new()
+        {
+            { 245, new Dictionary<object, object>
+                {
+                    { (byte)5, (byte)32 },                      // KilledPlayerRemote
+                    { (byte)4, new object[] { 6001 } },         // victim pawn viewId
+                } },
+        });
+        var info = PunRpcInfo.From(ev);
+        Assert.True(info.HasValue);
+        Assert.Equal("KilledPlayerRemote", info!.Value.Method);
+        Assert.NotNull(info.Value.Args);
+        Assert.Equal(6001, Assert.IsType<int>(info.Value.Args![0]));
     }
 
     [Fact]
