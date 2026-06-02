@@ -55,7 +55,7 @@ public sealed class MasterServerHandler : IOperationHandler
             .On(OpAuthenticate, (peer, req) =>
             {
                 bool anon = _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote);
-                var response = Authenticate(req, anon);
+                var response = Authenticate(req, anon, peer);
                 if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
                 peer.SendResponse(response);
             })
@@ -73,28 +73,30 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
 
-    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
+    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
-        // Full Name Server flow: a token is present and must validate. Recover the SteamID and
-        // reject banned accounts.
+        // Full Name Server flow: a token is present and must validate. Recover the identity (SteamID + whether
+        // a Steam ticket proved it) and reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var ident))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
-            if (_accounts?.Find(steamId)?.IsBanned == true)
+            if (_accounts?.Find(ident.UserId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+            if (peer is not null) { peer.SteamId = ident.UserId; peer.IsVerified = ident.Verified; }
             return new OperationResponse(OpAuthenticate, 0, null, new());
         }
 
         // LAN/direct flow (UseNameServer=false): no token issued. Only honored when explicitly
-        // enabled AND the peer is on a trusted local network (checked by the caller).
+        // enabled AND the peer is on a trusted local network (checked by the caller). Anonymous => never verified.
         if (!allowAnonymous)
             return new OperationResponse(OpAuthenticate, -1, "Authentication token required", new());
 
         var userId = Guid.NewGuid().ToString();
+        if (peer is not null) { peer.SteamId = userId; peer.IsVerified = false; }
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
-            { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop
+            { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop (unverified)
             { PhotonCodes.Param.UserId, userId },
         });
     }

@@ -86,7 +86,7 @@ public sealed class GameServerHandler : IOperationHandler
 
     private void HandleAuthenticate(PeerConnection peer, OperationRequest request)
     {
-        var response = Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
+        var response = Authenticate(request, _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote), peer);
         if (response.ReturnCode == 0) peer.Status = SessionStatus.Authenticated;
         peer.SendResponse(response);
     }
@@ -157,14 +157,17 @@ public sealed class GameServerHandler : IOperationHandler
     private static bool IsClientRaisable(byte eventCode) =>
         eventCode is not (PhotonCodes.Event.Join or PhotonCodes.Event.Leave or PhotonCodes.Event.PropertiesChanged);
 
-    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false)
+    public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.Validate(token, _secret).TryGet(out var steamId))
+            if (!AuthToken.Validate(token, _secret).TryGet(out var ident))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
-            if (_accounts?.Find(steamId)?.IsBanned == true)
+            if (_accounts?.Find(ident.UserId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+            // Bind the identity the Name Server proved (or asserted) onto this connection. Anti-cheat/admin
+            // gating trusts it only when Verified (a Steam ticket validated upstream).
+            if (peer is not null) { peer.SteamId = ident.UserId; peer.IsVerified = ident.Verified; }
             return new OperationResponse(OpAuthenticate, 0, null, new());
         }
 

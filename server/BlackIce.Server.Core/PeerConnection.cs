@@ -23,6 +23,14 @@ public sealed class PeerConnection
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
+    /// <summary>The connection's resolved SteamID — verified when <see cref="IsVerified"/>, otherwise the
+    /// client-asserted or anonymous id. Null before authentication.</summary>
+    public string? SteamId { get; set; }
+
+    /// <summary>True once a Steam game-server ticket proved this identity (see the auth flow). Admin/anti-cheat
+    /// gating trusts the SteamID/level ONLY when this is true; an asserted or anonymous-LAN identity is not.</summary>
+    public bool IsVerified { get; set; }
+
     /// <summary>
     /// Where this peer is in the connect flow. Role handlers advance it (Authenticated after a
     /// successful auth, InRoom after a join); the <see cref="OperationRouter"/> uses it to flag
