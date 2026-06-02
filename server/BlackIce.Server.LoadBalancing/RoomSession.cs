@@ -50,6 +50,10 @@ public sealed class RoomSession
     /// <summary>Snapshot of the actor numbers currently in the room (relay membership).</summary>
     public IReadOnlyList<int> Actors() { lock (_gate) return _members.Keys.ToArray(); }
 
+    /// <summary>The connection for an actor, or null if it isn't a member. Used by anti-cheat to resolve an
+    /// actor's verified identity/level (e.g. the movement exemption).</summary>
+    public PeerConnection? PeerOf(int actor) { lock (_gate) return _members.TryGetValue(actor, out var p) ? p : null; }
+
     /// <summary>
     /// Server-originated send to every member (no sender exclusion, no interceptors). For admin/debug
     /// fan-out (e.g. a server announcement). Must run on the listener thread; returns the recipient count.

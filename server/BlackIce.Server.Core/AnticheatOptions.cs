@@ -1,3 +1,5 @@
+using BlackIce.Server.Data;
+
 namespace BlackIce.Server.Core;
 
 /// <summary>
@@ -10,6 +12,12 @@ public sealed class AnticheatOptions
 {
     /// <summary>When true, behavioral validators drop the offending event instead of only logging it.</summary>
     public bool Enforce { get; set; } = false;
+
+    /// <summary>Minimum account level a player must hold to be EXEMPT from movement enforcement — i.e. allowed
+    /// to use the client fly/speed plugin. The exemption is honored only for a Steam-VERIFIED identity
+    /// (<see cref="PeerConnection.IsVerified"/>); an unverified/asserted identity is never exempt, no matter
+    /// what level its (spoofable) SteamID claims. Default <see cref="PlayerLevel.Admin"/>.</summary>
+    public PlayerLevel AdminExemptLevel { get; set; } = PlayerLevel.Admin;
 
     // --- Per-hit / per-step ceilings ---
     /// <summary>Single-hit damage ceiling (a DamagePacket above this is suspicious).</summary>

@@ -26,6 +26,25 @@ public class MovementValidationInterceptorTests
     }
 
     [Fact]
+    public void Exempt_actor_is_never_flagged_or_dropped()
+    {
+        // A verified-admin exemption: actor 1 is exempt, actor 2 is not. Both make an impossible jump.
+        var i = new MovementValidationInterceptor(maxUnitsPerSecond: 50f, maxTeleportDistance: 100f,
+                                                  enforce: true, isExempt: (room, actor) => actor == 1);
+        i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 0, 0)));
+        System.Threading.Thread.Sleep(50);
+        var exempt = i.Intercept(new EventContext("co-op", 1, PosEvent(1001, 10000, 0)));   // would be a speedhack
+        Assert.Equal(RelayAction.Forward, exempt.Action);   // exempt → forwarded despite the jump
+        Assert.Equal(0, i.FlaggedCount);
+
+        i.Intercept(new EventContext("co-op", 2, PosEvent(2001, 0, 0)));
+        System.Threading.Thread.Sleep(50);
+        var enforced = i.Intercept(new EventContext("co-op", 2, PosEvent(2001, 10000, 0)));
+        Assert.Equal(RelayAction.Drop, enforced.Action);     // non-exempt → dropped
+        Assert.Equal(1, i.FlaggedCount);
+    }
+
+    [Fact]
     public void Flags_a_teleport_jump_between_two_updates()
     {
         // Two updates ~0.1s apart (the interceptor uses wall-clock between calls); a 10000-unit jump
