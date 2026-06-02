@@ -37,6 +37,26 @@ in a master-authoritative session; capturing its layout requires a **non-master*
 PvP). This is direct evidence for why Phase 3/4 must make the **server** the damage authority — a relay
 that never sees the damage cannot validate it.
 
+## Player death & respawn sequence — live-captured
+
+The **player** death/respawn flow (distinct from the *enemy* `Die`/`SetDying` path) was captured from a
+live client dying to environmental damage (lava) and respawning. The player's pawn is a PhotonView (e.g.
+viewID `6001`); all six RPCs are sent by the dying client:
+
+| Phase | RPC (index) | Target view | Args | Meaning |
+|---|---|---|---|---|
+| Death | `Shatter` (59) | pawn | — | death visual (pawn shatters) |
+| Death | `GoIntangible` (27) | pawn | — | enter dead state (non-collidable) |
+| Death | `KilledPlayerRemote` (32) | manager view | `victimViewID` | broadcast the death |
+| Respawn | `TeleportImmediately` (66) | pawn | `Vector3 spawnPos` | warp to spawn point |
+| Respawn | `BecomeTangible` (9) | pawn | — | back to alive (collidable) |
+
+Notes: no `SetHealth` is broadcast on respawn — health is owner-local; the respawn is purely
+teleport + re-enable collision. **Kill credit is not present** for an environmental death:
+`KilledPlayerRemote` carried only the victim's viewID, no killer. PvP/enemy kill-credit (who killed whom)
+needs a separate capture. This sequence lets the `arena`/`killfeed` plugins detect a **true** death
+(`KilledPlayerRemote`) and respawn (`TeleportImmediately`+`BecomeTangible`) instead of modelling HP.
+
 ## By subsystem (counts from `rpcs.csv`)
 
 | Subsystem | Type(s) | RPCs | Authority-sensitive examples |
