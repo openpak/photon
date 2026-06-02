@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    OPTIONAL project — the real Steam game-server ticket validator (BeginAuthSession via Facepunch.Steamworks).
+    It is deliberately NOT part of BlackIce.Server.sln, so the default build and the test suite stay Steam-free
+    (mirroring the optional Photon3Unity3D oracle). Enable it for a public deployment:
+
+      1. Reference it from the Host AND define STEAM_ENABLED, e.g.:
+           dotnet build server/BlackIce.Server.Host -p:DefineConstants=STEAM_ENABLED \
+             -p:SteamProject=../BlackIce.Server.Steam/BlackIce.Server.Steam.csproj
+         (or add a ProjectReference + <DefineConstants>STEAM_ENABLED</DefineConstants> in the Host csproj).
+      2. Restore the Facepunch.Steamworks package and place steam_api64.dll next to the server binary
+         (the game ships it at Black Ice_Data/Plugins/x86_64/steam_api64.dll).
+      3. Run the server as an anonymous Steam game server (no publisher key needed — see SECURITY.md).
+
+    Without these, the Host uses NullSteamTicketValidator and public peers fail closed.
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>BlackIce.Server.Steam</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pin a version when enabling; left unversioned here since the project isn't restored in the default build. -->
+    <PackageReference Include="Facepunch.Steamworks" Version="2.3.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlackIce.Server.LoadBalancing\BlackIce.Server.LoadBalancing.csproj" />
+    <ProjectReference Include="..\BlackIce.Server.Core\BlackIce.Server.Core.csproj" />
+  </ItemGroup>
+
+</Project>

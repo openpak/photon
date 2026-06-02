@@ -4,13 +4,21 @@ This is an independent, community server for a game whose multiplayer was built 
 client model. Treat every value from a client as hostile. This file tracks the known security
 posture and the work required to harden it.
 
-## Identity is asserted, not proven (KNOWN LIMITATION)
+## Identity — proven for verified (public) peers; asserted for LAN
 
-The player's SteamID arrives as the Photon `UserId` (the client mod reads it from the local
-Steam registry and sends it). **The server cannot currently prove the client owns that SteamID**
-— a modified client could send any SteamID. The server format-validates it
-(`SteamId.IsValidIndividual`) as defense-in-depth, but that does not stop spoofing a *real*
-SteamID.
+**As of the Steam-ticket-validation work (2026-06-02), public peers' identity is proven.** The Name
+Server requires a Steam **game-server auth ticket** from non-LAN peers and validates it via
+`ISteamGameServer::BeginAuthSession` (Facepunch.Steamworks, AppID 311800, anonymous logon — no publisher
+key). A validated peer's SteamID is signed into the auth token with a `verified` claim, and admin/anti-cheat
+code trusts a SteamID's permission level **only when the connection is verified**. Public peers that present
+no/invalid ticket **fail closed**. The real validator is the optional `BlackIce.Server.Steam` project; the
+default build ships `NullSteamTicketValidator` (Steam-free), so without the Steam build a public server
+rejects everyone — run it with the Steam build, or on LAN.
+
+**LAN/loopback peers remain asserted, not proven** (the anonymous dev path): their SteamID is accepted
+*unverified* and never granted admin/anti-cheat trust. The server still format-validates
+(`SteamId.IsValidIndividual`). Below describes the residual posture for the LAN/asserted path and the
+remaining hardening.
 
 **Consequences if exposed to untrusted players:**
 - Impersonating another player's account (and thus their permission level).
