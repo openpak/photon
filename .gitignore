@@ -52,3 +52,6 @@ maps/
 # the game's stripped-type-tree build. Not game data, but kept local (not committed) to be safe.
 *.tpk
 tools/MapExtractor/.classdata/
+
+# Runtime-learned walkable maps (derived from live play; not committed)
+*.bwlk

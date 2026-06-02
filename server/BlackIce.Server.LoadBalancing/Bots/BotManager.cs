@@ -57,8 +57,14 @@ public sealed class BotManager
     /// navmesh; null falls back to <see cref="RoomMaps"/>/none.</summary>
     public MapSelector? Maps { get; set; }
 
+    /// <summary>Records real players' positions into a learned per-room walkable model (Black Ice's world is
+    /// procedural, so we map it from where players actually stand). Set from the host. ONLY player avatars are
+    /// recorded — server-puppeted bots have no collision, so their positions aren't proof of walkability.</summary>
+    public WalkableMapRegistry? Walkable { get; set; }
+
     private int _nextBotActor = BotActorBase;
     private int _spawnedCount;   // monotonic, for deterministic spread placement of smart bots
+    private long _maintTick;     // maintenance ticks elapsed, for periodic walkable-map autosave
     private readonly List<(PlayerBot bot, RoomSession session, IBotBehavior behavior)> _bots = new();
     private readonly Dictionary<int, int> _scriptCursor = new();   // bot actor -> next action index
     private readonly ConcurrentQueue<(RoomSession session, BotIdentity identity, IBotBehavior? behavior)> _pending = new();
@@ -111,6 +117,7 @@ public sealed class BotManager
     /// (event 201, unreliable). Runs entirely on the listener thread.</summary>
     public void Tick()
     {
+        _maintTick++;
         // Drain queued spawns. A SMART bot needs a safe anchor (a live player's known position) before it
         // spawns — otherwise it materializes at a guessed coordinate that may be a map hazard. Hold (requeue)
         // any spawn whose room has no player anchor yet; it spawns the moment a player is present. The
@@ -126,11 +133,19 @@ public sealed class BotManager
             Spawn(req.session, req.identity, req.behavior);   // deferred spawn on this (listener) thread
         }
 
-        // Map auto-detect: feed each active room's live player positions to the selector ONCE per tick (not
-        // per bot), so it can converge on which extracted map the room is actually playing.
-        if (Maps is { CandidateCount: > 0 } selector && Worlds is { } w)
+        // Per-room, once per tick (not per bot): feed live PLAYER positions to the map auto-detector and the
+        // walkable-map recorder. Both consume only real players — server-puppeted bots aren't ground truth.
+        if (Worlds is { } w && (Maps is { CandidateCount: > 0 } || Walkable is not null))
             foreach (var room in _bots.Select(b => b.session.RoomName).Distinct())
-                selector.Observe(room, w.For(room));
+            {
+                var world = w.For(room);
+                if (Maps is { CandidateCount: > 0 } selector) selector.Observe(room, world);
+                if (Walkable is { } walk) RecordWalkable(room, world, walk);
+            }
+
+        // Periodically persist the learned walkable maps so progress survives a restart (the host is often
+        // hard-killed, so we can't rely on a clean shutdown hook). ~every 600 ticks; files are tiny.
+        if (Walkable is { } wsave && _maintTick % 600 == 0) wsave.SaveAll();
 
         foreach (var (bot, session, behavior) in _bots)
         {
@@ -198,6 +213,21 @@ public sealed class BotManager
     /// <summary>The navmesh for <paramref name="room"/> — its realm's mapped map name resolved through the
     /// <see cref="Navs"/> cache — or null when no registry is wired, no map is associated, or the artifact is
     /// absent (the graceful fallback to player-anchor movement).</summary>
+    /// <summary>Records every known-position PLAYER avatar in the room into the learned walkable map. Bots are
+    /// excluded — they have no client-side physics, so their positions don't prove a cell is walkable. Logs a
+    /// milestone every 50 newly-discovered cells so coverage growth is visible at the default log level.</summary>
+    private static void RecordWalkable(string room, RoomWorldState world, WalkableMapRegistry walk)
+    {
+        WalkableMap? map = null;
+        foreach (var e in world.Alive())
+        {
+            if (!e.HasPosition || !string.Equals(e.Kind, "Player", System.StringComparison.OrdinalIgnoreCase)) continue;
+            map ??= walk.For(room);
+            if (map.Record(e.X, e.Y, e.Z) && map.Count % 50 == 0)
+                Log.Info("Walkmap", $"\"{room}\" mapped {map.Count} walkable cells");
+        }
+    }
+
     private NavMesh? NavMeshFor(string room)
     {
         // Auto-detected map wins once the selector has committed one (the game sends no map id, so this is

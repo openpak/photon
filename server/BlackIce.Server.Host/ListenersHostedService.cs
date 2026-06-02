@@ -75,6 +75,7 @@ public sealed class ListenersHostedService : BackgroundService
             _bots.Worlds = _worlds;          // same per-room shadow the authority plugin writes
             _bots.Navs = _navs;              // walkable navmeshes the hunters path on (null per-room → fallback)
             _bots.Maps = new BlackIce.Server.LoadBalancing.Navigation.MapSelector(_navs);  // auto-detect each room's map from live player positions (no client map id)
+            _bots.Walkable = new BlackIce.Server.LoadBalancing.Navigation.WalkableMapRegistry(_navs.MapsDirectory);  // learn the walkable surface from real players' movement (procedural world: no static navmesh)
             _bots.Modes = _registry.Modes;   // so soak bots get team-assigned in team-mode realms
             // Realm → navmesh map name, read from each realm's ExtraJson {"navmesh":"level13"}. Only realms that
             // declare one (and whose maps/<name>.navmesh exists) get surface-aware bots; the rest fall back.

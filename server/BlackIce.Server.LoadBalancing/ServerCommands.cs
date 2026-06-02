@@ -184,6 +184,26 @@ public sealed class ServerCommands
         return $"queued summon of all bots to the player in \"{realm}\" (runs on next listener tick)";
     }
 
+    [ConsoleCommand("walkmap", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
+    private string Walkmap(CommandLine line)
+    {
+        // Report + persist the walkable map learned from real players' movement in a realm. Black Ice's world
+        // is procedural (no static navmesh matches), so we map it from where players actually walk. Runs on the
+        // listener thread (where the map is written each tick) so the read/save can't race the recorder.
+        if (_bots.Walkable is null) return "walkable mapping is not enabled on this server.";
+        var typed = AfterArg(line, 0);
+        var realm = ResolveRoomName(typed) ?? typed;   // record/report under the live room name when known
+        _admin.Enqueue(() =>
+        {
+            var map = _bots.Walkable.For(realm);
+            var b = map.Bounds();
+            _bots.Walkable.Save(realm);
+            Log.Info("Walkmap", $"\"{realm}\": {map.Count} cells (cell {map.CellSize:F0}u) " +
+                                $"X[{b.minX:F0},{b.maxX:F0}] Y[{b.minY:F0},{b.maxY:F0}] Z[{b.minZ:F0},{b.maxZ:F0}]");
+        });
+        return $"queued walkmap report+save for \"{realm}\" (runs on next tick; see the [Walkmap] log line)";
+    }
+
     // --- helpers ---------------------------------------------------------------------------------
 
     private static string Arg(CommandLine line, int index) => index < line.Parts.Count ? line.Parts[index] : "";
