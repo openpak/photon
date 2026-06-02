@@ -18,6 +18,16 @@ public sealed class ArenaOptions
     /// false it stays ended until an admin runs <c>arena reset</c>.</summary>
     public bool ResetOnWin { get; set; } = true;
 
+    /// <summary>When true, on a round reset the server respawns every participant (sends the captured
+    /// Teleport+BecomeTangible sequence) so the next round starts everyone alive.</summary>
+    public bool RespawnAtReset { get; set; } = true;
+
+    /// <summary>The world spawn point participants are respawned to at round reset. Defaults to the point
+    /// captured live (the Co-op shop/base area). One point for all — per-team spawns are not yet captured.</summary>
+    public float SpawnX { get; set; } = 520f;
+    public float SpawnY { get; set; } = 3f;
+    public float SpawnZ { get; set; } = 469.5f;
+
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
