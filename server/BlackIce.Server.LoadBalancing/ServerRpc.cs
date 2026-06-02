@@ -24,4 +24,32 @@ public static class ServerRpc
                     { PhotonCodes.RpcKey.Args, new object[] { text } },
                 } },
         });
+
+    /// <summary>A <c>TeleportImmediately(Vector3)</c> RPC on <paramref name="actor"/>'s pawn view — used to
+    /// respawn a participant to a spawn point at round reset (captured respawn sequence step 1 of 2).</summary>
+    public static EventData Teleport(int actor, float x, float y, float z) =>
+        new(PhotonCodes.PunEvent.Rpc, new Dictionary<byte, object>
+        {
+            { PhotonCodes.Param.Code, PhotonCodes.PunEvent.Rpc },
+            { PhotonCodes.Param.Data, new Dictionary<object, object>
+                {
+                    { PhotonCodes.RpcKey.ViewId, actor * MaxViewIdsPerActor + AvatarViewSlot },
+                    { PhotonCodes.RpcKey.MethodName, "TeleportImmediately" },
+                    { PhotonCodes.RpcKey.Args, new object[] { PhotonCustomData.Vector3(x, y, z) } },
+                } },
+        });
+
+    /// <summary>A <c>BecomeTangible()</c> RPC on <paramref name="actor"/>'s pawn view — the second half of
+    /// the captured respawn sequence (re-enables collision / "alive").</summary>
+    public static EventData BecomeTangible(int actor) =>
+        new(PhotonCodes.PunEvent.Rpc, new Dictionary<byte, object>
+        {
+            { PhotonCodes.Param.Code, PhotonCodes.PunEvent.Rpc },
+            { PhotonCodes.Param.Data, new Dictionary<object, object>
+                {
+                    { PhotonCodes.RpcKey.ViewId, actor * MaxViewIdsPerActor + AvatarViewSlot },
+                    { PhotonCodes.RpcKey.MethodName, "BecomeTangible" },
+                    { PhotonCodes.RpcKey.Args, System.Array.Empty<object>() },
+                } },
+        });
 }
