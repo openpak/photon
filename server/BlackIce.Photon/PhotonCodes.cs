@@ -68,6 +68,7 @@ public static class PhotonCodes
         public const byte GameList = 222;            // { roomName -> properties } map
         public const byte Secret = 221;              // auth token
         public const byte AppVersion = 220;
+        public const byte SteamTicket = 217;         // byte[] Steam auth-session ticket (Photon ClientAuthenticationData slot)
         public const byte Region = 210;
     }
 

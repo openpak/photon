@@ -199,8 +199,14 @@ public sealed class PeerConnection
         Log.Info(_role, $"{Remote} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
                         $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
                         $"[{PhotonNames.Params(response.Parameters)}]");
+        OnResponse?.Invoke(response);
         SendRaw(WireMessage.Response(response));
     }
+
+    /// <summary>Test/diagnostic observation hook: when set, every operation response is also handed here
+    /// before being sent. Production leaves this null; auth tests use it to assert the response without a socket
+    /// (auth can complete asynchronously, so capturing the response object is cleaner than decoding the wire).</summary>
+    public System.Action<OperationResponse>? OnResponse { get; set; }
 
     /// <summary>Test/diagnostic observation hook: when set, every raised event is also handed here
     /// before being sent. Production leaves this null; relay tests use it to assert fan-out without a socket.</summary>
