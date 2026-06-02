@@ -1,6 +1,8 @@
 using System;
+using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
+using HarmonyLib;
 using Photon.Pun;
 using UnityEngine;
 using UnityEngine.AI;
@@ -10,23 +12,22 @@ namespace BlackIce.DebugVisuals;
 
 /// <summary>
 /// CLIENT-side BepInEx mod that draws debug overlays in the game world with immediate-mode <see cref="GL"/>
-/// lines: a ground reference GRID, the game's baked NAVMESH (the pathfinding surface, via
-/// <see cref="NavMesh.CalculateTriangulation"/>), COLLIDER bounds (the collision the world is built from), and
-/// markers + lines to networked ENTITIES (players, bots, loot — every PUN <see cref="PhotonView"/>).
+/// lines, toggled by IN-CHAT "/dbg" commands (handled locally — never sent to the server or other players):
+///   <c>/dbg grid</c> · <c>/dbg nav</c> · <c>/dbg col</c> · <c>/dbg ent</c> · <c>/dbg all</c> · <c>/dbg off</c>
+/// (bare <c>/dbg</c> shows status). Overlays: a ground GRID, the game's baked NAVMESH (the pathfinding
+/// surface, <see cref="NavMesh.CalculateTriangulation"/>), COLLIDER bounds (the collision the world is built
+/// from), and markers + lines to networked ENTITIES (every PUN <see cref="PhotonView"/> — players/bots/loot).
 ///
-/// <para>Clean-room: Unity + PUN PUBLIC APIs only (no game internals). Everything is rendered locally; nothing
-/// is sent to the server. Each overlay toggles on its own key (configurable in
-/// <c>BepInEx/config/blackice.debugvisuals.cfg</c>). Expensive scans (navmesh triangulation, collider
-/// enumeration) are cached and refreshed on a timer / when toggled on.</para>
-///
-/// <para><b>Experimental.</b> Drawing depends on the <c>Hidden/Internal-Colored</c> shader being present in the
-/// build and on the game having a baked navmesh; if an overlay shows nothing, that's why. Toggle off if it
-/// costs too much in a dense scene (collider/entity overlays scan the scene).</para>
+/// <para>Clean-room: Unity + PUN PUBLIC APIs only. The "/dbg" commands are intercepted by a Harmony patch on
+/// <see cref="PhotonView.RPC(string, RpcTarget, object[])"/> (the chat send), so they toggle locally and are
+/// suppressed before reaching the server. Rendering uses the rendering camera (<see cref="Camera.current"/>)
+/// so it works even when no camera is tagged MainCamera.</para>
 /// </summary>
-[BepInPlugin("blackice.debugvisuals", "BlackIce Debug Visuals", "0.1.0")]
+[BepInPlugin("blackice.debugvisuals", "BlackIce Debug Visuals", "0.2.0")]
 public sealed class DebugVisualsPlugin : BaseUnityPlugin
 {
-    private ConfigEntry<KeyCode> _gridKey = null!, _navKey = null!, _colliderKey = null!, _entityKey = null!;
+    internal static DebugVisualsPlugin? Instance;
+
     private ConfigEntry<float> _drawDistance = null!, _gridSize = null!, _refreshSeconds = null!;
     private ConfigEntry<bool> _throughWalls = null!;
 
@@ -35,31 +36,45 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
     private NavMeshTriangulation _navMesh;
     private Collider[] _colliderCache = Array.Empty<Collider>();
     private float _nextRefresh;
+    private string _status = "";
+    private float _statusUntil;
 
     private void Awake()
     {
-        _gridKey = Config.Bind("Keys", "Grid", KeyCode.F1, "Toggle the ground reference grid.");
-        _navKey = Config.Bind("Keys", "Navmesh", KeyCode.F2, "Toggle the baked navmesh (pathfinding) wireframe.");
-        _colliderKey = Config.Bind("Keys", "Colliders", KeyCode.F3, "Toggle collider bounds wireframes.");
-        _entityKey = Config.Bind("Keys", "Entities", KeyCode.F4, "Toggle networked-entity markers + lines.");
+        Instance = this;
         _drawDistance = Config.Bind("Tuning", "DrawDistance", 80f, "Max distance from the camera to draw colliders/entities.");
         _gridSize = Config.Bind("Tuning", "GridSize", 100f, "Half-extent (units) of the ground grid around the camera.");
         _refreshSeconds = Config.Bind("Tuning", "RefreshSeconds", 1.0f, "How often to re-scan navmesh/colliders.");
         _throughWalls = Config.Bind("Tuning", "ThroughWalls", true, "Draw overlays through geometry (ZTest Always).");
 
-        Logger.LogInfo($"BlackIce Debug Visuals armed — grid={_gridKey.Value}, navmesh={_navKey.Value}, " +
-                       $"colliders={_colliderKey.Value}, entities={_entityKey.Value}");
+        try { new Harmony("blackice.debugvisuals").PatchAll(typeof(ChatInterceptor)); }
+        catch (Exception ex) { Logger.LogWarning($"chat-command interception unavailable ({ex.Message}); overlays still work if toggled by code."); }
+
+        Logger.LogInfo("BlackIce Debug Visuals armed — type /dbg in chat: grid | nav | col | ent | all | off.");
     }
 
-    private void Update()
+    /// <summary>Handles a "/dbg ..." chat command locally (called from the chat-send Harmony patch).</summary>
+    internal void HandleChat(string text)
     {
-        if (Input.GetKeyDown(_gridKey.Value)) { _grid = !_grid; Logger.LogInfo($"grid {(_grid ? "ON" : "OFF")}"); }
-        if (Input.GetKeyDown(_navKey.Value)) { _nav = !_nav; if (_nav) Refresh(); Logger.LogInfo($"navmesh {(_nav ? "ON" : "OFF")}"); }
-        if (Input.GetKeyDown(_colliderKey.Value)) { _colliders = !_colliders; if (_colliders) Refresh(); Logger.LogInfo($"colliders {(_colliders ? "ON" : "OFF")}"); }
-        if (Input.GetKeyDown(_entityKey.Value)) { _entities = !_entities; Logger.LogInfo($"entities {(_entities ? "ON" : "OFF")}"); }
-
-        if ((_nav || _colliders) && Time.unscaledTime >= _nextRefresh) Refresh();
+        var parts = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+        var sub = parts.Length > 1 ? parts[1].ToLowerInvariant() : "";
+        switch (sub)
+        {
+            case "grid": _grid = !_grid; break;
+            case "nav": case "navmesh": _nav = !_nav; if (_nav) Refresh(); break;
+            case "col": case "colliders": _colliders = !_colliders; if (_colliders) Refresh(); break;
+            case "ent": case "entities": _entities = !_entities; break;
+            case "all": _grid = _nav = _colliders = _entities = true; Refresh(); break;
+            case "off": _grid = _nav = _colliders = _entities = false; break;
+            default: break;   // bare /dbg → just show status
+        }
+        _status = $"DBG  grid:{On(_grid)} nav:{On(_nav)} col:{On(_colliders)} ent:{On(_entities)}   " +
+                  "(/dbg grid|nav|col|ent|all|off)";
+        _statusUntil = Time.unscaledTime + 6f;
+        Logger.LogInfo(_status);
     }
+
+    private static string On(bool b) => b ? "ON" : "off";
 
     private void Refresh()
     {
@@ -68,11 +83,25 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
         try { if (_colliders) _colliderCache = FindObjectsOfType<Collider>(); } catch { _colliderCache = Array.Empty<Collider>(); }
     }
 
+    private void Update()
+    {
+        if ((_nav || _colliders) && Time.unscaledTime >= _nextRefresh) Refresh();
+    }
+
+    private void OnGUI()
+    {
+        if (string.IsNullOrEmpty(_status) || Time.unscaledTime > _statusUntil) return;
+        var prev = GUI.color;
+        GUI.color = Color.cyan;
+        GUI.Label(new Rect(12, 12, 1100, 28), _status);   // brief on-screen feedback (no chat reply for client cmds)
+        GUI.color = prev;
+    }
+
     // Immediate-mode draw, invoked once per camera render. Cheap when all overlays are off.
     private void OnRenderObject()
     {
         if (!(_grid || _nav || _colliders || _entities)) return;
-        var cam = Camera.main;
+        var cam = Camera.current ?? Camera.main;   // Camera.current is the camera being rendered RIGHT NOW
         if (cam is null) return;
         EnsureMaterial();
         if (_mat is null) return;
@@ -83,11 +112,11 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
         GL.Begin(GL.LINES);
 
         Vector3 eye = cam.transform.position;
-        float far = _drawDistance.Value * _drawDistance.Value;
+        float farSq = _drawDistance.Value * _drawDistance.Value;
         if (_grid) DrawGrid(eye);
         if (_nav) DrawNavmesh();
-        if (_colliders) DrawColliders(eye, far);
-        if (_entities) DrawEntities(eye, far);
+        if (_colliders) DrawColliders(eye, farSq);
+        if (_entities) DrawEntities(eye, farSq);
 
         GL.End();
         GL.PopMatrix();
@@ -96,8 +125,14 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
     private void EnsureMaterial()
     {
         if (_mat is not null) return;
-        var shader = Shader.Find("Hidden/Internal-Colored");
-        if (shader is null) { Logger.LogWarning("Hidden/Internal-Colored shader not in build — overlays can't draw."); return; }
+        // Try the canonical line shader, then fallbacks that are usually kept in a build (sprites/UI/unlit).
+        Shader? shader = null;
+        foreach (var name in new[] { "Hidden/Internal-Colored", "Sprites/Default", "Unlit/Color", "GUI/Text Shader", "Legacy Shaders/Diffuse" })
+        {
+            shader = Shader.Find(name);
+            if (shader is not null) break;
+        }
+        if (shader is null) { Logger.LogWarning("No usable line shader found in the build — overlays can't draw."); return; }
         _mat = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         _mat.SetInt("_SrcBlend", (int)BlendMode.SrcAlpha);
         _mat.SetInt("_DstBlend", (int)BlendMode.OneMinusSrcAlpha);
@@ -118,15 +153,15 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
         };
         for (int i = 0; i < 4; i++)
         {
-            Line(p[i], p[(i + 1) % 4], c);            // bottom
-            Line(p[i + 4], p[((i + 1) % 4) + 4], c);  // top
-            Line(p[i], p[i + 4], c);                  // verticals
+            Line(p[i], p[(i + 1) % 4], c);
+            Line(p[i + 4], p[((i + 1) % 4) + 4], c);
+            Line(p[i], p[i + 4], c);
         }
     }
 
     private void DrawGrid(Vector3 eye)
     {
-        var color = new Color(0.3f, 0.7f, 1f, 0.35f);
+        var color = new Color(0.3f, 0.7f, 1f, 0.5f);
         float half = _gridSize.Value, step = 5f;
         float cx = Mathf.Round(eye.x / step) * step, cz = Mathf.Round(eye.z / step) * step, y = eye.y - 1.8f;
         for (float o = -half; o <= half; o += step)
@@ -150,7 +185,7 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
 
     private void DrawColliders(Vector3 eye, float farSq)
     {
-        var color = new Color(1f, 0.5f, 0f, 0.7f);
+        var color = new Color(1f, 0.5f, 0f, 0.8f);
         foreach (var col in _colliderCache)
         {
             if (col is null || !col.enabled) continue;
@@ -162,17 +197,34 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
 
     private void DrawEntities(Vector3 eye, float farSq)
     {
-        var color = new Color(1f, 0f, 1f, 0.9f);
+        var color = new Color(1f, 0f, 1f, 0.95f);
         foreach (var view in FindObjectsOfType<PhotonView>())
         {
             if (view is null) continue;
             Vector3 p = view.transform.position;
             if ((p - eye).sqrMagnitude > farSq) continue;
-            // a small 3D cross marker + a line from the camera, so networked objects are easy to spot
             Line(p + Vector3.left, p + Vector3.right, color);
             Line(p + Vector3.forward, p + Vector3.back, color);
-            Line(p + Vector3.up * 1.5f, p, color);
+            Line(p, p + Vector3.up * 1.5f, color);
             Line(eye, p, new Color(color.r, color.g, color.b, 0.25f));
         }
+    }
+}
+
+/// <summary>Harmony patch: intercept the chat-send RPC and handle "/dbg ..." locally, suppressing the send so
+/// the command never reaches the server or other players.</summary>
+[HarmonyPatch]
+internal static class ChatInterceptor
+{
+    private static MethodBase? TargetMethod() =>
+        typeof(PhotonView).GetMethod("RPC", new[] { typeof(string), typeof(RpcTarget), typeof(object[]) });
+
+    private static bool Prefix(string methodName, object[] parameters)
+    {
+        if (DebugVisualsPlugin.Instance is null || methodName != "ReceiveChatMessage") return true;
+        var text = parameters is { Length: > 0 } ? parameters[0] as string : null;
+        if (text is null || !text.TrimStart().StartsWith("/dbg", StringComparison.OrdinalIgnoreCase)) return true;
+        DebugVisualsPlugin.Instance.HandleChat(text.Trim());
+        return false;   // handled locally — do NOT send to the server / other players
     }
 }
