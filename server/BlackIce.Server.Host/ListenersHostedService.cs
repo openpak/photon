@@ -68,8 +68,18 @@ public sealed class ListenersHostedService : BackgroundService
         var master = new UdpListener("MasterServer", s.Ports.MasterServer,
             new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
                                     _config.AllowAnonymousLan, accounts, realms, lobbyBotCount), s.Listener);
+        // The in-game "/command" surface: the same commands as the console, runnable from chat but gated by
+        // each player's VERIFIED level (GameServerHandler computes it; Console-tier stays console-only). Built
+        // on the Game listener's services so its providers run on that thread (where chat is handled). Plugin
+        // providers are shared with the console registry — they use thread-safe singletons + the admin queue.
+        var chatCommands = new BlackIce.Server.Data.CommandRegistry()
+            .Register(new ServerCommands(_registry, _admin, _bots, _botIds))
+            .Register(new BlackIce.Server.Data.AccountCommands(accounts))
+            .Register(new BlackIce.Server.Data.RealmCommands(realms))
+            .Register(new BlackIce.Server.Data.MotdCommands(motd));
+        foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
         var game = new UdpListener("GameServer", s.Ports.GameServer,
-            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins), s.Listener);
+            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins, chatCommands), s.Listener);
 
         // Tick bots AND drain queued admin actions on the Game listener's single thread: both relay to
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run

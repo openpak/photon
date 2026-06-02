@@ -47,9 +47,11 @@ public sealed class GameServerHandler : IOperationHandler
     /// <param name="realms">Realm definitions whose ruleset is applied on join (optional in tests).</param>
     /// <param name="motd">Message of the Day service; when provided the resolved MOTD is stamped as a room property.</param>
     /// <param name="lifecycle">Optional sink fired on actor join/leave (the plugin manager); null = no plugins.</param>
+    /// <param name="chatCommands">Commands runnable from in-game chat (the "/command" surface). Each command's
+    /// MinLevel gates it against the caller's VERIFIED level; null → only built-in /motd works.</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
-                             IRoomLifecycleListener? lifecycle = null)
+                             IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null)
     {
         _secret = secret;
         _registry = registry;
@@ -58,7 +60,7 @@ public sealed class GameServerHandler : IOperationHandler
         _accounts = accounts;
         _motd = motd;
         _lifecycle = lifecycle;
-        _chat = new ChatCommandHandler(realms, motd);
+        _chat = new ChatCommandHandler(realms, motd, chatCommands);
 
         // OpRaiseEvent/OpSetProperties also still guard on PeerRoomState (peer.Tag) internally, so the
         // InRoom requirement here is detection-only telemetry, not the sole gate.
@@ -125,10 +127,21 @@ public sealed class GameServerHandler : IOperationHandler
         peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
     }
 
+    /// <summary>The permission level to run a chat "/command" at. Trusted ONLY for a Steam-verified identity
+    /// (<see cref="PeerConnection.IsVerified"/>) — an unverified/anonymous peer is treated as <c>Player</c>
+    /// regardless of the level its (spoofable) SteamID claims. Capped at <c>Admin</c>: <c>Console</c>-tier
+    /// commands (e.g. promote/ban/loglevel) stay server-console-only even for a verified admin in chat.</summary>
+    private PlayerLevel ChatLevelOf(PeerConnection peer)
+    {
+        if (!peer.IsVerified || peer.SteamId is null) return PlayerLevel.Player;
+        var level = _accounts?.Find(peer.SteamId)?.Level ?? PlayerLevel.Player;
+        return level > PlayerLevel.Admin ? PlayerLevel.Admin : level;
+    }
+
     private void HandleRaiseEvent(PeerConnection peer, OperationRequest request)
     {
         var state = peer.Tag as PeerRoomState;
-        var reply = _chat.TryHandle(state?.RoomName, request);
+        var reply = _chat.TryHandle(state?.RoomName, request, ChatLevelOf(peer));
         if (reply is not null)
         {
             peer.RaiseEvent(reply);   // server command handled; not relayed

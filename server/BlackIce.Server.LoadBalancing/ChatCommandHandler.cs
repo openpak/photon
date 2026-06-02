@@ -22,11 +22,16 @@ public sealed class ChatCommandHandler
 
     private readonly RealmService? _realms;
     private readonly MotdService? _motd;
+    private readonly CommandRegistry? _commands;
 
-    public ChatCommandHandler(RealmService? realms, MotdService? motd)
+    /// <param name="commands">The command set runnable from chat. Each command's <c>MinLevel</c> gates it
+    /// against the caller's (verified) level, so a normal player can only run player-tier commands. Null →
+    /// only the built-in <c>/motd</c> works (back-compat / tests).</param>
+    public ChatCommandHandler(RealmService? realms, MotdService? motd, CommandRegistry? commands = null)
     {
         _realms = realms;
         _motd = motd;
+        _commands = commands;
     }
 
     /// <summary>Builds a ServerMessage event: a server->client text line the BlackIce.Motd plugin renders.</summary>
@@ -46,7 +51,7 @@ public sealed class ChatCommandHandler
     /// "/command". This works regardless of the shortcut index and leaves all normal RPCs and
     /// normal chat untouched. (B5 live capture should confirm no other RPC sends "/"-leading text.)
     /// </summary>
-    public EventData? TryHandle(string? roomName, OperationRequest req)
+    public EventData? TryHandle(string? roomName, OperationRequest req, PlayerLevel callerLevel = PlayerLevel.Player)
     {
         if (req.OperationCode != OpRaiseEvent) return null;
         // Event code comes off the wire from an untrusted peer; validate rather than coerce.
@@ -65,13 +70,28 @@ public sealed class ChatCommandHandler
         if (!isChat) return null;
 
         Log.Info("GameServer", $"chat command intercepted: \"{text}\" (room=\"{roomName}\", " +
-                               $"method={(method ?? "<shortcut>")})");
-        if (text.Equals("/motd", StringComparison.OrdinalIgnoreCase))
+                               $"method={(method ?? "<shortcut>")}, level={callerLevel})");
+
+        var line = text[1..].Trim();                                  // strip the leading '/'
+        var word = (line.Split(' ', 2)[0]).ToLowerInvariant();
+
+        // /motd is realm-aware and lives outside the command registry; keep it as a built-in (player-tier).
+        if (word == "motd")
         {
             var realm = roomName is not null ? _realms?.Get(roomName) : null;
             var resolved = _motd?.Resolve(realm);
             return ServerMessageEvent(string.IsNullOrWhiteSpace(resolved) ? "No MOTD set." : resolved!);
         }
-        return ServerMessageEvent($"Unknown command: {text}");
+
+        // /help and /commands list exactly what THIS caller's level may run.
+        if (word is "help" or "commands")
+            return ServerMessageEvent(_commands?.HelpFor(callerLevel) ?? "No commands available.");
+
+        // Any other /command: run it through the registry at the caller's level. The registry enforces
+        // per-command MinLevel (a too-low caller is refused) and arg/usage checks, returning the result text.
+        if (_commands is not null && _commands.TryExecute(line, callerLevel, out var output))
+            return ServerMessageEvent(string.IsNullOrWhiteSpace(output) ? "(done)" : output);
+
+        return ServerMessageEvent($"Unknown command: {text}  (try /help)");
     }
 }
