@@ -127,13 +127,16 @@ public sealed class GameServerHandler : IOperationHandler
         peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
     }
 
-    /// <summary>The permission level to run a chat "/command" at. Trusted ONLY for a Steam-verified identity
-    /// (<see cref="PeerConnection.IsVerified"/>) — an unverified/anonymous peer is treated as <c>Player</c>
-    /// regardless of the level its (spoofable) SteamID claims. Capped at <c>Admin</c>: <c>Console</c>-tier
-    /// commands (e.g. promote/ban/loglevel) stay server-console-only even for a verified admin in chat.</summary>
+    /// <summary>The permission level to run a chat "/command" at. The account level is honored for a peer that
+    /// is EITHER Steam-verified OR on a trusted local network when anonymous-LAN is enabled (the project's
+    /// existing dev/operator trust boundary — no Steam validation runs on LAN, so requiring verification there
+    /// would make in-game commands unusable for the operator). A public, unverified peer is always
+    /// <c>Player</c>, regardless of the level its (spoofable) SteamID claims. Capped at <c>Admin</c>:
+    /// <c>Console</c>-tier commands (e.g. loglevel/promote/ban) stay server-console-only even in chat.</summary>
     private PlayerLevel ChatLevelOf(PeerConnection peer)
     {
-        if (!peer.IsVerified || peer.SteamId is null) return PlayerLevel.Player;
+        bool trusted = peer.IsVerified || (_allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
+        if (!trusted || peer.SteamId is null) return PlayerLevel.Player;
         var level = _accounts?.Find(peer.SteamId)?.Level ?? PlayerLevel.Player;
         return level > PlayerLevel.Admin ? PlayerLevel.Admin : level;
     }
