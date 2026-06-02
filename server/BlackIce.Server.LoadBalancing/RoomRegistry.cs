@@ -86,6 +86,32 @@ public sealed class RoomRegistry
     public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
+    /// <summary>Resolves an operator-typed room/realm name to the canonical stored name, tolerating dash
+    /// variants (ASCII hyphen vs Unicode en/em-dash — the live room name carries an em-dash a console code
+    /// page can't type), case, and whitespace. Returns the canonical name, or null if none matches. Console
+    /// commands should resolve through this before <see cref="Find"/>/<see cref="FindSession"/>.</summary>
+    public string? ResolveName(string input)
+    {
+        if (_rooms.ContainsKey(input)) return input;             // exact, fast path
+        var want = Normalize(input);
+        foreach (var name in _rooms.Keys)
+            if (Normalize(name) == want) return name;
+        return null;
+
+        static string Normalize(string s)
+        {
+            var sb = new System.Text.StringBuilder(s.Length);
+            bool prevSpace = false;
+            foreach (var ch in s.Trim())
+            {
+                char c = ch is '‐' or '‑' or '‒' or '–' or '—' or '―' ? '-' : ch;
+                if (char.IsWhiteSpace(c)) { if (prevSpace) continue; prevSpace = true; sb.Append(' '); }
+                else { prevSpace = false; sb.Append(char.ToLowerInvariant(c)); }
+            }
+            return sb.ToString();
+        }
+    }
+
     /// <summary>Room names known to the registry (snapshot), for inspection commands.</summary>
     public IReadOnlyCollection<string> RoomNames => _rooms.Keys.ToArray();
 

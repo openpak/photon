@@ -201,6 +201,42 @@ public sealed class BotManager
     }
 
     /// <summary>
+    /// Removes up to <paramref name="max"/> bots whose session room matches <paramref name="room"/> (ordinal),
+    /// relaying for each a Destroy (event 204) for its viewID and a Leave (event 254) for its actor so clients
+    /// drop the avatar — the inverse of <see cref="PlayerBot.Spawn"/> (which sends Join + Instantiate). The
+    /// room's spawn cache evicts the cached 202 when it sees the 204, so late joiners won't re-spawn the bot.
+    /// Decrements <see cref="CountIn"/> for the room. Returns the number despawned. MUST run on the Game
+    /// listener thread (it relays per-peer): the console queues it via <see cref="AdminActionQueue"/>.
+    /// </summary>
+    public int Despawn(string room, int max = int.MaxValue)
+    {
+        int removed = 0;
+        for (int i = _bots.Count - 1; i >= 0 && removed < max; i--)
+        {
+            var (bot, session, _) = _bots[i];
+            if (!string.Equals(session.RoomName, room, System.StringComparison.Ordinal)) continue;
+
+            // 204 Destroy for the bot's viewID. The payload carries the viewID at key 0 ({0=viewId}) — the
+            // shape WorldStateObserver/RoomSession read to evict the cached spawn (so it isn't replayed to
+            // late joiners). GAP: a real client 204's full field set isn't captured; key 0 = viewID is the
+            // only confirmed slot, which is what the cache-evict path consumes, so we carry exactly that.
+            session.RelayFrom(bot.Actor, new EventData(PhotonCodes.PunEvent.Destroy, new()
+            {
+                { PhotonCodes.Param.Data, new Dictionary<object, object> { { (byte)0, bot.ViewId } } },
+            }));
+            // 254 Leave for the bot's actor: mirrors PlayerBot.Spawn's 255 Join so clients drop the actor.
+            session.RelayFrom(bot.Actor, new EventData(PhotonCodes.Event.Leave, new() { { PhotonCodes.Param.ActorNr, bot.Actor } }));
+
+            _bots.RemoveAt(i);
+            _scriptCursor.Remove(bot.Actor);
+            _countByRoom.AddOrUpdate(room, 0, (_, n) => n > 0 ? n - 1 : 0);
+            removed++;
+        }
+        if (removed > 0) Log.Info("Bots", $"despawned {removed} bot(s) from \"{room}\"");
+        return removed;
+    }
+
+    /// <summary>
     /// Picks the default behavior for an auto-spawned bot: the world-aware <see cref="HunterBehavior"/> when
     /// <see cref="Smart"/> + <see cref="Worlds"/> are set, otherwise the blind <see cref="WanderBehavior"/>.
     /// Smart bots start spread on a deterministic spiral (so they aren't stacked before they find targets) —
