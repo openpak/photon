@@ -25,14 +25,17 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly PluginManager _plugins;
     private readonly BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry _worlds;
     private readonly BlackIce.Server.LoadBalancing.Navigation.NavMeshRegistry _navs;
+    private readonly BlackIce.Server.LoadBalancing.Auth.ISteamTicketValidator _steam;
 
     // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<BlackIceDbContext> dbf,
                                   RoomRegistry registry, BotManager bots, AdminActionQueue admin,
                                   BotIdentityGenerator botIds, PluginManager plugins,
                                   BlackIce.Server.LoadBalancing.Authority.RoomWorldStateRegistry worlds,
-                                  BlackIce.Server.LoadBalancing.Navigation.NavMeshRegistry navs)
+                                  BlackIce.Server.LoadBalancing.Navigation.NavMeshRegistry navs,
+                                  BlackIce.Server.LoadBalancing.Auth.ISteamTicketValidator steam)
     {
+        _steam = steam;
         _config = config;
         _dbf = dbf;
         _registry = registry;
@@ -51,8 +54,15 @@ public sealed class ListenersHostedService : BackgroundService
         var motd = new MotdService(_dbf.CreateDbContext());
 
         var s = _config.Server;
+        // Steam ticket validation completes asynchronously on a Steam callback thread; its auth response must
+        // be sent on the NameServer listener's single thread. Marshal it via this queue, drained in the
+        // listener's OnMaintenance (the same thread-affinity pattern as the Game listener's admin queue).
+        var nameQueue = new System.Collections.Concurrent.ConcurrentQueue<Action>();
         var name = new UdpListener("NameServer", s.Ports.NameServer,
-            new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts), s.Listener);
+            new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts,
+                                  _steam, _config.AllowAnonymousLan,
+                                  isLan: null, post: nameQueue.Enqueue), s.Listener);
+        name.OnMaintenance = () => { while (nameQueue.TryDequeue(out var a)) a(); };
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var master = new UdpListener("MasterServer", s.Ports.MasterServer,

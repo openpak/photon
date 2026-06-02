@@ -83,6 +83,10 @@ builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Authority.RoomWorldS
 // Walkable-surface navmeshes (loaded lazily from maps/<name>.navmesh; null when absent → bots fall back to
 // player-anchor movement). Mirrors RoomWorldStateRegistry; the bots path on it when a realm maps a map name.
 builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Navigation.NavMeshRegistry>();
+// Steam game-server ticket validator. Default is the Null impl (no Steam → public peers fail closed, LAN works);
+// the optional BlackIce.Server.Steam project swaps in the real BeginAuthSession validator (see SteamValidatorFactory).
+builder.Services.AddSingleton<BlackIce.Server.LoadBalancing.Auth.ISteamTicketValidator>(
+    _ => BlackIce.Server.Host.SteamValidatorFactory.Create());
 builder.Services.AddSingleton<AdminActionQueue>();
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();
