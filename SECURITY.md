@@ -50,6 +50,7 @@ privilege changes on the console.
   now carries the Steam-`verified` flag, so a known secret lets an attacker forge a verified identity — for
   that reason **public auth now fails closed under the default secret** (`NameServerHandler`), but the secret
   must still be set (ideally auto-generated + persisted) for public play. (Security review C1.)
+- **In-game `/command` chat** runs at the player's level, but elevation above Player requires a **Steam-verified** identity. The `Server.TrustLanAdmin` opt-in (default off) additionally honors a trusted-LAN peer's account level for the operator's convenience on a private LAN — accept that a LAN peer can spoof an admin SteamID when you enable it. Chat is capped at Admin; Console-tier stays console-only. (Security review: spoofable-field elevation — gated behind the explicit opt-in.)
 - **Ticket replay:** a Steam auth-session ticket is not bound to the network session beyond Steam's own
   single-session `BeginAuthSession` dedup; the transport AES protects it in transit. Acceptable for now;
   revisit if stronger per-connection binding is needed. (Security review M2.)

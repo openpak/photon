@@ -11,6 +11,13 @@ public sealed class ServerConfig
     public string AdvertisedHost { get; set; } = "127.0.0.1";
     public bool AllowAnonymousLan { get; set; } = true;
 
+    /// <summary>Opt-in: honor a LAN/loopback peer's account level for in-game "/command" chat WITHOUT Steam
+    /// verification. Off by default (secure) — without it, only Steam-verified peers get above Player in chat,
+    /// since the LAN SteamID is asserted/spoofable. Enable ONLY on a trusted private LAN (the operator accepts
+    /// that a LAN peer could spoof an admin SteamID to run admin chat commands). Chat is still capped at Admin;
+    /// Console-tier stays server-console-only. See SECURITY.md.</summary>
+    public bool TrustLanAdmin { get; set; } = false;
+
     /// <summary>Token-signing secret, per-role ports, and listener cadence (was hard-coded in Program.cs).</summary>
     public ServerOptions Server { get; set; } = new();
 

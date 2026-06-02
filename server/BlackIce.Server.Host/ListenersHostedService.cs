@@ -79,7 +79,8 @@ public sealed class ListenersHostedService : BackgroundService
             .Register(new BlackIce.Server.Data.MotdCommands(motd));
         foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
         var game = new UdpListener("GameServer", s.Ports.GameServer,
-            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins, chatCommands), s.Listener);
+            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
+                                  chatCommands, _config.TrustLanAdmin), s.Listener);
 
         // Tick bots AND drain queued admin actions on the Game listener's single thread: both relay to
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run

@@ -38,6 +38,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly ChatCommandHandler _chat;
     private readonly OperationRouter _router;
     private readonly IRoomLifecycleListener? _lifecycle;
+    private readonly bool _trustLanAdmin;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -51,12 +52,14 @@ public sealed class GameServerHandler : IOperationHandler
     /// MinLevel gates it against the caller's VERIFIED level; null → only built-in /motd works.</param>
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
-                             IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null)
+                             IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
+                             bool trustLanAdmin = false)
     {
         _secret = secret;
         _registry = registry;
         _realms = realms;
         _allowAnonymousLan = allowAnonymousLan;
+        _trustLanAdmin = trustLanAdmin;
         _accounts = accounts;
         _motd = motd;
         _lifecycle = lifecycle;
@@ -135,10 +138,14 @@ public sealed class GameServerHandler : IOperationHandler
     /// <c>Console</c>-tier commands (e.g. loglevel/promote/ban) stay server-console-only even in chat.</summary>
     private PlayerLevel ChatLevelOf(PeerConnection peer)
     {
-        bool trusted = peer.IsVerified || (_allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
+        // SECURE DEFAULT: only a Steam-VERIFIED identity is trusted for above-Player chat. The LAN-operator
+        // opt-in (_trustLanAdmin) additionally trusts a trusted-local peer's account level — but the LAN
+        // SteamID is asserted/spoofable, so it's off unless the operator enables it for a private LAN.
+        bool trusted = peer.IsVerified
+                       || (_trustLanAdmin && _allowAnonymousLan && TrustedNetwork.IsLanOrLoopback(peer.Remote));
         if (!trusted || peer.SteamId is null) return PlayerLevel.Player;
         var level = _accounts?.Find(peer.SteamId)?.Level ?? PlayerLevel.Player;
-        return level > PlayerLevel.Admin ? PlayerLevel.Admin : level;
+        return level > PlayerLevel.Admin ? PlayerLevel.Admin : level;   // Console-tier stays console-only
     }
 
     private void HandleRaiseEvent(PeerConnection peer, OperationRequest request)
