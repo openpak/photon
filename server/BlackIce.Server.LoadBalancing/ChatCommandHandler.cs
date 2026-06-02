@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
@@ -51,7 +52,7 @@ public sealed class ChatCommandHandler
     /// "/command". This works regardless of the shortcut index and leaves all normal RPCs and
     /// normal chat untouched. (B5 live capture should confirm no other RPC sends "/"-leading text.)
     /// </summary>
-    public EventData? TryHandle(string? roomName, OperationRequest req, PlayerLevel callerLevel = PlayerLevel.Player)
+    public IReadOnlyList<EventData>? TryHandle(string? roomName, OperationRequest req, PlayerLevel callerLevel = PlayerLevel.Player)
     {
         if (req.OperationCode != OpRaiseEvent) return null;
         // Event code comes off the wire from an untrusted peer; validate rather than coerce.
@@ -80,18 +81,52 @@ public sealed class ChatCommandHandler
         {
             var realm = roomName is not null ? _realms?.Get(roomName) : null;
             var resolved = _motd?.Resolve(realm);
-            return ServerMessageEvent(string.IsNullOrWhiteSpace(resolved) ? "No MOTD set." : resolved!);
+            return Messages(string.IsNullOrWhiteSpace(resolved) ? "No MOTD set." : resolved!);
         }
 
         // /help and /commands list exactly what THIS caller's level may run.
         if (word is "help" or "commands")
-            return ServerMessageEvent(_commands?.HelpFor(callerLevel) ?? "No commands available.");
+            return Messages(_commands?.HelpFor(callerLevel) ?? "No commands available.");
 
         // Any other /command: run it through the registry at the caller's level. The registry enforces
         // per-command MinLevel (a too-low caller is refused) and arg/usage checks, returning the result text.
         if (_commands is not null && _commands.TryExecute(line, callerLevel, out var output))
-            return ServerMessageEvent(string.IsNullOrWhiteSpace(output) ? "(done)" : output);
+            return Messages(string.IsNullOrWhiteSpace(output) ? "(done)" : output);
 
-        return ServerMessageEvent($"Unknown command: {text}  (try /help)");
+        return Messages($"Unknown command: {text}  (try /help)");
+    }
+
+    /// <summary>Splits a reply into one or more ServerMessage events small enough for the client's chat to
+    /// render — the game disconnects on an oversized single chat line (the full /help list is ~1.5 KB). Breaks
+    /// preferably on newlines, then on " | " separators, then hard-wraps; caps the total to avoid flooding.</summary>
+    private static IReadOnlyList<EventData> Messages(string text)
+    {
+        const int MaxLen = 180;     // safe per-line budget for the game's chat renderer
+        const int MaxChunks = 24;   // never flood the client; truncate beyond this
+        var chunks = new List<string>();
+
+        foreach (var rawLine in text.Split('\n'))
+        {
+            var line = rawLine.TrimEnd();
+            while (line.Length > MaxLen)
+            {
+                // Prefer to break at a " | " separator within the budget, else at the last space, else hard.
+                int cut = line.LastIndexOf(" | ", MaxLen, System.StringComparison.Ordinal);
+                if (cut <= 0) cut = line.LastIndexOf(' ', MaxLen);
+                if (cut <= 0) cut = MaxLen;
+                chunks.Add(line[..cut].TrimEnd());
+                line = line[cut..].TrimStart(' ', '|', ' ');
+            }
+            if (line.Length > 0) chunks.Add(line);
+            if (chunks.Count >= MaxChunks) break;
+        }
+
+        if (chunks.Count == 0) chunks.Add("(done)");
+        if (chunks.Count > MaxChunks)
+        {
+            chunks = chunks.GetRange(0, MaxChunks);
+            chunks[^1] += " …(truncated)";
+        }
+        return chunks.ConvertAll(ServerMessageEvent);
     }
 }

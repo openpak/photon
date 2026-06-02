@@ -151,10 +151,10 @@ public sealed class GameServerHandler : IOperationHandler
     private void HandleRaiseEvent(PeerConnection peer, OperationRequest request)
     {
         var state = peer.Tag as PeerRoomState;
-        var reply = _chat.TryHandle(state?.RoomName, request, ChatLevelOf(peer));
-        if (reply is not null)
+        var replies = _chat.TryHandle(state?.RoomName, request, ChatLevelOf(peer));
+        if (replies is not null)
         {
-            peer.RaiseEvent(reply);   // server command handled; not relayed
+            foreach (var reply in replies) peer.RaiseEvent(reply);   // server command handled (chunked); not relayed
             return;
         }
         if (state is not null

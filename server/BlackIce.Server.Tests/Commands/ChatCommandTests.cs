@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using BlackIce.Photon;
 using BlackIce.Server.Data;
 using BlackIce.Server.LoadBalancing;
@@ -20,6 +21,21 @@ public class ChatCommandTests
 
         [ConsoleCommand("secretcmd", MinLevel = PlayerLevel.Admin)]
         public string Secret(CommandLine line) => "the secret";
+
+        [ConsoleCommand("blob", MinLevel = PlayerLevel.Player)]
+        public string Blob(CommandLine line) => new string('x', 500);   // a deliberately oversized reply
+    }
+
+    [Fact]
+    public void Oversized_reply_is_chunked_into_multiple_small_messages()
+    {
+        // Regression: a single ~1.5 KB /help line disconnected the game client. Any long reply must be split
+        // into several ServerMessages, each within the chat-line budget — so it never overflows the client.
+        var replies = Handler().TryHandle("co-op", Chat("/blob"), PlayerLevel.Player);
+        Assert.NotNull(replies);
+        Assert.True(replies!.Count > 1, $"expected a 500-char reply to be chunked, got {replies.Count}");
+        foreach (var ev in replies)
+            Assert.True(((string)ev.Parameters[PhotonCodes.Param.Data]).Length <= 180);
     }
 
     private static ChatCommandHandler Handler() =>
@@ -37,8 +53,10 @@ public class ChatCommandTests
         },
     });
 
-    private static string? Reply(EventData? ev) =>
-        ev?.Parameters.TryGetValue(PhotonCodes.Param.Data, out var t) == true ? t as string : null;
+    // Replies are now chunked into one-or-more ServerMessages; join them so text assertions span all chunks.
+    private static string? Reply(IReadOnlyList<EventData>? evs) =>
+        evs is null ? null : string.Join(" ",
+            evs.Select(e => e.Parameters.TryGetValue(PhotonCodes.Param.Data, out var t) ? t as string : null));
 
     [Fact]
     public void Player_can_run_a_player_command()

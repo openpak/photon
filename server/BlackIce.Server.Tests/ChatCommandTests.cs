@@ -48,8 +48,8 @@ public class ChatCommandTests
         {
             var ev = h.TryHandle("co-op", ChatRpc("/motd"));
             Assert.NotNull(ev);
-            Assert.Equal(199, ev!.Code);
-            Assert.Equal("Daily news: the Ice grows.", ev.Parameters[245]);
+            Assert.Equal(199, ev![0].Code);
+            Assert.Equal("Daily news: the Ice grows.", ev[0].Parameters[245]);
         }
     }
 
@@ -61,7 +61,7 @@ public class ChatCommandTests
         {
             var ev = h.TryHandle("co-op", ChatRpc("/frobnicate"));
             Assert.NotNull(ev);
-            Assert.Contains("Unknown command", (string)ev!.Parameters[245]);
+            Assert.Contains("Unknown command", (string)ev![0].Parameters[245]);
         }
     }
 
@@ -95,7 +95,7 @@ public class ChatCommandTests
         {
             var ev = h.TryHandle("co-op", ShortcutChatRpc("/motd"));
             Assert.NotNull(ev);
-            Assert.Equal("Daily news: the Ice grows.", ev!.Parameters[245]);
+            Assert.Equal("Daily news: the Ice grows.", ev![0].Parameters[245]);
         }
     }
 
