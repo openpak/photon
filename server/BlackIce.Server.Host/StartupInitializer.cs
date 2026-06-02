@@ -21,7 +21,7 @@ public static class StartupInitializer
             config.Database.InitializeSchema(schemaCtx);
 
         Log.Info("HOST", $"BlackIce.Server starting — DB {config.Database.Provider}, advertising {config.AdvertisedHost}, " +
-                         $"anonLan={config.AllowAnonymousLan}, logLevel={Log.Level}");
+                         $"anonLan={config.AllowAnonymousLan}, trustLanAdmin={config.TrustLanAdmin}, logLevel={Log.Level}");
         Log.Info("HOST", $"log file: {logPath}");
 
         using var ctx = dbf.CreateDbContext();

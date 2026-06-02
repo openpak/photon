@@ -32,8 +32,12 @@ public sealed class AccountService
         return acct;
     }
 
+    /// <summary>Reads the account fresh (<see cref="EntityFrameworkExtensions"/> AsNoTracking) so a level/ban
+    /// change written by ANOTHER context (e.g. a console <c>promote</c>/<c>ban</c>) is seen immediately by the
+    /// listener threads — without this, a context that loaded the account during auth would keep serving its
+    /// stale tracked copy, and live admin changes wouldn't take effect until restart.</summary>
     public Account? Find(string steamId) =>
-        _db.Accounts.Include(a => a.Profile).FirstOrDefault(a => a.SteamId == steamId);
+        _db.Accounts.AsNoTracking().Include(a => a.Profile).FirstOrDefault(a => a.SteamId == steamId);
 
     /// <summary>Sets an account's permission tier. <see cref="ErrorCode.NotFound"/> if no such account.</summary>
     public Result SetLevel(string steamId, PlayerLevel level)
