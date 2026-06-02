@@ -37,6 +37,7 @@ public sealed class MovementPlugin : BaseUnityPlugin
     private Vector3 _lastPos;
     private bool _hasLast;
     private float _flyTargetY;
+    private int _speedDebugTick;
 
     private void Awake()
     {
@@ -81,15 +82,18 @@ public sealed class MovementPlugin : BaseUnityPlugin
         _hasLast = true;
     }
 
-    /// <summary>Amplify the controller's own horizontal movement this frame (keeps gravity/collision intact).</summary>
+    /// <summary>Amplify the player's own horizontal movement this frame by rewriting the position — the same
+    /// direct-set mechanism the working fly path uses (so nothing snaps it back), unlike CharacterController.Move
+    /// which only worked if we'd found the exact movement controller. Y is preserved so gravity/steps stay intact.</summary>
     private void ApplySpeed()
     {
         if (!_hasLast) return;
         Vector3 delta = _player!.position - _lastPos;
-        Vector3 extraXZ = new Vector3(delta.x, 0f, delta.z) * (_speedMultiplier.Value - 1f);
-        if (extraXZ.sqrMagnitude < 1e-8f) return;
-        if (_controller != null && _controller.enabled) _controller.Move(extraXZ);   // respect walls
-        else _player.position += extraXZ;
+        float m = _speedMultiplier.Value;
+        _player.position = _lastPos + new Vector3(delta.x * m, delta.y, delta.z * m);
+        if (_speedDebugTick++ % 60 == 0)
+            Logger.LogInfo($"[speed] per-frame move XZ={new Vector2(delta.x, delta.z).magnitude:0.000} ×{m:0.#} " +
+                           $"(controller present={_controller != null}, enabled={_controller != null && _controller.enabled})");
     }
 
     /// <summary>Noclip fly: drive the transform directly — WASD (camera-relative) for XZ, keys for Y.</summary>
