@@ -276,7 +276,10 @@ public sealed class HunterBehavior : IBotBrain
     /// </summary>
     private (float x, float y, float z)? SurfaceAt(float x, float z)
     {
-        if (_navMesh is not { } nav || !nav.NearestPoint(x, z, out var p, out _)) return null;
+        // Floor-aware: ask for the surface whose height is nearest the bot's CURRENT world Y (expressed in the
+        // mesh's frame, i.e. minus the rebase offset), so in a multi-storey navmesh we snap to the bot's own
+        // floor rather than an upper floor sharing the XZ.
+        if (_navMesh is not { } nav || !nav.NearestPoint(x, z, _y - _navYOffset, out var p, out _)) return null;
         p.y += _navYOffset;   // rebase the mesh surface into the live world's vertical frame before any check
         float dx = p.x - x, dz = p.z - z;
         bool xzFar = dx * dx + dz * dz > SnapCoverageRadius * SnapCoverageRadius;

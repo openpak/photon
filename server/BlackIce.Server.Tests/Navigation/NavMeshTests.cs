@@ -56,6 +56,26 @@ public class NavMeshTests
     }
 
     [Fact]
+    public void Floor_aware_NearestPoint_picks_the_storey_nearest_the_target_height()
+    {
+        // Two stacked floors sharing the same XZ footprint: a ground floor at y=0 and an upper floor at y=20.
+        float[] verts =
+        {
+            0,0,0,  1,0,0,  0,0,1,  1,0,1,        // ground (y=0): verts 0..3
+            0,20,0, 1,20,0, 0,20,1, 1,20,1,       // upper  (y=20): verts 4..7
+        };
+        int[] tris = { 0,1,2, 1,3,2,   4,5,6, 5,7,6 };
+        var mesh = new NavMesh(verts, tris);
+
+        // A query at (0.3,0.3) sits under BOTH floors. Asking near y=1 must return the ground floor (y=0);
+        // asking near y=19 must return the upper floor (y=20).
+        Assert.True(mesh.NearestPoint(0.3f, 0.3f, nearY: 1f, out var low, out _));
+        Assert.Equal(0f, low.y, 3);
+        Assert.True(mesh.NearestPoint(0.3f, 0.3f, nearY: 19f, out var high, out _));
+        Assert.Equal(20f, high.y, 3);
+    }
+
+    [Fact]
     public void SampleHeight_interpolates_a_sloped_triangle()
     {
         // One triangle sloping from y=0 at origin to y=10 at (1,_,0).

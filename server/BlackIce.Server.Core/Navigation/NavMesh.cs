@@ -121,6 +121,33 @@ public sealed class NavMesh
         return true;
     }
 
+    /// <summary>
+    /// Like <see cref="NearestPoint(float,float,out (float,float,float),out int)"/> but FLOOR-AWARE: among the
+    /// triangles whose XZ projection contains (x,z), returns the one whose interpolated height is closest to
+    /// <paramref name="nearY"/>. In a multi-storey navmesh the plain query returns whichever stacked triangle
+    /// it finds first (an arbitrary floor); this picks the floor the caller is actually on, so a ground-floor
+    /// bot snaps to the ground floor rather than an upper floor sharing the same XZ. Falls back to the plain
+    /// XZ-nearest point when (x,z) is off the mesh footprint.
+    /// </summary>
+    public bool NearestPoint(float x, float z, float nearY, out (float x, float y, float z) point, out int triangle)
+    {
+        point = default; triangle = -1;
+        if (TriangleCount == 0) return false;
+
+        double bestYGap = double.MaxValue;
+        bool found = false;
+        for (int t = 0; t < TriangleCount; t++)
+        {
+            var (a, b, c) = Triangle(t);
+            if (!PointInTriangleXZ(x, z, a, b, c)) continue;
+            float y = InterpolateY(x, z, a, b, c);
+            double gap = y - nearY; if (gap < 0) gap = -gap;
+            if (gap < bestYGap) { bestYGap = gap; point = (x, y, z); triangle = t; found = true; }
+        }
+        if (found) return true;
+        return NearestPoint(x, z, out point, out triangle);   // off-footprint → XZ fallback
+    }
+
     /// <summary>The walkable height at (x,z) if it lies on the mesh, else null (off-mesh).</summary>
     public float? SampleHeight(float x, float z)
     {
