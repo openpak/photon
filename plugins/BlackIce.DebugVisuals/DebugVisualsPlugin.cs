@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
@@ -28,10 +29,12 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
 {
     internal static DebugVisualsPlugin? Instance;
 
-    private ConfigEntry<float> _drawDistance = null!, _gridSize = null!, _refreshSeconds = null!;
+    private ConfigEntry<float> _drawDistance = null!, _gridSize = null!, _refreshSeconds = null!, _heatMaxCost = null!;
     private ConfigEntry<bool> _throughWalls = null!;
 
-    private bool _grid, _nav, _colliders, _entities;
+    private bool _grid, _nav, _colliders, _entities, _heat;
+    private readonly List<Renderer> _tinted = new();
+    private MaterialPropertyBlock? _block;
     private Material? _mat;
     private NavMeshTriangulation _navMesh;
     private Collider[] _colliderCache = Array.Empty<Collider>();
@@ -44,8 +47,9 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
         Instance = this;
         _drawDistance = Config.Bind("Tuning", "DrawDistance", 80f, "Max distance from the camera to draw colliders/entities.");
         _gridSize = Config.Bind("Tuning", "GridSize", 100f, "Half-extent (units) of the ground grid around the camera.");
-        _refreshSeconds = Config.Bind("Tuning", "RefreshSeconds", 1.0f, "How often to re-scan navmesh/colliders.");
+        _refreshSeconds = Config.Bind("Tuning", "RefreshSeconds", 1.0f, "How often to re-scan navmesh/colliders/heatmap.");
         _throughWalls = Config.Bind("Tuning", "ThroughWalls", true, "Draw overlays through geometry (ZTest Always).");
+        _heatMaxCost = Config.Bind("Tuning", "HeatMaxCost", 20000f, "Estimated per-object cost that maps to full RED in the perf heatmap.");
 
         try { new Harmony("blackice.debugvisuals").PatchAll(typeof(ChatInterceptor)); }
         catch (Exception ex) { Logger.LogWarning($"chat-command interception unavailable ({ex.Message}); overlays still work if toggled by code."); }
@@ -64,12 +68,13 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
             case "nav": case "navmesh": _nav = !_nav; if (_nav) Refresh(); break;
             case "col": case "colliders": _colliders = !_colliders; if (_colliders) Refresh(); break;
             case "ent": case "entities": _entities = !_entities; break;
+            case "perf": case "heat": case "heatmap": ToggleHeat(); break;
             case "all": _grid = _nav = _colliders = _entities = true; Refresh(); break;
-            case "off": _grid = _nav = _colliders = _entities = false; break;
+            case "off": _grid = _nav = _colliders = _entities = false; if (_heat) ToggleHeat(); break;
             default: break;   // bare /dbg → just show status
         }
-        _status = $"DBG  grid:{On(_grid)} nav:{On(_nav)} col:{On(_colliders)} ent:{On(_entities)}   " +
-                  "(/dbg grid|nav|col|ent|all|off)";
+        _status = $"DBG  grid:{On(_grid)} nav:{On(_nav)} col:{On(_colliders)} ent:{On(_entities)} perf:{On(_heat)}   " +
+                  "(/dbg grid|nav|col|ent|perf|all|off)";
         _statusUntil = Time.unscaledTime + 6f;
         Logger.LogInfo(_status);
     }
@@ -86,7 +91,77 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
     private void Update()
     {
         if ((_nav || _colliders) && Time.unscaledTime >= _nextRefresh) Refresh();
+        if (_heat && Time.unscaledTime >= _nextHeat) ApplyHeatmap();
     }
+
+    // --- Performance heatmap: tint every renderer green→red by an estimated per-object cost ---------------
+
+    private float _nextHeat;
+
+    private void ToggleHeat()
+    {
+        _heat = !_heat;
+        if (_heat) ApplyHeatmap();
+        else ClearHeatmap();
+    }
+
+    /// <summary>Scans all renderers and tints each (via a non-destructive <see cref="MaterialPropertyBlock"/>)
+    /// on a green→yellow→red scale by an ESTIMATED cost: geometry (vertices), material count, script/component
+    /// count, and a bump for per-frame-dynamic systems (skinned mesh, animator, particles, non-kinematic
+    /// rigidbody, MeshCollider, real-time light). This is a static complexity proxy for hunting hotspots, not a
+    /// live CPU profile — but it reliably surfaces the heavy meshes/objects to optimize.</summary>
+    private void ApplyHeatmap()
+    {
+        _nextHeat = Time.unscaledTime + Mathf.Max(0.25f, _refreshSeconds.Value);
+        ClearHeatmap();
+        _block ??= new MaterialPropertyBlock();
+        float max = Mathf.Max(1f, _heatMaxCost.Value);
+        foreach (var r in FindObjectsOfType<Renderer>())
+        {
+            if (r is null) continue;
+            float t = Mathf.Clamp01(Mathf.Sqrt(CostOf(r) / max));   // sqrt so mid-cost reads orange, not green
+            var c = Heat(t);
+            r.GetPropertyBlock(_block);
+            _block.SetColor("_Color", c);          // built-in/standard pipeline tint
+            _block.SetColor("_BaseColor", c);      // URP/HDRP tint
+            _block.SetColor("_EmissionColor", c * (t * 2f));   // make hotspots glow
+            r.SetPropertyBlock(_block);
+            _tinted.Add(r);
+        }
+        _status = $"DBG  perf heatmap: tinted {_tinted.Count} renderers (green=cheap → red=hot, max={max:0})";
+        _statusUntil = Time.unscaledTime + 6f;
+    }
+
+    private void ClearHeatmap()
+    {
+        var empty = new MaterialPropertyBlock();
+        foreach (var r in _tinted) if (r is not null) r.SetPropertyBlock(empty);   // restore original appearance
+        _tinted.Clear();
+    }
+
+    /// <summary>Cheap per-object cost estimate (no per-frame allocation: uses vertexCount, not the triangle array).</summary>
+    private static float CostOf(Renderer r)
+    {
+        var go = r.gameObject;
+        float cost = r.sharedMaterials.Length * 400f;                 // each material/draw-call submesh
+        cost += go.GetComponents<MonoBehaviour>().Length * 150f;      // script/Update load proxy
+
+        Mesh? mesh = (r as SkinnedMeshRenderer)?.sharedMesh ?? go.GetComponent<MeshFilter>()?.sharedMesh;
+        if (mesh is not null) cost += mesh.vertexCount;               // geometry (vertex count ≈ tris, no alloc)
+
+        if (r is SkinnedMeshRenderer) cost += 4000f;                  // skinning is per-frame CPU
+        if (go.GetComponent<Animator>() is not null) cost += 2000f;
+        if (go.GetComponent<ParticleSystem>() is { } ps) cost += ps.main.maxParticles * 5f;
+        if (go.GetComponent<Rigidbody>() is { isKinematic: false }) cost += 1500f;
+        if (go.GetComponent<MeshCollider>() is not null) cost += 1500f;
+        if (go.GetComponent<Light>() is { } li && li.type != LightType.Directional) cost += 3000f;
+        if (r.isVisible) cost += 1000f;                               // on-screen right now = paying render cost
+        return cost;
+    }
+
+    private static Color Heat(float t) => t < 0.5f
+        ? Color.Lerp(Color.green, Color.yellow, t * 2f)
+        : Color.Lerp(Color.yellow, Color.red, (t - 0.5f) * 2f);
 
     private void OnGUI()
     {
@@ -212,13 +287,26 @@ public sealed class DebugVisualsPlugin : BaseUnityPlugin
 }
 
 /// <summary>Harmony patch: intercept the chat-send RPC and handle "/dbg ..." locally, suppressing the send so
-/// the command never reaches the server or other players.</summary>
+/// the command never reaches the server or other players. Patches EVERY PUN RPC overload that could carry a
+/// chat call — RPC/RpcSecure, RpcTarget- and Player-targeted — since which one the game uses isn't known.
+/// (This is a UX convenience, not a security boundary: the server independently ignores an unknown /dbg.)</summary>
 [HarmonyPatch]
 internal static class ChatInterceptor
 {
-    private static MethodBase? TargetMethod() =>
-        typeof(PhotonView).GetMethod("RPC", new[] { typeof(string), typeof(RpcTarget), typeof(object[]) });
+    // Every PhotonView.RPC / RpcSecure overload shares (string methodName, …, object[] parameters); patch them
+    // all so the chat send is caught regardless of which overload the game calls.
+    private static System.Collections.Generic.IEnumerable<MethodBase> TargetMethods()
+    {
+        foreach (var m in typeof(PhotonView).GetMethods(BindingFlags.Public | BindingFlags.Instance))
+        {
+            if (m.Name != "RPC" && m.Name != "RpcSecure") continue;
+            var ps = m.GetParameters();
+            if (ps.Length >= 2 && ps[0].ParameterType == typeof(string) && ps[ps.Length - 1].ParameterType == typeof(object[]))
+                yield return m;
+        }
+    }
 
+    // Bound by name across all overloads (each has `string methodName` and `object[] parameters`).
     private static bool Prefix(string methodName, object[] parameters)
     {
         if (DebugVisualsPlugin.Instance is null || methodName != "ReceiveChatMessage") return true;
