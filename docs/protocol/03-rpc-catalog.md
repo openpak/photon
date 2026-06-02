@@ -14,6 +14,29 @@ sender — a client that emits a crafted `RaiseEvent` carrying, e.g., `EnemyNetw
 or `InventoryControl` mutations is simply trusted. This is the exact surface Phase 3
 (server authority) and Phase 4 (anti-cheat) must close.
 
+## Shortcut-index table (key 5) — live-captured
+
+PUN can send a frequently-used RPC as a **byte index** into the project's ordered RPC list (Photon RPC
+key `5`, the "method shortcut") instead of the full method name (key `3`). That ordering lives in a Unity
+asset (`PhotonServerSettings.RpcList`), not in code, so it cannot be resolved from decompilation — it has
+to be read from a live client. The ordered table (88 entries) is captured in
+[`generated/rpc-shortcuts.csv`](generated/rpc-shortcuts.csv) and resolves any `"5":N` seen in a capture
+to a method name (e.g. `5:39` → `ReceiveChatMessage`, `5:63` → `TakeDamage`, `5:48` → `SetDying`). The
+first ~74 entries are alphabetical; indices 74+ were appended as the game added features (so the order is
+the asset's, not re-sortable). Re-dump it after a game update with `BlackIce.OpLogger` (it records a
+`kind:"rpclist"` line on launch).
+
+## Authority finding — now confirmed live
+
+The static inference above (handlers trust the sender) is borne out by a live co-op capture. With a single
+authoritative client in the room, **every** gameplay RPC was *outgoing* and none was received: the client
+sent `SpawnProjectileRemote`, `SetDying`, `KillEnemyPhase`, `AddSpawnedEnemies`, `WakeEnemyAfterDelay`,
+`SetupHack`/`FinishEndingHack`. Critically, **no `TakeDamage` RPC was ever sent** — the master computes
+damage locally and broadcasts only the *outcome* (`SetDying`). So `DamagePacket` does not transit the wire
+in a master-authoritative session; capturing its layout requires a **non-master** client taking damage (or
+PvP). This is direct evidence for why Phase 3/4 must make the **server** the damage authority — a relay
+that never sees the damage cannot validate it.
+
 ## By subsystem (counts from `rpcs.csv`)
 
 | Subsystem | Type(s) | RPCs | Authority-sensitive examples |

@@ -91,12 +91,20 @@ internal static class SimpleJson
         if (depth >= MaxDepth) { WriteString(sb, SafeToString(v)); return; }
 
         // A custom type (DamagePacket etc.) deserializes to a struct/class — capture its fields AND
-        // properties by name, plus a __type tag so the layout is self-describing in the capture.
-        sb.Append("{\"__type\":");
-        WriteString(sb, type.FullName ?? type.Name);
+        // properties by name, plus a __type tag so the layout is self-describing in the capture. Skip the
+        // tag for the logger's own anonymous record wrappers (<>f__AnonymousTypeN) — it's pure noise there.
+        sb.Append('{');
+        bool first = true;
+        if (!IsAnonymousType(type))
+        {
+            sb.Append("\"__type\":");
+            WriteString(sb, type.FullName ?? type.Name);
+            first = false;
+        }
         foreach (FieldInfo f in type.GetFields(BindingFlags.Public | BindingFlags.Instance))
         {
-            sb.Append(',');
+            if (!first) sb.Append(',');
+            first = false;
             WriteString(sb, f.Name);
             sb.Append(':');
             WriteMember(sb, () => f.GetValue(v), depth);
@@ -104,12 +112,21 @@ internal static class SimpleJson
         foreach (PropertyInfo p in type.GetProperties(BindingFlags.Public | BindingFlags.Instance))
         {
             if (!p.CanRead || p.GetIndexParameters().Length > 0) continue;   // skip indexers
-            sb.Append(',');
+            if (!first) sb.Append(',');
+            first = false;
             WriteString(sb, p.Name);
             sb.Append(':');
             WriteMember(sb, () => p.GetValue(v), depth);
         }
         sb.Append('}');
+    }
+
+    /// <summary>True for compiler-generated anonymous types (the logger's own record wrappers) — their
+    /// mangled type name is noise, so we omit the __type tag for them.</summary>
+    static bool IsAnonymousType(Type type)
+    {
+        var name = type.Name;
+        return name.StartsWith("<>", StringComparison.Ordinal) && name.Contains("AnonymousType");
     }
 
     /// <summary>Serialize one member value, turning any getter exception into a JSON error string instead
