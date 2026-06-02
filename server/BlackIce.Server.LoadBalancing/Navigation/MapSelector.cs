@@ -9,32 +9,32 @@ using BlackIce.Server.LoadBalancing.Authority;
 namespace BlackIce.Server.LoadBalancing.Navigation;
 
 /// <summary>
-/// Auto-detects which extracted map a room is actually playing, from the live player positions — the
-/// clean-room stand-in for a client-sent map id (Black Ice sends none over Photon). The server holds every
-/// extracted navmesh; for each room it scores the candidates by how many observed player positions land on
-/// that map's real surface (not just its bounding box), and the highest-scoring map is the room's map.
+/// Auto-detects which extracted map a room is playing, and the vertical offset between the baked navmesh and
+/// the live world — both inferred from live player positions, since Black Ice sends no map id over Photon.
 ///
-/// <para><b>Why a trajectory, not a point.</b> Map bounding boxes overlap (several levels straddle the
-/// origin), so a single position is ambiguous. A path of positions is not: only the level whose walkable
-/// surface is genuinely under the player accrues hits across the whole trajectory. The disjoint geometry of
-/// the real maps makes the score converge on one map within a few seconds of movement.</para>
+/// <para><b>Why an offset, not just a match.</b> The Co-op map is level12, but its baked navmesh sits ~63u
+/// below the live floor (a uniform coordinate shift applied when the game places the level at runtime;
+/// confirmed by cross-checking learned walkable cells against level12 geometry). So a candidate is scored by
+/// XZ coverage of the player's trajectory, and for the covered candidates we measure the per-sample Y offset
+/// (playerY − meshSurfaceY). A candidate is committed only when that offset is <b>consistent</b> (low std):
+/// a real level shifted by a uniform amount has tight offsets; a coincidental XZ overlap with a different
+/// level has scattered ones. The committed map's median offset is then applied to rebase its navmesh.</para>
 ///
-/// <para><b>Cheap once settled.</b> Scoring runs a bounded nearest-point test only on candidates whose bbox
-/// contains the sample (a handful), and only while a room is still learning or its chosen map stops covering
-/// the players (a map change). A settled room costs one bbox check per tick.</para>
+/// <para>Map bounding boxes overlap near the scene origin, so a single point is ambiguous — the trajectory +
+/// offset-consistency test disambiguates. Null until enough samples converge (then bots use player-anchored
+/// movement), so an unknown/procedural level degrades gracefully.</para>
 /// </summary>
 public sealed class MapSelector
 {
-    /// <summary>A player position is "on" a candidate map when the nearest surface point is within this XZ
-    /// distance — matches the bot's own coverage gate, so a chosen map is one the bots can actually path on.</summary>
+    /// <summary>A player is "over" a candidate when the nearest surface point is within this XZ distance.</summary>
     private const float CoverageRadius = 25f;
     private const float CoverageRadiusSq = CoverageRadius * CoverageRadius;
 
-    /// <summary>...and within this vertical distance. Many levels' XZ footprints overlap near the scene origin
-    /// (each level has geometry around its own (0,0)), so XZ alone false-matches a level the player isn't on.
-    /// Requiring the surface Y to be near the player's height rejects those: e.g. level12's surface sits at
-    /// Y≈-64 while a player stands near 0, so it's correctly NOT selected for that player.</summary>
-    private const float VerticalTolerance = 15f;
+    /// <summary>Max std of a candidate's measured Y offsets to accept it — a uniformly-shifted real level is
+    /// tight; a coincidental overlap with an unrelated level is scattered. Generous enough for multi-floor
+    /// sampling noise, tight enough to reject a wrong level.</summary>
+    private const float OffsetConsistencyStd = 25f;
+    private const int MaxOffsetSamples = 256;
 
     private readonly IReadOnlyList<(string name, NavMesh mesh)> _candidates;
     private readonly int _minSamples;
@@ -42,14 +42,13 @@ public sealed class MapSelector
     private sealed class RoomScore
     {
         public readonly Dictionary<string, int> Hits = new(StringComparer.OrdinalIgnoreCase);
+        public readonly Dictionary<string, List<float>> Offsets = new(StringComparer.OrdinalIgnoreCase);
         public int Samples;
         public string? Chosen;
+        public float ChosenYOffset;
     }
     private readonly ConcurrentDictionary<string, RoomScore> _rooms = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <param name="registry">Loads every extracted navmesh (the candidate maps).</param>
-    /// <param name="minSamples">Player position samples a room must accumulate before a map is committed —
-    /// guards against a lucky early hit while the player is mid-air/loading.</param>
     public MapSelector(NavMeshRegistry registry, int minSamples = 20)
     {
         ArgumentNullException.ThrowIfNull(registry);
@@ -59,11 +58,10 @@ public sealed class MapSelector
             Log.Info("Maps", $"map auto-select armed with {_candidates.Count} candidate map(s)");
     }
 
-    /// <summary>The number of candidate maps loaded.</summary>
     public int CandidateCount => _candidates.Count;
 
-    /// <summary>Feed a room's current world-state: every known-position player avatar is one sample scored
-    /// against the candidate maps. Call once per room per tick (not per bot).</summary>
+    /// <summary>Feed a room's world-state: each known-position player avatar is one sample, scored (XZ coverage
+    /// + Y offset) against the candidate maps. Call once per room per tick (not per bot).</summary>
     public void Observe(string room, RoomWorldState world)
     {
         if (_candidates.Count == 0) return;
@@ -72,31 +70,23 @@ public sealed class MapSelector
         foreach (var e in world.Alive())
         {
             if (!e.HasPosition || !string.Equals(e.Kind, "Player", StringComparison.OrdinalIgnoreCase)) continue;
-
-            // Fast path: once a map is chosen and still covers this player, just keep counting it — no need to
-            // re-test all candidates every tick.
-            if (rs.Chosen is { } chosen && Covers(chosen, e.X, e.Y, e.Z))
-            {
-                rs.Samples++;
-                rs.Hits[chosen] = rs.Hits.GetValueOrDefault(chosen) + 1;
-                continue;
-            }
-
             rs.Samples++;
             foreach (var (name, mesh) in _candidates)
             {
                 if (!mesh.ContainsXZ(e.X, e.Z, CoverageRadius)) continue;       // cheap bbox pre-filter
-                if (!OnSurface(mesh, e.X, e.Y, e.Z)) continue;                  // precise: real surface under the player (XZ + Y)
+                if (!mesh.NearestPoint(e.X, e.Z, out var p, out _)) continue;
+                float dx = p.x - e.X, dz = p.z - e.Z;
+                if (dx * dx + dz * dz > CoverageRadiusSq) continue;             // genuinely XZ-covered
                 rs.Hits[name] = rs.Hits.GetValueOrDefault(name) + 1;
+                var list = rs.Offsets.TryGetValue(name, out var l) ? l : (rs.Offsets[name] = new List<float>());
+                if (list.Count < MaxOffsetSamples) list.Add(e.Y - p.y);        // playerY − meshSurfaceY
             }
         }
 
         Recommit(room, rs);
     }
 
-    /// <summary>The auto-detected navmesh for <paramref name="room"/>, or null until enough samples have
-    /// converged on a map (room still learning, no players seen, or no extracted map matches — e.g. a
-    /// procedural/unknown level). Null cleanly falls the bots back to player-anchored movement.</summary>
+    /// <summary>The auto-detected navmesh for <paramref name="room"/>, or null until a map converges.</summary>
     public NavMesh? Resolve(string room)
     {
         if (!_rooms.TryGetValue(room, out var rs) || rs.Chosen is null) return null;
@@ -105,39 +95,45 @@ public sealed class MapSelector
         return null;
     }
 
-    /// <summary>The chosen map name for a room (for diagnostics/console), or null if undecided.</summary>
+    /// <summary>The Y offset to add to the chosen map's surface so it lines up with the live world (0 if none).</summary>
+    public float ResolveYOffset(string room) => _rooms.TryGetValue(room, out var rs) ? rs.ChosenYOffset : 0f;
+
+    /// <summary>The chosen map name for a room (diagnostics/console), or null if undecided.</summary>
     public string? ChosenMap(string room) => _rooms.TryGetValue(room, out var rs) ? rs.Chosen : null;
 
     private void Recommit(string room, RoomScore rs)
     {
         if (rs.Samples < _minSamples || rs.Hits.Count == 0) return;
-        var best = rs.Hits.Aggregate((a, b) => b.Value > a.Value ? b : a);
-        // Require the leader to actually dominate (a clear majority of samples) so noise doesn't flip the pick.
-        if (best.Value * 2 < rs.Samples) return;
-        if (!string.Equals(best.Key, rs.Chosen, StringComparison.OrdinalIgnoreCase))
+
+        string? bestName = null; int bestHits = 0; float bestOffset = 0f;
+        foreach (var (name, hits) in rs.Hits)
+        {
+            if (hits * 2 < rs.Samples) continue;                                   // must cover a majority of samples
+            if (!rs.Offsets.TryGetValue(name, out var offs) || offs.Count < 3) continue;
+            var (median, std) = MedianStd(offs);
+            if (std > OffsetConsistencyStd) continue;                              // scattered offset → wrong level
+            if (hits > bestHits) { bestHits = hits; bestName = name; bestOffset = median; }
+        }
+        if (bestName is null) return;
+
+        bool changed = !string.Equals(bestName, rs.Chosen, StringComparison.OrdinalIgnoreCase);
+        bool recalibrated = !changed && Math.Abs(bestOffset - rs.ChosenYOffset) > 5f;
+        if (changed || recalibrated)
         {
             var prev = rs.Chosen;
-            rs.Chosen = best.Key;
-            Log.Info("Maps", $"room \"{room}\" map = {best.Key} ({best.Value}/{rs.Samples} player samples on it)" +
-                             (prev is null ? "" : $" — changed from {prev}"));
+            rs.Chosen = bestName; rs.ChosenYOffset = bestOffset;
+            Log.Info("Maps", $"room \"{room}\" map = {bestName} (Y offset {bestOffset:F0}u, {bestHits}/{rs.Samples} samples)" +
+                             (prev is null ? "" : recalibrated ? " — recalibrated" : $" — changed from {prev}"));
         }
     }
 
-    private bool Covers(string mapName, float x, float y, float z)
+    private static (float median, float std) MedianStd(List<float> values)
     {
-        foreach (var (name, mesh) in _candidates)
-            if (string.Equals(name, mapName, StringComparison.OrdinalIgnoreCase))
-                return mesh.ContainsXZ(x, z, CoverageRadius) && OnSurface(mesh, x, y, z);
-        return false;
-    }
-
-    /// <summary>True when the mesh has a walkable surface point within <see cref="CoverageRadius"/> in XZ AND
-    /// <see cref="VerticalTolerance"/> in Y of (x,y,z) — i.e. the player is genuinely standing ON this mesh,
-    /// not merely above/below a level that shares its XZ footprint.</summary>
-    private static bool OnSurface(NavMesh mesh, float x, float y, float z)
-    {
-        if (!mesh.NearestPoint(x, z, out var p, out _)) return false;
-        float dx = p.x - x, dz = p.z - z;
-        return dx * dx + dz * dz <= CoverageRadiusSq && Math.Abs(p.y - y) <= VerticalTolerance;
+        var s = values.ToList();
+        s.Sort();
+        float median = s[s.Count / 2];
+        float mean = 0f; foreach (var x in s) mean += x; mean /= s.Count;
+        float var = 0f; foreach (var x in s) { float d = x - mean; var += d * d; } var /= s.Count;
+        return (median, MathF.Sqrt(var));
     }
 }

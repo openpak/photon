@@ -92,24 +92,32 @@ public class MapSelectorTests
     }
 
     [Fact]
-    public void Vertically_offset_map_with_matching_XZ_is_not_selected()
+    public void Vertically_offset_map_is_selected_with_a_calibrated_offset()
     {
-        // The level12 false-match: a map whose XZ footprint contains the player but whose surface is far below
-        // (Y -64 vs player 2) must NOT be chosen — the player isn't standing on it, only above its footprint.
-        var dir = WriteMaps(("underground", Patch(0, 0, y: -64f)), ("rightfloor", Patch(0, 0, y: 2f)));
+        // The real level12 case: the map's surface sits far below the live floor (Y -64 vs player 2) but it IS
+        // the map — a uniform vertical shift. It must be selected, with the measured ~66u offset, so its
+        // navmesh can be rebased onto the live floor.
+        var dir = WriteMaps(("level", Patch(0, 0, y: -64f)));
         var sel = new MapSelector(new NavMeshRegistry(dir), MinSamples);
-        ObservePlayerAt(sel, "room", 0, 2, 0, MinSamples + 5);   // player at the live floor height
-        Assert.Equal("rightfloor", sel.ChosenMap("room"));
+        ObservePlayerAt(sel, "room", 0, 2, 0, MinSamples + 5);   // player at the live floor, 66u above the mesh
+        Assert.Equal("level", sel.ChosenMap("room"));
+        Assert.Equal(66f, sel.ResolveYOffset("room"), precision: 0);   // playerY(2) − meshY(−64)
     }
 
     [Fact]
-    public void Only_a_vertically_offset_map_leaves_the_room_unresolved()
+    public void A_candidate_with_an_inconsistent_offset_is_rejected()
     {
-        // Only a wrong-height map exists (Black Ice's likely case: the live procedural world matches no static
-        // level vertically). Resolve stays null → bots fall back to player-anchored movement, not underground.
-        var dir = WriteMaps(("underground", Patch(0, 0, y: -64f)));
+        // A coincidental XZ overlap with a WRONG level: the player's height doesn't track the mesh surface, so
+        // the per-sample offsets are scattered (high std). Such a candidate must NOT be committed.
+        var dir = WriteMaps(("wrong", Patch(0, 0, y: 0f)));
         var sel = new MapSelector(new NavMeshRegistry(dir), MinSamples);
-        ObservePlayerAt(sel, "room", 0, 2, 0, MinSamples + 5);
+        var world = new RoomWorldState();
+        var ys = new float[] { 0, 80, -60, 120, -40, 100, 30, -90, 70, 10 };   // wildly varying heights
+        for (int i = 0; i < MinSamples + 5; i++)
+        {
+            world.ObserveSpawn(2001, "Player", 0, ys[i % ys.Length], 0);   // same XZ, scattered Y
+            sel.Observe("room", world);
+        }
         Assert.Null(sel.ChosenMap("room"));
     }
 

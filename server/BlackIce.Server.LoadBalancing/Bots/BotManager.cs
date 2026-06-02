@@ -153,9 +153,13 @@ public sealed class BotManager
             // any contextual action RPCs it produced. Falls back to move-only when no world-state is wired.
             if (behavior is IBotBrain brain && Worlds is { } worlds)
             {
-                // Keep the bot's navmesh in sync with the room's (auto-detected) map. Cheap setter; the
-                // per-bot coverage gate handles the learning window and any mismatch.
-                if (behavior is HunterBehavior hunter) hunter.SetNavMesh(NavMeshFor(session.RoomName));
+                // Keep the bot's navmesh + vertical rebase in sync with the room's (auto-detected, calibrated)
+                // map. Cheap setter; the per-bot coverage gate handles the learning window and any mismatch.
+                if (behavior is HunterBehavior hunter)
+                {
+                    var (nav, yOff) = NavMeshFor(session.RoomName);
+                    hunter.SetNavMesh(nav, yOff);
+                }
                 var step = brain.Think(worlds.For(session.RoomName));
                 session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, step.Position), unreliable: true);
                 foreach (var ev in step.Actions)
@@ -206,13 +210,12 @@ public sealed class BotManager
     private IBotBehavior DefaultBehavior(PlayerBot bot, int index, float sx, float sy, float sz, string room)
     {
         if (!Smart || Worlds is null) return new WanderBehavior(sx, sz);
+        // At spawn the map may not be identified yet (offset unknown); Tick keeps the navmesh + offset synced
+        // via SetNavMesh, so just seed with whatever's resolvable now (often null until the player is sampled).
         return new HunterBehavior(bot.ViewId, sx, sz, startY: sy, fleetIndex: index, seed: bot.Actor,
-                                  navMesh: NavMeshFor(room));
+                                  navMesh: NavMeshFor(room).nav);
     }
 
-    /// <summary>The navmesh for <paramref name="room"/> — its realm's mapped map name resolved through the
-    /// <see cref="Navs"/> cache — or null when no registry is wired, no map is associated, or the artifact is
-    /// absent (the graceful fallback to player-anchor movement).</summary>
     /// <summary>Records every known-position PLAYER avatar in the room into the learned walkable map. Bots are
     /// excluded — they have no client-side physics, so their positions don't prove a cell is walkable. Logs a
     /// milestone every 50 newly-discovered cells so coverage growth is visible at the default log level.</summary>
@@ -228,16 +231,15 @@ public sealed class BotManager
         }
     }
 
-    private NavMesh? NavMeshFor(string room)
+    /// <summary>The navmesh for a room AND the vertical offset to rebase it into the live world's frame.
+    /// Auto-detection (with its calibrated Y offset) wins once committed; else an explicit operator pin
+    /// (realm ExtraJson "navmesh", offset 0); else none.</summary>
+    private (NavMesh? nav, float yOffset) NavMeshFor(string room)
     {
-        // Auto-detected map wins once the selector has committed one (the game sends no map id, so this is
-        // inferred from where players actually walk).
-        if (Maps?.Resolve(room) is { } auto) return auto;
-        // Fallback: an explicit operator pin (realm ExtraJson "navmesh"), used while auto-detect is still
-        // learning or when no extracted map matches.
+        if (Maps?.Resolve(room) is { } auto) return (auto, Maps.ResolveYOffset(room));
         if (Navs is not null && RoomMaps is not null && RoomMaps.TryGetValue(room, out var mapName))
-            return Navs.For(mapName);
-        return null;
+            return (Navs.For(mapName), 0f);
+        return (null, 0f);
     }
 
     /// <summary>A small golden-angle ring offset for bot <paramref name="index"/>, added to the spawn anchor

@@ -79,6 +79,9 @@ public sealed class HunterBehavior : IBotBrain
     private int _targetViewId;                 // 0 = no current target
     private int _actsOnCurrent;
     private bool _navDisengagedWarned;         // warn-once when the navmesh doesn't cover the bot's region
+    private float _navYOffset;                  // added to mesh surface Y to rebase the navmesh into the live
+                                               // world's frame (baked level sits ~63u below); measured per room
+                                               // from the player by the map auto-selector
     private readonly Dictionary<int, long> _cooldownUntil = new();
 
     public int Xp { get; private set; }
@@ -114,8 +117,9 @@ public sealed class HunterBehavior : IBotBrain
     /// <summary>Swap the navmesh this bot paths on — the map auto-selector calls this once a room's live map
     /// is identified (or changes). A no-op when unchanged. Clears the "navmesh doesn't cover us" warn-latch so
     /// a genuinely new map gets a fresh coverage evaluation.</summary>
-    public void SetNavMesh(NavMesh? navMesh)
+    public void SetNavMesh(NavMesh? navMesh, float yOffset = 0f)
     {
+        _navYOffset = yOffset;
         if (ReferenceEquals(navMesh, _navMesh)) return;
         _navMesh = navMesh;
         _navDisengagedWarned = false;
@@ -273,6 +277,7 @@ public sealed class HunterBehavior : IBotBrain
     private (float x, float y, float z)? SurfaceAt(float x, float z)
     {
         if (_navMesh is not { } nav || !nav.NearestPoint(x, z, out var p, out _)) return null;
+        p.y += _navYOffset;   // rebase the mesh surface into the live world's vertical frame before any check
         float dx = p.x - x, dz = p.z - z;
         bool xzFar = dx * dx + dz * dz > SnapCoverageRadius * SnapCoverageRadius;
         bool yFar = Math.Abs(p.y - _y) > SnapVerticalTolerance;
