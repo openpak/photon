@@ -82,10 +82,10 @@ public sealed class HunterBehavior : IBotBrain
     private int _actsOnCurrent;
     private bool _navDisengagedWarned;         // warn-once when the navmesh doesn't cover the bot's region
     private float _navYOffset;                  // added to mesh surface Y to rebase the navmesh into the live
-                                               // world's frame (baked level sits ~63u below); measured per room
-                                               // from the player by the map auto-selector
+                                                // world's frame (baked level sits ~63u below); measured per room
+                                                // from the player by the map auto-selector
     private WalkableMap? _walkable;             // dense, live-frame ground truth learned from real players —
-                                               // the preferred grounding source (no coordinate-offset error)
+                                                // the preferred grounding source (no coordinate-offset error)
     private readonly Dictionary<int, long> _cooldownUntil = new();
 
     public int Xp { get; private set; }

@@ -133,7 +133,8 @@ public sealed class MapSelector
         s.Sort();
         float median = s[s.Count / 2];
         float mean = 0f; foreach (var x in s) mean += x; mean /= s.Count;
-        float var = 0f; foreach (var x in s) { float d = x - mean; var += d * d; } var /= s.Count;
+        float var = 0f; foreach (var x in s) { float d = x - mean; var += d * d; }
+        var /= s.Count;
         return (median, MathF.Sqrt(var));
     }
 }

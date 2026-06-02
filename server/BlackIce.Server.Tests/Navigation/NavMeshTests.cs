@@ -64,7 +64,7 @@ public class NavMeshTests
             0,0,0,  1,0,0,  0,0,1,  1,0,1,        // ground (y=0): verts 0..3
             0,20,0, 1,20,0, 0,20,1, 1,20,1,       // upper  (y=20): verts 4..7
         };
-        int[] tris = { 0,1,2, 1,3,2,   4,5,6, 5,7,6 };
+        int[] tris = { 0, 1, 2, 1, 3, 2, 4, 5, 6, 5, 7, 6 };
         var mesh = new NavMesh(verts, tris);
 
         // A query at (0.3,0.3) sits under BOTH floors. Asking near y=1 must return the ground floor (y=0);
