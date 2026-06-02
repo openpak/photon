@@ -8,28 +8,39 @@ namespace BlackIce.Server.LoadBalancing.Plugins;
 
 /// <summary>
 /// Built-in plugin that turns a Team-vs-Team realm into a scored, replayable <b>arena match</b>, entirely
-/// server-side. It scores on the kills the <c>killfeed</c> plugin publishes on the <see cref="KillBus"/>:
-/// each cross-team kill credits the killer's team a point, the running score is broadcast to the room
-/// (vanilla chat), and the first team to reach the configurable <see cref="ArenaOptions.ScoreCap"/> wins —
-/// the other side loses. When <see cref="ArenaOptions.ResetOnWin"/> is set the match then resets (scores
-/// cleared, kill tallies wiped, "new round" announced) so it loops like an arcade arena. Off by default;
-/// requires the <c>killfeed</c> plugin enabled (it is the kill source) and a Team-vs-Team realm.
+/// server-side. It scores on real player deaths the <c>killfeed</c> plugin publishes on the
+/// <see cref="KillBus"/>: each death credits the victim's <b>opposing</b> team a point (the death RPC
+/// carries no killer, so scoring is death-based), the running score is broadcast to the room (vanilla
+/// chat), and the first team to <see cref="ArenaOptions.ScoreCap"/> wins. When
+/// <see cref="ArenaOptions.ResetOnWin"/> is set the match resets and — when
+/// <see cref="ArenaOptions.RespawnAtReset"/> is set — every participant is respawned (the captured
+/// Teleport+BecomeTangible sequence) so the next round starts clean. Off by default; requires the
+/// <c>killfeed</c> plugin enabled (its death source) and a Team-vs-Team realm.
 /// </summary>
 public sealed class ArenaPlugin : IServerPlugin
 {
     public string Name => "arena";
-    public string Description => "Team-deathmatch arena for Team-vs-Team realms: scores kills, first team to the score cap wins, then resets to replay. Off by default.";
+    public string Description => "Team-deathmatch arena for Team-vs-Team realms: scores real deaths, first team to the cap wins, then resets and respawns. Off by default.";
 
     public void Configure(PluginBuilder builder)
     {
         var opt = (ArenaOptions?)builder.Services.GetService(typeof(ArenaOptions)) ?? new ArenaOptions();
-        var state = new ArenaState { Enabled = opt.Enabled, ScoreCap = opt.ScoreCap, ResetOnWin = opt.ResetOnWin };
+        var state = new ArenaState
+        {
+            Enabled = opt.Enabled,
+            ScoreCap = opt.ScoreCap,
+            ResetOnWin = opt.ResetOnWin,
+            RespawnAtReset = opt.RespawnAtReset,
+            SpawnX = opt.SpawnX,
+            SpawnY = opt.SpawnY,
+            SpawnZ = opt.SpawnZ,
+        };
         var modes = (GameModeRegistry?)builder.Services.GetService(typeof(GameModeRegistry));
         var rooms = (RoomRegistry?)builder.Services.GetService(typeof(RoomRegistry));
         var bus = (KillBus?)builder.Services.GetService(typeof(KillBus));
 
         var match = new ArenaMatch(state, modes, rooms, bus);
-        if (bus is not null) bus.Killed += match.OnKill;   // score on every published kill
+        if (bus is not null) bus.Died += match.OnDeath;   // score on every published real death
 
         builder.AddCommands(new ArenaCommands(state, match));
     }
@@ -41,6 +52,8 @@ internal sealed class ArenaState
     public bool Enabled;
     public int ScoreCap = 25;
     public bool ResetOnWin = true;
+    public bool RespawnAtReset = true;
+    public float SpawnX = 520f, SpawnY = 3f, SpawnZ = 469.5f;
 
     private readonly ConcurrentDictionary<(string Room, int Team), int> _score = new();
     private readonly ConcurrentDictionary<string, bool> _ended = new();   // room -> match decided, awaiting reset
@@ -60,9 +73,9 @@ internal sealed class ArenaState
     public IReadOnlyList<string> ActiveRooms() => _score.Keys.Select(k => k.Room).Distinct().ToList();
 }
 
-/// <summary>The match logic: reacts to published kills, scores teams, declares a winner at the cap, and
-/// resets. Runs on the Game listener thread (the kill bus fires from the relay), so its broadcasts and
-/// state changes are single-threaded per listener.</summary>
+/// <summary>The match logic: reacts to published real deaths, scores the opposing team, declares a winner
+/// at the cap, resets, and (when enabled) respawns participants. Runs on the Game listener thread (the kill
+/// bus fires from the relay), so its broadcasts and state changes are single-threaded per listener.</summary>
 internal sealed class ArenaMatch
 {
     private readonly ArenaState _state;
@@ -78,33 +91,48 @@ internal sealed class ArenaMatch
         _bus = bus;
     }
 
-    public void OnKill(KillNotice n)
+    public void OnDeath(DeathNotice n)
     {
         if (!_state.Enabled || _state.Ended(n.Room)) return;
         if (_modes?.ModeOf(n.Room) != GameMode.TeamVsTeam) return;
-        if (_modes.TeamOf(n.Room, n.Killer) is not int killerTeam) return;
-        if (_modes.TeamOf(n.Room, n.Victim) is not int victimTeam || victimTeam == killerTeam) return;  // cross-team only
+        if (_modes.TeamOf(n.Room, n.Victim) is not int victimTeam) return;
 
-        int score = _state.Add(n.Room, killerTeam);
-        Announce(n.Room, n.Killer, $"⚔ Team {Name(killerTeam)} scores — {ScoreLine(n.Room)} (first to {_state.ScoreCap})");
+        int scoringTeam = 1 - victimTeam;
+        int score = _state.Add(n.Room, scoringTeam);
+        Announce(n.Room, n.Victim, $"⚔ Team {Name(scoringTeam)} scores — {ScoreLine(n.Room)} (first to {_state.ScoreCap})");
 
         if (score >= _state.ScoreCap)
         {
-            int loser = 1 - killerTeam;
-            Announce(n.Room, n.Killer,
-                $"\U0001F3C6 Team {Name(killerTeam)} WINS {_state.Score(n.Room, killerTeam)}–{_state.Score(n.Room, loser)} — Team {Name(loser)} loses!");
-            if (_state.ResetOnWin) Reset(n.Room, n.Killer);
+            int loser = 1 - scoringTeam;
+            Announce(n.Room, n.Victim,
+                $"\U0001F3C6 Team {Name(scoringTeam)} WINS {_state.Score(n.Room, scoringTeam)}–{_state.Score(n.Room, loser)} — Team {Name(loser)} loses!");
+            if (_state.ResetOnWin) Reset(n.Room, n.Victim);
             else _state.MarkEnded(n.Room);
         }
     }
 
-    /// <summary>Resets a room's match: clears scores, wipes the kill tallies (via the bus), starts a new round.</summary>
+    /// <summary>Resets a room's match: clears scores, wipes the killfeed dead-set (via the bus), starts a new
+    /// round, and (when enabled) respawns every participant.</summary>
     public void Reset(string room, int? announceActor = null)
     {
         _state.ResetRoom(room);
-        _bus?.RequestReset(room);   // tell killfeed to clear this room's HP/streak tallies
-        int actor = announceActor ?? _rooms?.FindSession(room)?.Actors().FirstOrDefault() ?? 0;
+        _bus?.RequestReset(room);   // tell killfeed to clear this room's dead-set
+        var session = _rooms?.FindSession(room);
+        int actor = announceActor ?? session?.Actors().FirstOrDefault() ?? 0;
         Announce(room, actor, "\U0001F504 New round — fight!");
+        if (_state.RespawnAtReset && session is not null) RespawnAll(session);
+    }
+
+    /// <summary>Respawns every current participant to the configured spawn point, sending the captured
+    /// Teleport+BecomeTangible sequence for each so all clients replicate it.</summary>
+    internal void RespawnAll(RoomSession session)
+    {
+        // GAP: per-team spawn points uncaptured — everyone respawns to one configurable point.
+        foreach (var actor in session.Actors())
+        {
+            session.SendToAll(ServerRpc.Teleport(actor, _state.SpawnX, _state.SpawnY, _state.SpawnZ));
+            session.SendToAll(ServerRpc.BecomeTangible(actor));
+        }
     }
 
     /// <summary>Resets every room that currently has a score (console <c>arena reset</c>).</summary>
@@ -140,8 +168,8 @@ internal sealed class ArenaCommands
     private string Cmd(CommandLine line)
     {
         if (line.Parts.Count == 1)
-            return $"arena: {(_state.Enabled ? "on" : "off")}, first to {_state.ScoreCap}, reset-on-win {(_state.ResetOnWin ? "on" : "off")} " +
-                   "(scores Team-vs-Team realms; needs the killfeed plugin on)";
+            return $"arena: {(_state.Enabled ? "on" : "off")}, first to {_state.ScoreCap}, reset-on-win {(_state.ResetOnWin ? "on" : "off")}, " +
+                   $"respawn-at-reset {(_state.RespawnAtReset ? "on" : "off")} (scores real deaths in Team-vs-Team realms; needs the killfeed plugin on)";
 
         var verb = line.Parts[1].ToLowerInvariant();
         switch (verb)

@@ -168,42 +168,67 @@ public class ServerPluginsTests
     }
 
     [Fact]
-    public void Arena_scores_cross_team_kills_and_resets_after_a_win()
+    public void Arena_scores_deaths_for_the_opposing_team_and_resets_after_a_win()
     {
         var modes = TwoTeams(out int t1, out _);
         var state = new ArenaState { Enabled = true, ScoreCap = 2 };
         var match = new ArenaMatch(state, modes, rooms: null, bus: new KillBus());
 
-        match.OnKill(new KillNotice("r", Killer: 1, Victim: 2, KillerStreak: 1));
+        match.OnDeath(new DeathNotice("r", Victim: 2));   // actor 2 (team 1) dies -> team 0 scores
         Assert.Equal(1, state.Score("r", t1));
 
-        match.OnKill(new KillNotice("r", 1, 2, 2));   // reaches the cap -> win -> reset (ResetOnWin default true)
-        Assert.Equal(0, state.Score("r", t1));        // scores cleared for the next round
-        Assert.False(state.Ended("r"));               // reset, not left in an ended state
+        match.OnDeath(new DeathNotice("r", 2));           // reaches the cap -> win -> reset (ResetOnWin default true)
+        Assert.Equal(0, state.Score("r", t1));            // scores cleared for the next round
+        Assert.False(state.Ended("r"));                   // reset, not left in an ended state
     }
 
     [Fact]
-    public void Arena_ignores_same_team_kills_and_can_stay_ended_without_reset()
+    public void Arena_can_stay_ended_without_reset()
     {
         var modes = TwoTeams(out int t1, out _);
-        int t3 = modes.AssignTeam("r", 3);            // balances onto team 0 (same as actor 1)
-        Assert.Equal(t1, t3);
 
         var state = new ArenaState { Enabled = true, ScoreCap = 1, ResetOnWin = false };
         var match = new ArenaMatch(state, modes, rooms: null, bus: null);
 
-        match.OnKill(new KillNotice("r", Killer: 1, Victim: 3, KillerStreak: 1));   // same team -> no score
-        Assert.Equal(0, state.Score("r", t1));
-
-        match.OnKill(new KillNotice("r", 1, 2, 1));   // cross-team, cap 1 -> win, no reset
+        match.OnDeath(new DeathNotice("r", Victim: 2));   // actor 2 dies, cap 1 -> team 0 wins, no reset
         Assert.True(state.Ended("r"));
-        match.OnKill(new KillNotice("r", 1, 2, 2));   // ignored while ended
+        match.OnDeath(new DeathNotice("r", 2));           // ignored while ended
         Assert.Equal(1, state.Score("r", t1));
     }
 
-    // The killfeed -> arena -> win -> reset integration ran on the retired HP-summing model and
-    // arming it via "killfeed hp"; arena now scores on real deaths (KilledPlayerRemote), so that
-    // end-to-end coverage is rebuilt in ArenaMatchTests (2026-06-02 arena-down-and-respawn plan, Task 8).
+    [Fact]
+    public void Published_deaths_drive_arena_score_to_a_win_and_reset_through_the_real_relay()
+    {
+        var modes = new GameModeRegistry();
+        modes.SetMode("r", GameMode.TeamVsTeam);
+        var bus = new KillBus();
+        var mgr = new PluginManager();
+        var reg = new RoomRegistry(mgr.Evaluate, modes);
+        mgr.Add(new ArenaPlugin(), enabled: true);
+        mgr.ConfigureAll(new ServicesWith(reg, modes, bus, new ArenaOptions { Enabled = true, ScoreCap = 2 }));
+
+        var session = reg.Session("r");
+        var p1 = Peer(out _); session.Join(1, p1);
+        var p2 = Peer(out var p2Raised); session.Join(2, p2);
+        modes.AssignTeam("r", 1);   // team 0
+        modes.AssignTeam("r", 2);   // team 1
+
+        // The death channel is what killfeed (Task 6) publishes on; the arena scores the victim's opponent.
+        bus.PublishDeath(new DeathNotice("r", Victim: 2));   // actor 2 (team B) dies -> team A scores 1
+        bus.PublishDeath(new DeathNotice("r", Victim: 2));   // A scores 2 == cap -> A wins -> reset
+
+        var chat = p2Raised.Select(ChatText).Where(t => t is not null).ToList();
+        Assert.Contains(chat, t => t!.Contains("Team A scores"));
+        Assert.Contains(chat, t => t!.Contains("Team A WINS"));
+        Assert.Contains(chat, t => t!.Contains("New round"));
+    }
+
+    private static string? ChatText(EventData ev)
+    {
+        if (PunRpcInfo.From(ev)?.Method != "ReceiveChatMessage") return null;
+        if (!ev.Parameters.TryGetValue((byte)245, out var d) || d is not System.Collections.IDictionary rpc) return null;
+        return rpc[(byte)4] is object[] { Length: > 0 } args && args[0] is string s ? s : null;
+    }
 
     // --- cumulative composition in PluginManager.Evaluate ---------------------------------------
 
