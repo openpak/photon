@@ -12,13 +12,15 @@ internal static class OnEventPatch
     static void Prefix(EventData photonEvent) =>
         Plugin.Write("event", new { code = photonEvent.Code, parameters = Describe(photonEvent.Parameters) });
 
-    /// <summary>Renders a Photon parameter dictionary into a string-keyed, string-valued map for logging.</summary>
-    internal static Dictionary<string, object> Describe(Dictionary<byte, object> p)
+    /// <summary>Re-keys a Photon parameter dictionary by string (the byte code as text) but keeps the values
+    /// intact, so <see cref="SimpleJson"/> can recurse into nested RPC payloads, argument arrays, and the raw
+    /// bytes of custom types (DamagePacket etc.) rather than flattening everything to <c>ToString()</c>.</summary>
+    internal static Dictionary<string, object?> Describe(Dictionary<byte, object> p)
     {
-        var d = new Dictionary<string, object>();
+        var d = new Dictionary<string, object?>();
         if (p != null)
             foreach (var kv in p)
-                d[kv.Key.ToString()] = kv.Value?.ToString() ?? "null";
+                d[kv.Key.ToString()] = kv.Value;
         return d;
     }
 }
