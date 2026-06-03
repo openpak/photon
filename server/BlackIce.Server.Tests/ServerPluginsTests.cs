@@ -223,6 +223,54 @@ public class ServerPluginsTests
         Assert.Contains(chat, t => t!.Contains("New round"));
     }
 
+    [Fact]
+    public void Relayed_KilledPlayerRemote_drives_killfeed_arena_score_win_reset_and_respawn()
+    {
+        // Full server pipeline through the real relay call (RoomSession.RelayFrom): a peer broadcasts the
+        // captured player-death RPC -> the killfeed interceptor (in the room's relay chain) detects it and
+        // publishes a DeathNotice -> the arena (subscribed to the same bus) scores the victim's opposing
+        // team, reaches the cap, wins, resets, and respawns every participant. Exercises everything except
+        // the literal UDP socket + a real client's acceptance of the respawn RPCs.
+        var modes = new GameModeRegistry();
+        modes.SetMode("r", GameMode.TeamVsTeam);
+        modes.AssignTeam("r", 1);   // team 0 (A)
+        modes.AssignTeam("r", 2);   // team 1 (B)
+        var bus = new KillBus();
+        var killfeed = new KillfeedInterceptor(new KillfeedState { On = true }, bus);
+        var reg = new RoomRegistry(killfeed.Intercept, modes);   // the room's relay IS the real killfeed
+        var state = new ArenaState { Enabled = true, ScoreCap = 1, ResetOnWin = true, RespawnAtReset = true };
+        var match = new ArenaMatch(state, modes, reg, bus);
+        bus.Died += match.OnDeath;
+
+        var session = reg.Session("r");
+        var p1 = Peer(out _); session.Join(1, p1);
+        var p2 = Peer(out var p2Raised); session.Join(2, p2);
+
+        // Actor 1 relays the death of actor 2's pawn (viewId 2001) — the captured KilledPlayerRemote shape.
+        session.RelayFrom(1, KilledPlayerRemote(victimViewId: 2001));
+
+        var chat = p2Raised.Select(ChatText).Where(t => t is not null).Select(t => t!).ToList();
+        Assert.Contains(chat, t => t.Contains("eliminated"));      // killfeed detected the real death
+        Assert.Contains(chat, t => t.Contains("Team A scores"));   // arena scored team B's opponent (team A)
+        Assert.Contains(chat, t => t.Contains("Team A WINS"));     // cap 1 reached
+        Assert.Contains(chat, t => t.Contains("New round"));       // round reset
+
+        // Reset respawned every participant: Teleport + BecomeTangible for actors 1 and 2.
+        var methods = p2Raised.Select(e => PunRpcInfo.From(e)?.Method).Where(m => m is not null).ToList();
+        Assert.Equal(2, methods.Count(m => m == "TeleportImmediately"));
+        Assert.Equal(2, methods.Count(m => m == "BecomeTangible"));
+    }
+
+    // The captured player-death RPC: KilledPlayerRemote (shortcut index 32) carrying the victim pawn viewId.
+    private static EventData KilledPlayerRemote(int victimViewId) => new(200, new()
+    {
+        { 245, new Dictionary<object, object>
+            {
+                { (byte)5, (byte)32 },
+                { (byte)4, new object[] { victimViewId } },
+            } },
+    });
+
     private static string? ChatText(EventData ev)
     {
         if (PunRpcInfo.From(ev)?.Method != "ReceiveChatMessage") return null;
