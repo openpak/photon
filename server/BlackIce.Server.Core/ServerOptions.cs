@@ -6,6 +6,12 @@ public sealed class ServerPorts
     public int NameServer { get; set; } = 5058;
     public int MasterServer { get; set; } = 5055;
     public int GameServer { get; set; } = 5056;
+
+    /// <summary>Optional second NameServer port, same handler as <see cref="NameServer"/>. Some clients
+    /// (e.g. Outbound/Fusion) try a hardcoded alternate UDP port for the Name Server independently of
+    /// whatever address GetRegions hands back, regardless of region choice -- unset (null) skips binding
+    /// it, which is fine for a client that doesn't do this (e.g. Black Ice).</summary>
+    public int? NameServerAlt { get; set; } = null;
 }
 
 /// <summary>
@@ -65,18 +71,21 @@ public sealed class ServerOptions
         if (string.IsNullOrWhiteSpace(Secret))
             errors.Add("Server.Secret must not be empty.");
 
-        foreach (var (name, port) in new[]
-                 {
-                     (nameof(Ports.NameServer), Ports.NameServer),
-                     (nameof(Ports.MasterServer), Ports.MasterServer),
-                     (nameof(Ports.GameServer), Ports.GameServer),
-                 })
+        var namedPorts = new List<(string name, int port)>
+        {
+            (nameof(Ports.NameServer), Ports.NameServer),
+            (nameof(Ports.MasterServer), Ports.MasterServer),
+            (nameof(Ports.GameServer), Ports.GameServer),
+        };
+        if (Ports.NameServerAlt is { } alt) namedPorts.Add((nameof(Ports.NameServerAlt), alt));
+
+        foreach (var (name, port) in namedPorts)
             if (port is < 1 or > 65535)
                 errors.Add($"Server.Ports.{name} ({port}) is out of the 1..65535 range.");
 
-        var ports = new[] { Ports.NameServer, Ports.MasterServer, Ports.GameServer };
+        var ports = namedPorts.Select(p => p.port).ToArray();
         if (ports.Distinct().Count() != ports.Length)
-            errors.Add("Server.Ports.NameServer/MasterServer/GameServer must all be distinct.");
+            errors.Add("Server.Ports.NameServer/MasterServer/GameServer/NameServerAlt must all be distinct.");
 
         if (Listener.MaintenanceSeconds <= 0)
             errors.Add("Server.Listener.MaintenanceSeconds must be greater than 0.");

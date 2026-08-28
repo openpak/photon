@@ -23,9 +23,19 @@ namespace BlackIce.Server.LoadBalancing;
 public sealed class NameServerHandler : IOperationHandler
 {
     private const byte OpAuthenticate = PhotonCodes.Op.Authenticate;
+    private const byte OpGetRegions = PhotonCodes.Op.GetRegions;
     private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
-                       PUserId = PhotonCodes.Param.UserId, PTicket = PhotonCodes.Param.SteamTicket;
+                       PUserId = PhotonCodes.Param.UserId, PTicket = PhotonCodes.Param.SteamTicket,
+                       PRegion = PhotonCodes.Param.Region;
     private static readonly TimeSpan ValidationTimeout = TimeSpan.FromSeconds(3);
+
+    // ponytail: single hardcoded region pointing back at this same NameServer instance. A
+    // client with no FixedRegion configured (e.g. Outbound) calls GetRegions before
+    // Authenticate; a real multi-region deployment would list several here instead.
+    // Using a real Photon region token ("eu") rather than a made-up one: Outbound's client
+    // showed "Region: Automatic" stuck spinning against a custom "nx" token, consistent with
+    // its auto-select logic only recognizing Photon's own known region codes.
+    private const string RegionToken = "eu";
 
     private readonly string _masterAddress;
     private readonly string _secret;
@@ -55,7 +65,20 @@ public sealed class NameServerHandler : IOperationHandler
         _isLan = isLan ?? TrustedNetwork.IsLanOrLoopback;
         _post = post ?? (a => a());
         _router = new OperationRouter("NameServer", "Unsupported on Name Server")
-            .On(OpAuthenticate, HandleAuthenticate);
+            .On(OpAuthenticate, HandleAuthenticate)
+            .On(OpGetRegions, HandleGetRegions);
+    }
+
+    private void HandleGetRegions(PeerConnection peer, OperationRequest request)
+    {
+        // Hands off to the real Master Server address, same as Authenticate's PAddress below --
+        // matches real Photon Cloud, which always names a genuinely different server/port here,
+        // never the NameServer's own address.
+        peer.SendResponse(new OperationResponse(OpGetRegions, 0, null, new()
+        {
+            { PRegion, new[] { RegionToken } },
+            { PAddress, new[] { _masterAddress } },
+        }));
     }
 
     private readonly bool _allowAnonymousLan;

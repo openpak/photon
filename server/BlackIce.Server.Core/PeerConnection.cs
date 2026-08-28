@@ -200,7 +200,7 @@ public sealed class PeerConnection
                         $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
                         $"[{PhotonNames.Params(response.Parameters)}]");
         OnResponse?.Invoke(response);
-        SendRaw(WireMessage.Response(response));
+        SendRaw(WireMessage.Response(response, encrypt: _crypto is { IsInitialized: true } c ? c.Encrypt : null));
     }
 
     /// <summary>Test/diagnostic observation hook: when set, every operation response is also handed here
@@ -226,7 +226,7 @@ public sealed class PeerConnection
         Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
         OnRaised?.Invoke(ev);
         OnRaisedClassified?.Invoke(ev, unreliable);
-        var msg = WireMessage.EventMessage(ev);
+        var msg = WireMessage.EventMessage(ev, encrypt: _crypto is { IsInitialized: true } c ? c.Encrypt : null);
         if (unreliable) _send(new[] { _enet.WrapUnreliable(msg) }, _enet.Challenge);
         else SendRaw(msg);
     }

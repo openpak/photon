@@ -58,11 +58,16 @@ public sealed class ListenersHostedService : BackgroundService
         // be sent on the NameServer listener's single thread. Marshal it via this queue, drained in the
         // listener's OnMaintenance (the same thread-affinity pattern as the Game listener's admin queue).
         var nameQueue = new System.Collections.Concurrent.ConcurrentQueue<Action>();
-        var name = new UdpListener("NameServer", s.Ports.NameServer,
-            new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts,
+        var nameHandler = new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts,
                                   _steam, _config.AllowAnonymousLan,
-                                  isLan: null, post: nameQueue.Enqueue), s.Listener);
+                                  isLan: null, post: nameQueue.Enqueue);
+        var name = new UdpListener("NameServer", s.Ports.NameServer, nameHandler, s.Listener);
         name.OnMaintenance = () => { while (nameQueue.TryDequeue(out var a)) a(); };
+        // See ServerPorts.NameServerAlt: some clients try this port independently of GetRegions.
+        var nameAlt = s.Ports.NameServerAlt is { } altPort
+            ? new UdpListener("NameServerAlt", altPort, nameHandler, s.Listener)
+            : null;
+        if (nameAlt != null) nameAlt.OnMaintenance = name.OnMaintenance;
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var master = new UdpListener("MasterServer", s.Ports.MasterServer,
@@ -116,10 +121,12 @@ public sealed class ListenersHostedService : BackgroundService
                              (withMesh > 0 ? $", pinned realms={withMesh}" : ""));
         }
 
-        Log.Info("HOST", $"Listening — NS {s.Ports.NameServer} / Master {s.Ports.MasterServer} / Game {s.Ports.GameServer}");
+        Log.Info("HOST", $"Listening — NS {s.Ports.NameServer}{(nameAlt != null ? $"/{s.Ports.NameServerAlt}" : "")} / Master {s.Ports.MasterServer} / Game {s.Ports.GameServer}");
         try
         {
-            await Task.WhenAll(name.RunAsync(stoppingToken), master.RunAsync(stoppingToken), game.RunAsync(stoppingToken));
+            var tasks = new List<Task> { name.RunAsync(stoppingToken), master.RunAsync(stoppingToken), game.RunAsync(stoppingToken) };
+            if (nameAlt != null) tasks.Add(nameAlt.RunAsync(stoppingToken));
+            await Task.WhenAll(tasks);
         }
         catch (OperationCanceledException) { /* graceful shutdown */ }
         catch (Exception ex) { Log.Exception("FATAL", "listener task faulted", ex); }

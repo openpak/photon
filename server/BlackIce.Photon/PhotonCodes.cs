@@ -13,6 +13,7 @@ public static class PhotonCodes
     public static class Op
     {
         public const byte Authenticate = 230;
+        public const byte GetRegions = 220;
         public const byte JoinLobby = 229;
         public const byte LeaveLobby = 228;
         public const byte CreateGame = 227;

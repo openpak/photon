@@ -34,22 +34,46 @@ public static class WireMessage
 
     // --- Outbound ---
 
-    public static byte[] Response(OperationResponse resp, byte messageType = OperationResponse)
+    /// <summary>
+    /// Builds an outbound message. When <paramref name="encrypt"/> is given, the body (everything
+    /// after [Magic][msgType]) is run through it and <see cref="EncryptedFlag"/> is OR'd into the
+    /// type byte -- matching the client, which treats a connection as encrypted from the moment
+    /// InitEncryption succeeds and expects every OperationResponse/Event after that to match (a
+    /// plaintext response on an encrypted connection is silently distrusted, not just ignored).
+    /// Null (the default) keeps a message plaintext -- correct only for InitResponse and the
+    /// InternalOperationResponse that completes the key exchange itself, both sent before any key
+    /// exists to encrypt with.
+    /// </summary>
+    public static byte[] Response(OperationResponse resp, byte messageType = OperationResponse,
+                                  Func<byte[], byte[]>? encrypt = null)
     {
-        var w = new GpBinaryWriter();
-        w.WriteByte(Magic);
-        w.WriteByte(messageType);
-        WriteResponseBody(w, resp);
-        return w.ToArray();
+        var body = new GpBinaryWriter();
+        WriteResponseBody(body, resp);
+        return Frame(messageType, body.ToArray(), encrypt);
     }
 
-    public static byte[] EventMessage(EventData ev)
+    public static byte[] EventMessage(EventData ev, Func<byte[], byte[]>? encrypt = null)
+    {
+        var body = new GpBinaryWriter();
+        body.WriteByte(ev.Code);
+        WriteTable(body, ev.Parameters);
+        return Frame(Event, body.ToArray(), encrypt);
+    }
+
+    private static byte[] Frame(byte messageType, byte[] body, Func<byte[], byte[]>? encrypt)
     {
         var w = new GpBinaryWriter();
         w.WriteByte(Magic);
-        w.WriteByte(Event);
-        w.WriteByte(ev.Code);
-        WriteTable(w, ev.Parameters);
+        if (encrypt is null)
+        {
+            w.WriteByte(messageType);
+            w.WriteBytes(body);
+        }
+        else
+        {
+            w.WriteByte((byte)(messageType | EncryptedFlag));
+            w.WriteBytes(encrypt(body));
+        }
         return w.ToArray();
     }
 

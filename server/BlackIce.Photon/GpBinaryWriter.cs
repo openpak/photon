@@ -17,6 +17,10 @@ public sealed class GpBinaryWriter
     /// <summary>Writes a raw byte with no type tag (operation code, parameter key, count).</summary>
     public void WriteByte(byte b) => _buf.Add(b);
 
+    /// <summary>Appends raw bytes verbatim, no type tag or length prefix (an already-serialized
+    /// body, or ciphertext).</summary>
+    public void WriteBytes(byte[] bytes) => _buf.AddRange(bytes);
+
     /// <summary>Writes a 16-bit value little-endian with no type tag (e.g. response ReturnCode).</summary>
     public void WriteInt16(short v) { _buf.Add((byte)(v & 0xFF)); _buf.Add((byte)((v >> 8) & 0xFF)); }
 
@@ -36,6 +40,7 @@ public sealed class GpBinaryWriter
             case string str: _buf.Add(GpType.String); WriteStringBody(str); break;
             case byte[] ba: _buf.Add(GpType.ByteArray); WriteUVarInt((uint)ba.Length); _buf.AddRange(ba); break;
             case int[] ia: _buf.Add(GpType.IntArray); WriteIntArrayBody(ia); break;
+            case string[] sa: _buf.Add(GpType.StringArray); WriteStringArrayBody(sa); break;
             case object[] oa: _buf.Add(GpType.ObjectArray); WriteObjectArrayBody(oa); break;
             case PhotonCustomData custom:
                 // Symmetric with GpBinaryReader.ReadCustom: registered custom types in the slim code
@@ -65,6 +70,12 @@ public sealed class GpBinaryWriter
         var bytes = Encoding.UTF8.GetBytes(s);
         WriteUVarInt((uint)bytes.Length);
         _buf.AddRange(bytes);
+    }
+
+    private void WriteStringArrayBody(string[] arr)
+    {
+        WriteUVarInt((uint)arr.Length);
+        foreach (var s in arr) WriteStringBody(s);
     }
 
     private void WriteIntArrayBody(int[] arr)
