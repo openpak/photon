@@ -8,7 +8,15 @@ using BlackIce.Server.Data;
 namespace BlackIce.Server.LoadBalancing;
 
 /// <summary>Per-peer in-room state stashed on PeerConnection.Tag once a peer joins a room.</summary>
-public sealed record PeerRoomState(string RoomName, int Actor);
+public sealed record PeerRoomState(string RoomName, int Actor)
+{
+    /// <summary>Set once we've answered a Fusion Join Request with a Confirmation, cleared once the
+    /// matching Start has been sent. A real Photon Cloud server sends Start only after the client's
+    /// own NetworkConfigSync arrives (confirmed via a live capture) — sending it immediately after
+    /// Confirmation instead raced the client into an immediate abort against our near-zero-latency
+    /// local server. See GameServerHandler.HandleRaiseEvent.</summary>
+    public FusionProtocol.JoinMessage? PendingFusionJoin { get; set; }
+}
 
 /// <summary>
 /// Photon Game Server role: re-authenticates via token, enters the actual room (CreateGame/JoinGame),
@@ -171,6 +179,35 @@ public sealed class GameServerHandler : IOperationHandler
                 Log.Warn("GameServer", $"actor {state.Actor} in \"{state.RoomName}\" tried to raise reserved " +
                                        $"server event {PhotonNames.Event(ec)} -> dropped");
                 return;
+            }
+            // Fusion's own session-negotiation protocol rides on this same event code (100, "protocol
+            // package") — see FusionProtocol. A solo host's Join Request has no other real peer to
+            // relay it to (that's the whole point: it's negotiating with whoever it's about to play
+            // with), so without an answer the client waits ~30s and gives up. Answer its own Join
+            // directly so a solo-host session can complete; still also relay below in case a second
+            // real peer is present to negotiate with. Best-effort/reverse-engineered — see HANDOFF.md.
+            if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
+            {
+                if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
+                {
+                    var confirmation = FusionProtocol.EncodeJoinConfirmation(join, state.Actor);
+                    peer.RaiseEvent(new EventData(ec, new() { { PData, confirmation } }));
+                    // Defer Start until the client's own NetworkConfigSync arrives below — see
+                    // PeerRoomState.PendingFusionJoin.
+                    state.PendingFusionJoin = join;
+                }
+                else if (state.PendingFusionJoin is { } pending && FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdNetworkConfigSync)
+                {
+                    // GameMode came back Shared (2) on the wire (PluginGameMode), not ClientServer —
+                    // Fusion's Shared-mode client only actually connects (and resolves
+                    // StartGameOperation) when told to via the ConnectToShared flag; matches the
+                    // user's own observation that a hosted session has no single fixed host and
+                    // survives them leaving the screen.
+                    var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
+                                                           remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
+                    peer.RaiseEvent(new EventData(ec, new() { { PData, start } }));
+                    state.PendingFusionJoin = null;
+                }
             }
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
