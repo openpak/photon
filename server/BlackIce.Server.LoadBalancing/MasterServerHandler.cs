@@ -16,6 +16,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private const byte EvGameList = PhotonCodes.Event.GameList;
     private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
                        PRoomName = PhotonCodes.Param.RoomName, PGameListMap = PhotonCodes.Param.GameList;
+    private const byte PLobbyName = PhotonCodes.Param.LobbyName;
 
     // Well-known room properties shown in the lobby room browser.
     private const byte RoomIsVisible = PhotonCodes.RoomProperty.IsVisible, RoomIsOpen = PhotonCodes.RoomProperty.IsOpen,
@@ -62,7 +63,13 @@ public sealed class MasterServerHandler : IOperationHandler
             .On(OpJoinLobby, (peer, req) =>
             {
                 peer.SendResponse(JoinLobby(req));
-                peer.RaiseEvent(BuildGameListEvent());
+                // A client-named lobby (e.g. Fusion's session-code lobby, used to check whether a room
+                // by that name/code already exists before hosting) has nothing to do with our own realm
+                // browser — pushing the realm list there was read by the client as "a room already exists
+                // under this code", which blocked it from ever proceeding to CreateGame. Only the default
+                // (unnamed) lobby gets our realm list; a named lobby gets an empty one.
+                bool isDefaultLobby = !req.Parameters.ContainsKey(PLobbyName);
+                peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent() : new EventData(PhotonCodes.Event.GameList, new() { { PGameListMap, new Dictionary<string, object>() } }));
             }, SessionStatus.Authenticated)
             .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
             .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);

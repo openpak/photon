@@ -4,12 +4,23 @@ namespace BlackIce.Photon.Transport;
 
 /// <summary>
 /// Per-peer eNet transport state: the CONNECT/VERIFYCONNECT handshake, reliable-command
-/// acknowledgements, and per-channel outgoing sequence numbers. Fragmentation and unreliable
-/// channels are deferred (Phase 2) — the connect flow is small reliable commands only.
+/// acknowledgements, per-channel outgoing sequence numbers, and reliable-fragment reassembly.
 /// </summary>
 public sealed class EnetPeer
 {
     private static int _peerCounter;
+
+    // One in-flight reassembly per channel: eNet only fragments reliable sends, and a channel
+    // delivers them in order, so a second fragment group can't start until the first finishes.
+    private sealed class FragmentAssembly
+    {
+        public int StartSequenceNumber;
+        public int FragmentCount;
+        public byte[] Buffer = Array.Empty<byte>();
+        public bool[] Received = Array.Empty<bool>();
+        public int ReceivedCount;
+    }
+    private readonly Dictionary<byte, FragmentAssembly> _fragments = new();
     // Guards the outgoing sequence dictionaries below. The relay is single-threaded by design (the
     // Game listener thread), but a stray cross-thread send (a console command, a timer, a future
     // code path) that corrupts these maps stamps a bad sequence number — which the client treats as
@@ -56,10 +67,62 @@ public sealed class EnetPeer
             case NCommand.SendUnreliable:
                 appPayload = cmd.Payload;
                 break;
+            case NCommand.SendFragment:
+                appPayload = HandleFragment(cmd);
+                break;
                 // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
                 // needs to keep the peer alive. Acknowledge (1) and Disconnect (4) emit nothing.
         }
         return outgoing;
+    }
+
+    /// <summary>
+    /// Reassembles a SendFragment command. Payload is a 20-byte fragment sub-header (startSeq,
+    /// fragmentCount, fragmentNumber, totalLength, fragmentOffset, all big-endian int32 — verified
+    /// against a real capture; there is no separate fragmentLength field, it's implicit as
+    /// payload.Length - 20) followed by that fragment's slice of the data. Returns the full
+    /// reassembled payload once every fragment in the group has arrived, else null.
+    /// Malformed/out-of-range fragments are dropped (return null) rather than throwing — this is
+    /// untrusted network input.
+    /// </summary>
+    private byte[]? HandleFragment(NCommand cmd)
+    {
+        var p = cmd.Payload;
+        if (p.Length < 20) return null;
+        int startSeq = BinaryPrimitives.ReadInt32BigEndian(p.AsSpan(0));
+        int fragmentCount = BinaryPrimitives.ReadInt32BigEndian(p.AsSpan(4));
+        int fragmentNumber = BinaryPrimitives.ReadInt32BigEndian(p.AsSpan(8));
+        int totalLength = BinaryPrimitives.ReadInt32BigEndian(p.AsSpan(12));
+        int fragmentOffset = BinaryPrimitives.ReadInt32BigEndian(p.AsSpan(16));
+        var data = p.AsSpan(20);
+        int fragmentLength = data.Length;
+        if (fragmentCount <= 0 || totalLength < 0 ||
+            fragmentOffset < 0 || fragmentOffset + fragmentLength > totalLength ||
+            fragmentNumber < 0 || fragmentNumber >= fragmentCount)
+            return null;
+
+        if (!_fragments.TryGetValue(cmd.ChannelId, out var asm) || asm.StartSequenceNumber != startSeq)
+        {
+            asm = new FragmentAssembly
+            {
+                StartSequenceNumber = startSeq,
+                FragmentCount = fragmentCount,
+                Buffer = new byte[totalLength],
+                Received = new bool[fragmentCount],
+            };
+            _fragments[cmd.ChannelId] = asm;
+        }
+
+        if (!asm.Received[fragmentNumber])
+        {
+            data.CopyTo(asm.Buffer.AsSpan(fragmentOffset));
+            asm.Received[fragmentNumber] = true;
+            asm.ReceivedCount++;
+        }
+
+        if (asm.ReceivedCount < asm.FragmentCount) return null;
+        _fragments.Remove(cmd.ChannelId);
+        return asm.Buffer;
     }
 
     /// <summary>Wraps an application payload ([0xF3]... message) as a reliable command on channel 0.</summary>

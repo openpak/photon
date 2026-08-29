@@ -10,8 +10,26 @@ public sealed class ServerPorts
     /// <summary>Optional second NameServer port, same handler as <see cref="NameServer"/>. Some clients
     /// (e.g. Outbound/Fusion) try a hardcoded alternate UDP port for the Name Server independently of
     /// whatever address GetRegions hands back, regardless of region choice -- unset (null) skips binding
-    /// it, which is fine for a client that doesn't do this (e.g. Black Ice).</summary>
+    /// it, which is fine for a client that doesn't do this (e.g. Black Ice).
+    ///
+    /// This turned out to be half of Photon's modern default UDP port triplet (27000/27001/27002),
+    /// confirmed against real Photon Cloud traffic: the client does NOT use whatever port a server
+    /// hands back in the Authenticate/GetRegions response's Address parameter -- it takes only the
+    /// HOST from that address and always REPLACES the port with its own client-side table
+    /// (Photon.Realtime's ProtocolPorts.Udp: NameServer=27000, MasterServer=27001, GameServer=27002),
+    /// unless the app was built against the older 5058/5055/5056 scheme (ProtocolPorts.SetUdpDefaultOld).
+    /// See MasterServerAlt/GameServerAlt below -- all three must be set together for a modern client.</summary>
     public int? NameServerAlt { get; set; } = null;
+
+    /// <summary>Optional second MasterServer port, same handler as <see cref="MasterServer"/>. See
+    /// <see cref="NameServerAlt"/>'s doc comment -- pair with NameServerAlt=27000/GameServerAlt=27002
+    /// for a client using Photon's modern default UDP ports (MasterServerAlt=27001).</summary>
+    public int? MasterServerAlt { get; set; } = null;
+
+    /// <summary>Optional second GameServer port, same handler as <see cref="GameServer"/>. See
+    /// <see cref="NameServerAlt"/>'s doc comment -- pair with NameServerAlt=27000/MasterServerAlt=27001
+    /// for a client using Photon's modern default UDP ports (GameServerAlt=27002).</summary>
+    public int? GameServerAlt { get; set; } = null;
 }
 
 /// <summary>
@@ -78,6 +96,8 @@ public sealed class ServerOptions
             (nameof(Ports.GameServer), Ports.GameServer),
         };
         if (Ports.NameServerAlt is { } alt) namedPorts.Add((nameof(Ports.NameServerAlt), alt));
+        if (Ports.MasterServerAlt is { } masterAlt) namedPorts.Add((nameof(Ports.MasterServerAlt), masterAlt));
+        if (Ports.GameServerAlt is { } gameAlt) namedPorts.Add((nameof(Ports.GameServerAlt), gameAlt));
 
         foreach (var (name, port) in namedPorts)
             if (port is < 1 or > 65535)
@@ -85,7 +105,7 @@ public sealed class ServerOptions
 
         var ports = namedPorts.Select(p => p.port).ToArray();
         if (ports.Distinct().Count() != ports.Length)
-            errors.Add("Server.Ports.NameServer/MasterServer/GameServer/NameServerAlt must all be distinct.");
+            errors.Add("Server.Ports.NameServer/MasterServer/GameServer (and any *Alt ports set) must all be distinct.");
 
         if (Listener.MaintenanceSeconds <= 0)
             errors.Add("Server.Listener.MaintenanceSeconds must be greater than 0.");

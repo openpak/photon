@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Linq;
 using BlackIce.Photon;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
@@ -28,6 +29,7 @@ public sealed class GameServerHandler : IOperationHandler
                        PProperties = PhotonCodes.Param.Properties;
     private const byte PBroadcast = PhotonCodes.Param.Broadcast;
     private const byte PTargetActorNr = PhotonCodes.Param.TargetActorNr;  // EvPropertiesChanged: whose properties changed
+    private const byte RoomMasterClientId = PhotonCodes.RoomProperty.MasterClientId;
 
     private readonly string _secret;
     private readonly RoomRegistry _registry;
@@ -206,11 +208,13 @@ public sealed class GameServerHandler : IOperationHandler
         var realm = _realms?.Get(name);
         Log.Debug("GameServer", $"EnterRoom name=\"{name}\" realm={(realm is null ? "<none>" : $"{realm.Name} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
 
-        // When realms are configured, only known+enabled realms are joinable, and a locked
-        // realm requires the matching password. (No realms configured = open, for tests.)
-        if (_realms is not null && (realm is null || !realm.IsEnabled))
+        // A room name that matches a configured realm must be enabled (and password-gated below).
+        // A room name that DOESN'T match any realm is a dynamic/ad-hoc room — e.g. a Fusion client's
+        // own session code, created via Master's CreateGame/JoinGame before ever reaching here — and
+        // is let through open, same as when no realms are configured at all (tests).
+        if (realm is not null && !realm.IsEnabled)
         {
-            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": no such realm / disabled -> rc=-4");
+            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": realm disabled -> rc=-4");
             return (new OperationResponse(r.OperationCode, -4, "No such realm", new()), new EventData(EvJoin, new()));
         }
         if (realm is not null && realm.Password.Length > 0 && joinPassword != realm.Password)
@@ -233,7 +237,11 @@ public sealed class GameServerHandler : IOperationHandler
         Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
 
         // Stamp the realm ruleset into the room's game properties so the client sees it in-room.
-        var gameProps = new Dictionary<object, object>();
+        // MasterClientId is a well-known Photon room property (never previously populated here) that
+        // every client reads to determine who's authoritative for the room; its absence looks to a
+        // Fusion client like a room with no valid master, and it aborts the join (OpLeave) right after
+        // entering. Convention (matches classic Photon): the lowest actor number currently in the room.
+        var gameProps = new Dictionary<object, object> { { RoomMasterClientId, room.ActorNumbers.Min() } };
         if (realm is not null)
         {
             gameProps["PVP"] = realm.Pvp;

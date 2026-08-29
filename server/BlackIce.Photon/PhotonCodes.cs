@@ -71,6 +71,8 @@ public static class PhotonCodes
         public const byte AppVersion = 220;
         public const byte SteamTicket = 217;         // byte[] Steam auth-session ticket (Photon ClientAuthenticationData slot)
         public const byte Region = 210;
+        public const byte LobbyName = 213;           // OpJoinLobby: the named/typed lobby to join (e.g. a Fusion session-code lobby)
+        public const byte LobbyType = 212;
     }
 
     /// <summary>Well-known byte keys inside a room's GameProperties hashtable (lobby browser slots read these).</summary>

@@ -7,7 +7,9 @@ namespace BlackIce.Photon.Transport;
 /// One eNet command. The common header is 12 bytes (type, channel, flags, reserved, length int32,
 /// reliableSeq int32). Unreliable (7) and unsequenced (11) commands carry one extra int32 after that
 /// (unreliableSeq / unsequencedGroup), making their header 16 bytes; CommandLength includes it.
-/// All multi-byte fields are big-endian. Fragments (8/15) are not handled yet.
+/// SendFragment (8) keeps the 12-byte common header too — its 24-byte fragment sub-header (see
+/// EnetPeer.HandleFragment) lives inside Payload, not the common header. All multi-byte fields are
+/// big-endian.
 /// </summary>
 public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte ReservedByte,
                               int ReliableSequenceNumber, byte[] Payload)

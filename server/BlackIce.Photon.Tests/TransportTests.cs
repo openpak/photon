@@ -176,4 +176,42 @@ public class TransportTests
         };
         Assert.Equal(expected, c.ToBytes());
     }
+
+    private static NCommand Fragment(byte channel, int seq, int startSeq, int fragmentCount, int fragmentNumber,
+                                     int totalLength, int fragmentOffset, byte[] data)
+    {
+        // 20-byte sub-header: startSeq, fragmentCount, fragmentNumber, totalLength, fragmentOffset
+        // (all int32 BE) — verified against a real capture; fragmentLength is implicit (payload - 20).
+        var payload = new byte[20 + data.Length];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(0), startSeq);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(4), fragmentCount);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(8), fragmentNumber);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(12), totalLength);
+        System.Buffers.Binary.BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(16), fragmentOffset);
+        data.CopyTo(payload.AsSpan(20));
+        return new NCommand(NCommand.SendFragment, channel, NCommand.FlagReliable, ReservedByte: 4, seq, payload);
+    }
+
+    [Fact]
+    public void SendFragment_reassembles_across_two_fragments()
+    {
+        var peer = new EnetPeer();
+        var first = new byte[] { 1, 2, 3 };
+        var second = new byte[] { 4, 5 };
+        peer.HandleCommand(Fragment(0, seq: 3, startSeq: 3, fragmentCount: 2, fragmentNumber: 0,
+                                    totalLength: 5, fragmentOffset: 0, first), 0, out var payload1);
+        Assert.Null(payload1);   // incomplete — must not surface a partial operation
+        peer.HandleCommand(Fragment(0, seq: 4, startSeq: 3, fragmentCount: 2, fragmentNumber: 1,
+                                    totalLength: 5, fragmentOffset: 3, second), 0, out var payload2);
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, payload2);
+    }
+
+    [Fact]
+    public void SendFragment_still_acks_each_fragment_individually()
+    {
+        var peer = new EnetPeer();
+        var outgoing = peer.HandleCommand(Fragment(0, seq: 3, startSeq: 3, fragmentCount: 2, fragmentNumber: 0,
+                                                    totalLength: 5, fragmentOffset: 0, new byte[] { 1, 2, 3 }), 0, out _);
+        Assert.NotNull(AckFor(outgoing, channel: 0, seq: 3));
+    }
 }

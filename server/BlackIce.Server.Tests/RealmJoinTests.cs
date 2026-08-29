@@ -25,10 +25,36 @@ public class RealmJoinTests
     }
 
     [Fact]
-    public void EnterRoom_rejects_unknown_realm()
+    public void EnterRoom_allows_ad_hoc_room_not_matching_any_realm()
     {
+        // A room name that isn't a configured realm is a dynamic/ad-hoc room (e.g. a Fusion client's
+        // own session code) — let through open, same as when no realms are configured at all.
         var realms = TestAccounts.CreateRealms();
         var (resp, _) = Make(realms).EnterRoom(new OperationRequest(227, new() { { 255, "Nope" } }), null);
+        Assert.Equal(0, resp.ReturnCode);
+    }
+
+    [Fact]
+    public void EnterRoom_stamps_master_client_id_as_lowest_actor()
+    {
+        // Its absence reads to a Fusion client as "no valid master for this room" and it immediately
+        // aborts the join (OpLeave) right after entering — see GameServerHandler.EnterRoom.
+        var handler = Make(TestAccounts.CreateRealms());
+        var req = new OperationRequest(227, new() { { 255, "Adhoc" } });
+
+        var first = handler.EnterRoom(req, null);
+        Assert.Equal(1, ((Dictionary<object, object>)first.Response.Parameters[248])[PhotonCodes.RoomProperty.MasterClientId]);
+
+        var second = handler.EnterRoom(req, null);   // second joiner: master stays the first (lowest) actor
+        Assert.Equal(1, ((Dictionary<object, object>)second.Response.Parameters[248])[PhotonCodes.RoomProperty.MasterClientId]);
+    }
+
+    [Fact]
+    public void EnterRoom_rejects_disabled_realm()
+    {
+        var realms = TestAccounts.CreateRealms();
+        realms.Upsert(new Realm { Name = "Retired", IsEnabled = false });
+        var (resp, _) = Make(realms).EnterRoom(new OperationRequest(227, new() { { 255, "Retired" } }), null);
         Assert.NotEqual(0, resp.ReturnCode);
     }
 

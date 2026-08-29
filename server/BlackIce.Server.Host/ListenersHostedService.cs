@@ -70,9 +70,14 @@ public sealed class ListenersHostedService : BackgroundService
         if (nameAlt != null) nameAlt.OnMaintenance = name.OnMaintenance;
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
-        var master = new UdpListener("MasterServer", s.Ports.MasterServer,
-            new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
-                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount), s.Listener);
+        var masterHandler = new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
+                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount);
+        var master = new UdpListener("MasterServer", s.Ports.MasterServer, masterHandler, s.Listener);
+        // See ServerPorts.NameServerAlt: pairs with NameServerAlt/GameServerAlt for a client using
+        // Photon's modern default UDP ports (27000/27001/27002).
+        var masterAlt = s.Ports.MasterServerAlt is { } masterAltPort
+            ? new UdpListener("MasterServerAlt", masterAltPort, masterHandler, s.Listener)
+            : null;
         // The in-game "/command" surface: the same commands as the console, runnable from chat but gated by
         // each player's VERIFIED level (GameServerHandler computes it; Console-tier stays console-only). Built
         // on the Game listener's services so its providers run on that thread (where chat is handled). Plugin
@@ -83,14 +88,21 @@ public sealed class ListenersHostedService : BackgroundService
             .Register(new BlackIce.Server.Data.RealmCommands(realms))
             .Register(new BlackIce.Server.Data.MotdCommands(motd));
         foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
-        var game = new UdpListener("GameServer", s.Ports.GameServer,
-            new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
-                                  chatCommands, _config.TrustLanAdmin), s.Listener);
+        var gameHandler = new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
+                                  chatCommands, _config.TrustLanAdmin);
+        var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
+        // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
+        // Photon's modern default UDP ports (27000/27001/27002).
+        var gameAlt = s.Ports.GameServerAlt is { } gameAltPort
+            ? new UdpListener("GameServerAlt", gameAltPort, gameHandler, s.Listener)
+            : null;
 
         // Tick bots AND drain queued admin actions on the Game listener's single thread: both relay to
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run
         // anywhere else.
         game.OnMaintenance = () => { _bots.Tick(); _admin.Drain(); };
+        if (masterAlt != null) masterAlt.OnMaintenance = master.OnMaintenance;
+        if (gameAlt != null) gameAlt.OnMaintenance = game.OnMaintenance;
 
         // Optional playerbot soak: auto-spawn N bots per realm and (if configured) have them drive the
         // legitimate+cheating game-action script so the relay and anti-cheat surface get exercised.
@@ -121,11 +133,15 @@ public sealed class ListenersHostedService : BackgroundService
                              (withMesh > 0 ? $", pinned realms={withMesh}" : ""));
         }
 
-        Log.Info("HOST", $"Listening — NS {s.Ports.NameServer}{(nameAlt != null ? $"/{s.Ports.NameServerAlt}" : "")} / Master {s.Ports.MasterServer} / Game {s.Ports.GameServer}");
+        Log.Info("HOST", $"Listening — NS {s.Ports.NameServer}{(nameAlt != null ? $"/{s.Ports.NameServerAlt}" : "")} / " +
+                         $"Master {s.Ports.MasterServer}{(masterAlt != null ? $"/{s.Ports.MasterServerAlt}" : "")} / " +
+                         $"Game {s.Ports.GameServer}{(gameAlt != null ? $"/{s.Ports.GameServerAlt}" : "")}");
         try
         {
             var tasks = new List<Task> { name.RunAsync(stoppingToken), master.RunAsync(stoppingToken), game.RunAsync(stoppingToken) };
             if (nameAlt != null) tasks.Add(nameAlt.RunAsync(stoppingToken));
+            if (masterAlt != null) tasks.Add(masterAlt.RunAsync(stoppingToken));
+            if (gameAlt != null) tasks.Add(gameAlt.RunAsync(stoppingToken));
             await Task.WhenAll(tasks);
         }
         catch (OperationCanceledException) { /* graceful shutdown */ }
