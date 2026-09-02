@@ -137,6 +137,20 @@ public class TransportTests
     }
 
     [Fact]
+    public void Inbound_unsequenced_command_surfaces_its_payload_without_acknowledgement()
+    {
+        var peer = new EnetPeer();
+        var cmd = new NCommand(NCommand.SendUnsequenced, 0, NCommand.FlagUnsequenced, 4, 0,
+                               new byte[] { 0xF3, 0x02, 0xFD })
+        { UnreliableSequenceNumber = 1 };
+
+        var outgoing = peer.HandleCommand(cmd, incomingSentTime: 0, out var payload);
+
+        Assert.Equal(new byte[] { 0xF3, 0x02, 0xFD }, payload);
+        Assert.DoesNotContain(outgoing, c => c.CommandType == NCommand.Acknowledge);
+    }
+
+    [Fact]
     public void WrapUnreliable_stamps_increasing_per_channel_unreliable_seq()
     {
         var peer = new EnetPeer();

@@ -16,6 +16,11 @@ server foundation is built and tested: GpBinary v1.8 codec, eNet transport, Oakl
 AES encryption, UDP server core, and Name/Master/Game role handlers. See
 `docs/superpowers/plans/`.
 
+The client's full session-join dialogue and its GameList room-property contract were
+reconstructed from Outbound's own decompiled code (no live capture needed) —
+[`docs/protocol/06-fusion-session-join.md`](docs/protocol/06-fusion-session-join.md). The
+server's Fusion session-lobby event conforms to that contract.
+
 ## Building & running (CLI)
 
 Requires the **.NET 8 SDK**. No game files are needed to build or test the server:

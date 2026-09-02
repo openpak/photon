@@ -19,6 +19,7 @@ public sealed class UdpListener
     private readonly TimeSpan _maintenanceInterval;
     private readonly TimeSpan _pingQuietAfter;
     private readonly TimeSpan _deadTimeout;
+    private readonly TimeSpan _inRoomDeadTimeout;
 
     private readonly string _name;
     private readonly UdpClient _socket;
@@ -44,6 +45,7 @@ public sealed class UdpListener
         _maintenanceInterval = timings.Maintenance;
         _pingQuietAfter = timings.PingQuiet;
         _deadTimeout = timings.DeadTimeout;
+        _inRoomDeadTimeout = timings.InRoomDeadTimeout;
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -80,20 +82,31 @@ public sealed class UdpListener
         Log.Info(_name, "listener loop exited");
     }
 
-    /// <summary>Pings quiet peers and evicts ones gone silent past <see cref="DeadTimeout"/> or hard-kicked.</summary>
+    /// <summary>
+    /// How long a peer may go inbound-silent before eviction, by session stage. A peer that has joined
+    /// a room (a host, or a joined player) gets the longer <c>InRoomDeadTimeout</c>: the Switch
+    /// friend-invite system applet SUSPENDS the game, so an in-room host can neither send nor answer
+    /// keepalives while it is open, and no short timeout survives an applet left on screen. Losing
+    /// in-room state drops the whole session (the client's "connection interrupted" screen), so it is
+    /// reaped only after the long grace; a pre-room peer stuck at connect/auth is reclaimed quickly.
+    /// </summary>
+    public TimeSpan EvictionGrace(SessionStatus status)
+        => status == SessionStatus.InRoom ? _inRoomDeadTimeout : _deadTimeout;
+
+    /// <summary>Pings quiet peers and evicts ones gone silent past their <see cref="EvictionGrace"/> or hard-kicked.</summary>
     private void RunMaintenance(DateTime now)
     {
         List<IPEndPoint>? dead = null;
         foreach (var (ep, peer) in _peers)
         {
-            if (peer.WantsDisconnect || now - peer.LastInboundUtc >= _deadTimeout) (dead ??= new()).Add(ep);
+            if (peer.WantsDisconnect || now - peer.LastInboundUtc >= EvictionGrace(peer.Status)) (dead ??= new()).Add(ep);
             else peer.MaybePing(now, _pingQuietAfter);
         }
         if (dead is not null)
             foreach (var ep in dead)
             {
                 if (!_peers.Remove(ep, out var peer)) continue;
-                var why = peer.WantsDisconnect ? "kicked" : $"no inbound for {_deadTimeout.TotalSeconds:F0}s+";
+                var why = peer.WantsDisconnect ? "kicked" : $"no inbound for {EvictionGrace(peer.Status).TotalSeconds:F0}s+";
                 Log.Info(_name, $"evicting peer {ep} ({why}); {_peers.Count} remain");
                 peer.NotifyDisconnect();
             }

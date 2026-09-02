@@ -41,11 +41,20 @@ public sealed class ListenerTimings
 {
     public double MaintenanceSeconds { get; set; } = 1;
     public double PingQuietSeconds { get; set; } = 3;
-    public double DeadTimeoutSeconds { get; set; } = 10;
+    // Some Fusion clients synchronously wait on a separate P2P/NAT-punch socket and cannot service
+    // Photon keepalives during that phase. Keep their authenticated/in-room state long enough for
+    // the secondary handshake to complete instead of recreating them as a fresh Connected peer.
+    public double DeadTimeoutSeconds { get; set; } = 120;
+    // A peer that has joined a room gets this longer grace instead: the friend-invite system applet
+    // suspends the game, so an in-room host stops answering keepalives entirely while it is open, and
+    // no short timeout survives an applet left on screen. Losing in-room state drops the whole session
+    // (the client's "connection interrupted" screen), so reap it only after this long silence.
+    public double InRoomDeadTimeoutSeconds { get; set; } = 1800;
 
     public TimeSpan Maintenance => TimeSpan.FromSeconds(MaintenanceSeconds);
     public TimeSpan PingQuiet => TimeSpan.FromSeconds(PingQuietSeconds);
     public TimeSpan DeadTimeout => TimeSpan.FromSeconds(DeadTimeoutSeconds);
+    public TimeSpan InRoomDeadTimeout => TimeSpan.FromSeconds(InRoomDeadTimeoutSeconds);
 }
 
 /// <summary>
@@ -113,6 +122,8 @@ public sealed class ServerOptions
             errors.Add("Server.Listener.PingQuietSeconds must be greater than 0.");
         if (Listener.DeadTimeoutSeconds <= Listener.PingQuietSeconds)
             errors.Add("Server.Listener.DeadTimeoutSeconds must be greater than PingQuietSeconds.");
+        if (Listener.InRoomDeadTimeoutSeconds < Listener.DeadTimeoutSeconds)
+            errors.Add("Server.Listener.InRoomDeadTimeoutSeconds must be >= DeadTimeoutSeconds (in-room peers get a longer, not shorter, grace).");
 
         errors.AddRange(Anticheat.Validate());
         errors.AddRange(Bots.Validate());

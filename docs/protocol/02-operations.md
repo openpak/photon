@@ -20,7 +20,7 @@ Phase 0 op-log.
 | 226 | JoinGame | | join existing room |
 | 227 | CreateGame | ✓ | create room (Master returns Game Server addr; Game creates room) |
 | 228 | LeaveLobby | | |
-| 229 | JoinLobby | ✓ | enter matchmaking lobby |
+| 229 | JoinLobby | ✓ | enter matchmaking lobby (Fusion: P213=session code; see [06-fusion-session-join.md](06-fusion-session-join.md)) |
 | 230 | Authenticate | ✓ | used on all three servers |
 | 231 | AuthenticateOnce | | binary-token variant |
 | 248 | ChangeGroups | | interest groups |

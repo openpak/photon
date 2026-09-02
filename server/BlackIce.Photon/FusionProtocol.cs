@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 
 namespace BlackIce.Photon;
@@ -299,5 +300,63 @@ public sealed class FusionBitWriter
         var result = new byte[byteLen];
         Array.Copy(_data, result, byteLen);
         return result;
+    }
+}
+
+/// <summary>
+/// Codec for the OTHER Fusion channel — <c>OpRaiseEvent</c> code 101 ("DATA"), Fusion's own
+/// separate low-level transport (<c>NetPeerGroup</c>/<c>NetSocketRelay</c>). Unlike the code-100
+/// "protocol package" messages (bit-packed, see <see cref="FusionProtocol"/>), these are raw C
+/// struct memory layouts (<c>[StructLayout(LayoutKind.Explicit)]</c>, native byte order — this
+/// machine and the Switch/Steam client are both little-endian, so no translation needed) —
+/// verified against a real Photon Cloud capture by mirroring the exact struct in an unsafe C#
+/// type locally and reading captured bytes through it, not by hand-counting offsets. Only
+/// Connect→Accepted is implemented: the minimal handshake needed for a solo host's own client to
+/// stop timing out. This is NOT the real-time simulation/snapshot data itself — that rides the
+/// same event code once a connection here is established, and remains unimplemented.
+/// </summary>
+public static class FusionRelayProtocol
+{
+    public const byte DataEventCode = 101;
+    private const byte NetPacketTypeCommand = 1;
+    private const byte NetPacketTypeData = 4;
+    private const byte NetCommandConnect = 1, NetCommandAccepted = 2;
+
+    // NetCommandConnect (Fusion.Sockets, decompiled): [FieldOffset(0)] byte PacketType,
+    // [FieldOffset(1)] byte Command, [FieldOffset(4)] int TokenLength, [FieldOffset(8)]
+    // NetConnectionId (8B), [FieldOffset(16)] byte TokenData[128], [FieldOffset(144)]
+    // byte UniqueId[8]. Total 152 bytes — a real captured Connect matched this exactly.
+    private const int ConnectSize = 152, ConnectUniqueIdOffset = 144, ConnectUniqueIdLength = 8;
+
+    public sealed record ConnectRequest(byte[] UniqueId);
+
+    /// <summary>Returns true for Fusion relay data packets. In a solo Shared-mode room the
+    /// relay is a self-loop, so these packets must be delivered back to the sole actor.</summary>
+    public static bool IsDataPacket(byte[] payload) => payload.Length >= 14 && payload[0] == NetPacketTypeData;
+
+    /// <summary>Decodes a code-101 payload as a <c>NetCommandConnect</c>, or null if it isn't one
+    /// (wrong packet/command type, or too short) — never throws, this is untrusted network input.</summary>
+    public static ConnectRequest? TryDecodeConnect(byte[] payload)
+    {
+        if (payload.Length < ConnectSize) return null;
+        if (payload[0] != NetPacketTypeCommand || payload[1] != NetCommandConnect) return null;
+        return new ConnectRequest(payload[ConnectUniqueIdOffset..(ConnectUniqueIdOffset + ConnectUniqueIdLength)]);
+    }
+
+    /// <summary>
+    /// Builds a <c>NetCommandAccepted</c> reply. Field values (Group=0, GroupIndex=0,
+    /// Generation=1 for both AcceptedLocalId and AcceptedRemoteId, Counter=1) are copied exactly
+    /// from a real Photon Cloud server's Accepted reply to a solo host's own Connect, captured and
+    /// decoded live — see earlier-outbound/HANDOFF.md.
+    /// </summary>
+    public static byte[] EncodeAccepted()
+    {
+        var b = new byte[32];
+        b[0] = NetPacketTypeCommand;
+        b[1] = NetCommandAccepted;
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(12), 1);   // AcceptedLocalId.Generation
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(20), 1);   // AcceptedRemoteId.Generation
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(24), 1);   // Counter
+        return b;
     }
 }

@@ -65,6 +65,7 @@ public sealed class EnetPeer
                 appPayload = cmd.Payload;
                 break;
             case NCommand.SendUnreliable:
+            case NCommand.SendUnsequenced:
                 appPayload = cmd.Payload;
                 break;
             case NCommand.SendFragment:

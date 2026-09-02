@@ -26,7 +26,8 @@ public sealed class NameServerHandler : IOperationHandler
     private const byte OpGetRegions = PhotonCodes.Op.GetRegions;
     private const byte PAddress = PhotonCodes.Param.Address, PSecret = PhotonCodes.Param.Secret,
                        PUserId = PhotonCodes.Param.UserId, PTicket = PhotonCodes.Param.SteamTicket,
-                       PRegion = PhotonCodes.Param.Region;
+                       PRegion = PhotonCodes.Param.Region,
+                       PAuthenticationParams = PhotonCodes.Param.ClientAuthenticationParams;
     private static readonly TimeSpan ValidationTimeout = TimeSpan.FromSeconds(3);
 
     // ponytail: single hardcoded region pointing back at this same NameServer instance. A
@@ -43,6 +44,7 @@ public sealed class NameServerHandler : IOperationHandler
     private readonly ISteamTicketValidator _validator;
     private readonly Func<IPEndPoint, bool> _isLan;
     private readonly Action<Action> _post;
+    private readonly OpenPakIdentityRegistry? _legacyIdentities;
     private readonly OperationRouter _router;
 
     /// <param name="validator">Steam ticket validator. Defaults to <see cref="NullSteamTicketValidator"/>
@@ -55,7 +57,8 @@ public sealed class NameServerHandler : IOperationHandler
     /// thread). Defaults to running inline (tests / no listener queue).</param>
     public NameServerHandler(string masterAddress, string secret, AccountService accounts,
                              ISteamTicketValidator? validator = null, bool allowAnonymousLan = true,
-                             Func<IPEndPoint, bool>? isLan = null, Action<Action>? post = null)
+                             Func<IPEndPoint, bool>? isLan = null, Action<Action>? post = null,
+                             OpenPakIdentityRegistry? legacyIdentities = null)
     {
         _masterAddress = masterAddress;
         _secret = secret;
@@ -64,6 +67,7 @@ public sealed class NameServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _isLan = isLan ?? TrustedNetwork.IsLanOrLoopback;
         _post = post ?? (a => a());
+        _legacyIdentities = legacyIdentities;
         _router = new OperationRouter("NameServer", "Unsupported on Name Server")
             .On(OpAuthenticate, HandleAuthenticate)
             .On(OpGetRegions, HandleGetRegions);
@@ -73,11 +77,13 @@ public sealed class NameServerHandler : IOperationHandler
     {
         // Hands off to the real Master Server address, same as Authenticate's PAddress below --
         // matches real Photon Cloud, which always names a genuinely different server/port here,
-        // never the NameServer's own address.
+        // never the NameServer's own address. For LOOPBACK peers (local test clients) hand back
+        // the loopback master so the client doesn't get routed to the real public Cloud.
+        var master = TrustedNetwork.IsLanOrLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
         peer.SendResponse(new OperationResponse(OpGetRegions, 0, null, new()
         {
             { PRegion, new[] { RegionToken } },
-            { PAddress, new[] { _masterAddress } },
+            { PAddress, new[] { master } },
         }));
     }
 
@@ -96,6 +102,14 @@ public sealed class NameServerHandler : IOperationHandler
         // LAN/loopback (when allowed): legacy unverified path — accept the asserted id (or a throwaway guid).
         if (_allowAnonymousLan && _isLan(peer.Remote))
         {
+            if (_legacyIdentities is not null
+                && request.Parameters.TryGetValue(PAuthenticationParams, out var rawParams)
+                && rawParams is string authenticationParams
+                && OpenPakIdentityRegistry.ExtractToken(authenticationParams) is { } bsDid)
+            {
+                Respond(peer, _legacyIdentities.Register(bsDid), verified: false);
+                return;
+            }
             Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false);
             return;
         }
@@ -163,14 +177,15 @@ public sealed class NameServerHandler : IOperationHandler
     {
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var steamId = SteamId.IsValidIndividual(claimed) ? claimed! : Guid.NewGuid().ToString();
-        return BuildSuccess(steamId, verified: false);
+        return BuildSuccess(steamId, verified: false, "127.0.0.1:27001");
     }
 
     /// <summary>Resolves the account, rejects bans, binds the identity onto the peer, and sends the success
     /// response (token carries the <paramref name="verified"/> flag).</summary>
     private void Respond(PeerConnection peer, string steamId, bool verified)
     {
-        var resp = BuildSuccess(steamId, verified);
+        var master = TrustedNetwork.IsLanOrLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
+        var resp = BuildSuccess(steamId, verified, master);
         if (resp.ReturnCode == 0)
         {
             peer.SteamId = steamId;
@@ -182,17 +197,19 @@ public sealed class NameServerHandler : IOperationHandler
 
     /// <summary>Resolves the account (rejecting bans) and builds the success response with a token carrying the
     /// <paramref name="verified"/> flag. No peer side effects — shared by the sync and async paths.</summary>
-    private OperationResponse BuildSuccess(string steamId, bool verified)
+    private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress)
     {
-        var account = _accounts.ResolveOrCreate(steamId, steamId);
-        if (account.IsBanned)
+        var account = steamId.StartsWith("legacy:", StringComparison.Ordinal)
+            ? null
+            : _accounts.ResolveOrCreate(steamId, steamId);
+        if (account?.IsBanned == true)
         {
             Log.Warn("NameServer", $"{steamId} is BANNED -> rc=-3");
             return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
         }
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
-            { PAddress, _masterAddress },
+            { PAddress, masterAddress },
             { PSecret, AuthToken.Mint(steamId, verified, _secret) },
             { PUserId, steamId },
         });

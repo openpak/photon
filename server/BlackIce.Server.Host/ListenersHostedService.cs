@@ -54,13 +54,18 @@ public sealed class ListenersHostedService : BackgroundService
         var motd = new MotdService(_dbf.CreateDbContext());
 
         var s = _config.Server;
+        var legacyIdentities = new OpenPakIdentityRegistry();
+        var legacyPublisher = new OpenPakRoomPublisher(new HttpClient(),
+                                                          Environment.GetEnvironmentVariable("OPENPAK_ACCOUNT_URL"),
+                                                          Environment.GetEnvironmentVariable("OPENPAK_INTERNAL_KEY"));
         // Steam ticket validation completes asynchronously on a Steam callback thread; its auth response must
         // be sent on the NameServer listener's single thread. Marshal it via this queue, drained in the
         // listener's OnMaintenance (the same thread-affinity pattern as the Game listener's admin queue).
         var nameQueue = new System.Collections.Concurrent.ConcurrentQueue<Action>();
         var nameHandler = new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts,
                                   _steam, _config.AllowAnonymousLan,
-                                  isLan: null, post: nameQueue.Enqueue);
+                                  isLan: null, post: nameQueue.Enqueue,
+                                  legacyIdentities: legacyIdentities);
         var name = new UdpListener("NameServer", s.Ports.NameServer, nameHandler, s.Listener);
         name.OnMaintenance = () => { while (nameQueue.TryDequeue(out var a)) a(); };
         // See ServerPorts.NameServerAlt: some clients try this port independently of GetRegions.
@@ -89,7 +94,11 @@ public sealed class ListenersHostedService : BackgroundService
             .Register(new BlackIce.Server.Data.MotdCommands(motd));
         foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
         var gameHandler = new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
-                                  chatCommands, _config.TrustLanAdmin);
+                                  chatCommands, _config.TrustLanAdmin, (peer, room) =>
+                                  {
+                                      if (peer.SteamId is { } userId && legacyIdentities.Find(userId) is { } bsDid)
+                                          _ = legacyPublisher.PublishAsync(bsDid, room);
+                                  });
         var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).

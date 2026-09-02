@@ -16,6 +16,10 @@ public sealed record PeerRoomState(string RoomName, int Actor)
     /// Confirmation instead raced the client into an immediate abort against our near-zero-latency
     /// local server. See GameServerHandler.HandleRaiseEvent.</summary>
     public FusionProtocol.JoinMessage? PendingFusionJoin { get; set; }
+
+    /// <summary>Fusion sends its relay Connect more than once over distinct unsequenced ENet groups.
+    /// Accept each logical UniqueId once; the reliable Accepted event itself handles packet loss.</summary>
+    public HashSet<string> AcceptedFusionRelayIds { get; } = new(StringComparer.Ordinal);
 }
 
 /// <summary>
@@ -26,7 +30,8 @@ public sealed class GameServerHandler : IOperationHandler
 {
     // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
     private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpCreateGame = PhotonCodes.Op.CreateGame, OpJoinGame = PhotonCodes.Op.JoinGame;
-    private const byte OpRaiseEvent = PhotonCodes.Op.RaiseEvent, OpSetProperties = PhotonCodes.Op.SetProperties;
+    private const byte OpRaiseEvent = PhotonCodes.Op.RaiseEvent, OpSetProperties = PhotonCodes.Op.SetProperties,
+                       OpLeave = PhotonCodes.Op.Leave;
     private const byte PEventCode = PhotonCodes.Param.Code, PData = PhotonCodes.Param.Data;  // RaiseEvent: event code + data
     private const byte EvJoin = PhotonCodes.Event.Join;
     private const byte EvLeave = PhotonCodes.Event.Leave;
@@ -49,6 +54,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly OperationRouter _router;
     private readonly IRoomLifecycleListener? _lifecycle;
     private readonly bool _trustLanAdmin;
+    private readonly Action<PeerConnection, string>? _roomCreated;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -63,13 +69,14 @@ public sealed class GameServerHandler : IOperationHandler
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
                              IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
-                             bool trustLanAdmin = false)
+                             bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null)
     {
         _secret = secret;
         _registry = registry;
         _realms = realms;
         _allowAnonymousLan = allowAnonymousLan;
         _trustLanAdmin = trustLanAdmin;
+        _roomCreated = roomCreated;
         _accounts = accounts;
         _motd = motd;
         _lifecycle = lifecycle;
@@ -81,6 +88,7 @@ public sealed class GameServerHandler : IOperationHandler
             .On(OpAuthenticate, HandleAuthenticate)
             .On(OpCreateGame, HandleEnterRoom, SessionStatus.Authenticated)
             .On(OpJoinGame, HandleEnterRoom, SessionStatus.Authenticated)
+            .On(OpLeave, HandleLeave, SessionStatus.InRoom)
             .On(OpSetProperties, HandleSetProperties, SessionStatus.InRoom)
             .On(OpRaiseEvent, HandleRaiseEvent, SessionStatus.InRoom);
     }
@@ -89,7 +97,20 @@ public sealed class GameServerHandler : IOperationHandler
 
     public void OnDisconnect(PeerConnection peer)
     {
+        LeaveRoom(peer);
+    }
+
+    private void HandleLeave(PeerConnection peer, OperationRequest request)
+    {
+        LeaveRoom(peer);
+        peer.Status = SessionStatus.Authenticated;
+        peer.SendResponse(new OperationResponse(request.OperationCode, 0, null, new()));
+    }
+
+    private void LeaveRoom(PeerConnection peer)
+    {
         if (peer.Tag is not PeerRoomState state) return;
+        peer.Tag = null; // make a later eNet disconnect idempotent
         var session = _registry.Session(state.RoomName);
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
@@ -112,6 +133,25 @@ public sealed class GameServerHandler : IOperationHandler
         // actor (still in the room's membership) while overwriting peer.Tag with the new one.
         if (peer.Tag is PeerRoomState already)
         {
+            var requestedRoom = request.Parameters.TryGetValue(PRoomName, out var requested)
+                ? requested as string : null;
+            if (requestedRoom == already.RoomName && _registry.Find(already.RoomName) is { } existingRoom)
+            {
+                // Fusion may repeat its create-if-missing JoinGame before processing the first
+                // response. Treat the same peer entering the same room as an idempotent retry.
+                var gameProperties = new Dictionary<object, object>(existingRoom.GameProperties)
+                {
+                    [RoomMasterClientId] = existingRoom.ActorNumbers.Min(),
+                };
+                peer.SendResponse(new OperationResponse(request.OperationCode, 0, null, new()
+                {
+                    { PActorNr, already.Actor },
+                    { PGameProperties, gameProperties },
+                    { PActorProperties, new Dictionary<byte, object>() },
+                }));
+                Log.Debug("GameServer", $"{peer.Remote} repeated join for \"{already.RoomName}\" actor={already.Actor}");
+                return;
+            }
             Log.Warn("GameServer", $"{peer.Remote} tried to join while already in \"{already.RoomName}\" -> rc=-7");
             peer.SendResponse(new OperationResponse(request.OperationCode, -7, "Already in a room", new()));
             return;
@@ -132,6 +172,9 @@ public sealed class GameServerHandler : IOperationHandler
         peer.RaiseEvent(join);             // and give the newcomer its own join
         session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
         _lifecycle?.OnJoined(roomName, actor, session);   // plugins (e.g. game modes) react to the join
+        // Fusion hosts enter through JoinGame with create-if-missing rather than Photon CreateGame.
+        // Actor 1 is the room creator in either flow; later joiners must not overwrite its presence.
+        if (actor == 1) _roomCreated?.Invoke(peer, roomName);
     }
 
     private void HandleSetProperties(PeerConnection peer, OperationRequest request)
@@ -191,7 +234,7 @@ public sealed class GameServerHandler : IOperationHandler
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
                 {
                     var confirmation = FusionProtocol.EncodeJoinConfirmation(join, state.Actor);
-                    peer.RaiseEvent(new EventData(ec, new() { { PData, confirmation } }));
+                    peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -205,14 +248,41 @@ public sealed class GameServerHandler : IOperationHandler
                     // survives them leaving the screen.
                     var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
                                                            remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
-                    peer.RaiseEvent(new EventData(ec, new() { { PData, start } }));
+                    peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
                 }
+            }
+            // Fusion's OTHER channel (101, "DATA") is its own separate low-level transport
+            // (NetPeerGroup/NetSocketRelay) — see FusionRelayProtocol. Right after Start, the
+            // client tries to Connect over this channel too (even for a solo host, to the "relay"
+            // representing itself); without an Accepted reply it times out and disconnects, same
+            // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
+            // HANDOFF.md.
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayPayload
+                     && FusionRelayProtocol.TryDecodeConnect(relayPayload) is { } connect
+                     && state.AcceptedFusionRelayIds.Add(Convert.ToHexString(connect.UniqueId)))
+            {
+                peer.RaiseEvent(ServerFusionEvent(ec, FusionRelayProtocol.EncodeAccepted()));
+            }
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayData
+                     && FusionRelayProtocol.IsDataPacket(relayData)
+                     && _registry.Session(state.RoomName).Count == 1)
+            {
+                // AcceptedLocalId/AcceptedRemoteId form a self-loop for a solo Shared host.
+                // The Fusion plugin therefore returns its data packets to that same actor.
+                peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
+
+    // Fusion distinguishes server bootstrap traffic by Photon sender actor 0. Omitting Sender is
+    // not equivalent: Photon/Fusion's event layer uses a missing actor as an unset/invalid sender,
+    // so the eNet packet can be received and ACKed while the inner Confirmation/Start/Accepted is
+    // ignored. Real Photon Cloud includes ActorNr=0 on each of these server-originated events.
+    private static EventData ServerFusionEvent(byte eventCode, byte[] data) =>
+        new(eventCode, new() { { PActorNr, 0 }, { PData, data } });
 
     /// <summary>Event codes a client may legitimately raise. The server-emitted lifecycle events
     /// (Join/Leave/PropertiesChanged) are off-limits so a client can't forge them onto other actors.</summary>
@@ -272,6 +342,17 @@ public sealed class GameServerHandler : IOperationHandler
 
         int actor = room.AddActor();
         Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
+
+        // Persist the CREATOR's incoming GameProperties (248) so the Master lobby's GameList can
+        // advertise the custom props Fusion filters candidate sessions by — scene, vehicleType,
+        // knownPlayers and especially "version" (the host lists them under key 250). These have
+        // STRING keys, so they live in the object-keyed game-property store, not the byte-keyed
+        // Properties dict. Without them the joiner caches the room but its Fusion never matches the
+        // session and never sends OpJoinGame (observed 2026-09-02: the GameList entry carried only
+        // the four well-known keys, and the joiner stalled after OpJoinLobby).
+        if (actor == 1 && r.Parameters.TryGetValue(PGameProperties, out var creatorGp)
+                        && creatorGp is System.Collections.IDictionary creatorProps)
+            room.SetProperties(null, creatorProps);
 
         // Stamp the realm ruleset into the room's game properties so the client sees it in-room.
         // MasterClientId is a well-known Photon room property (never previously populated here) that

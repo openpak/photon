@@ -73,7 +73,7 @@ public sealed class PeerConnection
             }
             if (payload is not null)
             {
-                CurrentInboundUnreliable = cmd.CommandType == NCommand.SendUnreliable;
+                CurrentInboundUnreliable = cmd.CommandType is NCommand.SendUnreliable or NCommand.SendUnsequenced;
                 HandleAppPayload(payload);
                 CurrentInboundUnreliable = false;
             }

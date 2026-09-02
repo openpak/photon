@@ -164,6 +164,32 @@ public class GameServerRelayTests
     }
 
     [Fact]
+    public void OpLeave_succeeds_removes_actor_and_allows_a_later_disconnect()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out var aRaised);
+            var b = Peer(out _);
+            OperationResponse? response = null;
+            b.OnResponse = r => response = r;
+            h.OnOperationRequest(a, Join());
+            h.OnOperationRequest(b, Join());
+            aRaised.Clear();
+
+            h.OnOperationRequest(b, new OperationRequest(254, new()));
+            h.OnDisconnect(b); // must not emit a duplicate leave
+
+            Assert.NotNull(response);
+            Assert.Equal(254, response!.OperationCode);
+            Assert.Equal(0, response.ReturnCode);
+            Assert.Null(b.Tag);
+            Assert.Equal(SessionStatus.Authenticated, b.Status);
+            Assert.Single(aRaised, e => e.Code == 254);
+        }
+    }
+
+    [Fact]
     public void Unreliable_gameplay_event_is_relayed_unreliably()
     {
         var (h, _, db) = NewHandler();

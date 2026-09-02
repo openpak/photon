@@ -69,7 +69,7 @@ public sealed class MasterServerHandler : IOperationHandler
                 // under this code", which blocked it from ever proceeding to CreateGame. Only the default
                 // (unnamed) lobby gets our realm list; a named lobby gets an empty one.
                 bool isDefaultLobby = !req.Parameters.ContainsKey(PLobbyName);
-                peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent() : new EventData(PhotonCodes.Event.GameList, new() { { PGameListMap, new Dictionary<string, object>() } }));
+                peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent() : BuildFusionSessionLobbyEvent(req));
             }, SessionStatus.Authenticated)
             .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
             .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);
@@ -109,6 +109,64 @@ public sealed class MasterServerHandler : IOperationHandler
     }
 
     public OperationResponse JoinLobby(OperationRequest r) => new(OpJoinLobby, 0, null, new());
+
+    /// <summary>
+    /// Fusion (Outbound) session-code lobbies: the JOINER joins the lobby named after the host's
+    /// room and waits for that session to appear in the GameList before it will OpJoinGame — an
+    /// empty list left it waiting forever (observed live: joiner authenticated + JoinLobby, then
+    /// only keepalives, "Invalid session ID" on the game screen). When a live room under the
+    /// lobby's name exists, advertise it: the host's own stored GameProperties (scene/vehicleType/
+    /// version/knownPlayers/MaxPlayers…) plus the well-known open/visible/count keys Fusion reads.
+    /// </summary>
+    private EventData BuildFusionSessionLobbyEvent(OperationRequest req)
+    {
+        var rooms = new Dictionary<string, object>();
+        if (req.Parameters.TryGetValue(PLobbyName, out var lobbyObj) && lobbyObj is string lobbyName)
+        {
+            var room = _registry.Find(lobbyName);
+            if (room is not null)
+            {
+                // Fusion's Photon Realtime RoomInfo parser unboxes the well-known numeric
+                // properties as INT — byte-typed values (what EnterRoom stored) throw
+                // InvalidCastException inside the client's event dispatch, the session list
+                // silently stays empty, and the join times out into the generic error.
+                // So: skip the byte-typed well-known keys from the host's stored props and
+                // re-add them as proper types; pass everything else through untouched.
+                // Fusion's Photon Realtime RoomInfo parser unboxes the well-known numeric
+                // properties as INT — byte-typed VALUES (what EnterRoom stored) throw
+                // InvalidCastException inside the client's event dispatch, the session list
+                // silently stays empty, and the join times out into the generic error.
+                // So: skip the byte-typed well-known keys from the host's stored props and
+                // re-add them as proper types; pass everything else through untouched.
+                var props = new Dictionary<object, object>
+                {
+                    { (object)RoomIsOpen, true },
+                    { (object)RoomIsVisible, true },
+                    { (object)RoomPlayerCount, room.ActorNumbers.Count },                    // int
+                    { (object)RoomMaxPlayers, room.GameProperties.TryGetValue((object)RoomMaxPlayers, out var mp)
+                        ? Convert.ToInt32(mp) : 4 },                                         // int
+                };
+                // Read the object-keyed game-property store (not the byte-keyed Properties dict): the
+                // host's custom props (scene/vehicleType/knownPlayers/version) have STRING keys and only
+                // exist here. Passing "version" et al. through is what lets Fusion match the session and
+                // finally send OpJoinGame.
+                foreach (var kv in room.GameProperties)
+                {
+                    if (kv.Key is byte b && (b == RoomPlayerCount || b == RoomMaxPlayers ||
+                                             b == RoomIsOpen || b == RoomIsVisible ||
+                                             b == 251 || b == 250 || b == 248 || b == 243))
+                        continue;   // skip server-internal/custom-marker byte keys (250 = the
+                                    // CustomProperties marker — merging a byte throws client-side;
+                                    // 251 = RemovedFromList — Fusion's RoomInfo.InternalCacheProperties
+                                    // (RVA 0x218cb30) reads it FIRST and drops the room if truthy, so a
+                                    // stray stored 251 would hide the session from the joiner).
+                    props[kv.Key] = kv.Value;
+                }
+                rooms[lobbyName] = props;
+            }
+        }
+        return new EventData(EvGameList, new() { { PGameListMap, rooms } });
+    }
 
     /// <summary>
     /// The lobby room list (event 230, param 222 = { roomName -> properties }), built from all

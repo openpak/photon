@@ -61,6 +61,18 @@ public class KeepaliveTests
     }
 
     [Fact]
+    public void EvictionGrace_gives_in_room_peers_the_longer_timeout()
+    {
+        // An in-room host is suspended by the friend-invite applet and stops answering keepalives;
+        // it must survive on the long grace, while a peer stuck pre-room is reaped on the short one.
+        var listener = new UdpListener("test", 0, new CountingHandler(),
+            new ListenerTimings { DeadTimeoutSeconds = 120, InRoomDeadTimeoutSeconds = 1800 });
+        Assert.Equal(TimeSpan.FromSeconds(1800), listener.EvictionGrace(SessionStatus.InRoom));
+        Assert.Equal(TimeSpan.FromSeconds(120), listener.EvictionGrace(SessionStatus.Connected));
+        Assert.Equal(TimeSpan.FromSeconds(120), listener.EvictionGrace(SessionStatus.Authenticated));
+    }
+
+    [Fact]
     public void NotifyDisconnect_invokes_the_role_handler()
     {
         var peer = NewPeer(out _, out var handler);
