@@ -1,3 +1,4 @@
+using BlackIce.Photon;
 using BlackIce.Server.Core;
 using BlackIce.Server.Data;
 using BlackIce.Server.LoadBalancing;
@@ -93,12 +94,24 @@ public sealed class ListenersHostedService : BackgroundService
             .Register(new BlackIce.Server.Data.RealmCommands(realms))
             .Register(new BlackIce.Server.Data.MotdCommands(motd));
         foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
+        // Optional: host Fusion's own Shared-mode server per room (the role Photon Cloud's Fusion plugin
+        // plays) so two+ Fusion peers relay real gameplay instead of a solo-host self-loopback. Present
+        // only when the non-redistributable Fusion libs were linked (see docs/fusion-shared-server.md);
+        // otherwise null and GameServerHandler keeps the solo path. Its outbound relay packets are sent as
+        // event 101 (server sender, actor 0) to the addressed actor, on the room's own listener thread.
+        IFusionSessionHost? fusion = null;
+#if FUSION_LIBS
+        fusion = new BlackIce.Server.Fusion.FusionSharedServer(
+            (room, actor, payload) =>
+                _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } })));
+#endif
+
         var gameHandler = new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
                                   chatCommands, _config.TrustLanAdmin, (peer, room) =>
                                   {
                                       if (peer.SteamId is { } userId && legacyIdentities.Find(userId) is { } bsDid)
                                           _ = legacyPublisher.PublishAsync(bsDid, room);
-                                  });
+                                  }, fusion);
         var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -110,6 +123,14 @@ public sealed class ListenersHostedService : BackgroundService
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run
         // anywhere else.
         game.OnMaintenance = () => { _bots.Tick(); _admin.Drain(); };
+        if (fusion is not null)
+        {
+            // Advance hosted Fusion room simulations at ~simulation rate on the Game listener thread(s).
+            // Each room's sim only ticks on the listener thread that owns it (thread affinity in the host),
+            // so wiring both game and gameAlt is safe.
+            game.OnTick = fusion.Tick;
+            if (gameAlt != null) gameAlt.OnTick = fusion.Tick;
+        }
         if (masterAlt != null) masterAlt.OnMaintenance = master.OnMaintenance;
         if (gameAlt != null) gameAlt.OnMaintenance = game.OnMaintenance;
 

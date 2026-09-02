@@ -20,6 +20,15 @@ public sealed record PeerRoomState(string RoomName, int Actor)
     /// <summary>Fusion sends its relay Connect more than once over distinct unsequenced ENet groups.
     /// Accept each logical UniqueId once; the reliable Accepted event itself handles packet loss.</summary>
     public HashSet<string> AcceptedFusionRelayIds { get; } = new(StringComparer.Ordinal);
+
+    /// <summary>The peer's Fusion protocol/serialization version, captured from its Join and kept for the
+    /// life of the session so the server can address later protocol-package messages (e.g. PlayerRefMapping)
+    /// to it. Null until the Join is seen.</summary>
+    public FusionProtocol.JoinMessage? FusionVersion { get; set; }
+
+    /// <summary>Set once this peer's Fusion Start has been sent (it is now fully in the shared session and
+    /// can receive PlayerRefMapping for the other players).</summary>
+    public bool FusionStarted { get; set; }
 }
 
 /// <summary>
@@ -55,6 +64,7 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly IRoomLifecycleListener? _lifecycle;
     private readonly bool _trustLanAdmin;
     private readonly Action<PeerConnection, string>? _roomCreated;
+    private readonly IFusionSessionHost? _fusion;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -69,8 +79,10 @@ public sealed class GameServerHandler : IOperationHandler
     public GameServerHandler(string secret, RoomRegistry registry, bool allowAnonymousLan = false,
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
                              IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
-                             bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null)
+                             bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null,
+                             IFusionSessionHost? fusion = null)
     {
+        _fusion = fusion;
         _secret = secret;
         _registry = registry;
         _realms = realms;
@@ -115,6 +127,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
+        _fusion?.PlayerLeft(state.RoomName, state.Actor);
         _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
@@ -235,9 +248,13 @@ public sealed class GameServerHandler : IOperationHandler
                 {
                     var confirmation = FusionProtocol.EncodeJoinConfirmation(join, state.Actor);
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
+                    // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
+                    // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
+                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
+                    state.FusionVersion = join;
                 }
                 else if (state.PendingFusionJoin is { } pending && FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdNetworkConfigSync)
                 {
@@ -250,6 +267,12 @@ public sealed class GameServerHandler : IOperationHandler
                                                            remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
                     peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
+                    state.FusionStarted = true;
+                    // A real Shared session also tells each client which actor <-> PlayerRef <-> UniqueId the
+                    // OTHER players are, or they relay state but never spawn one another. Now that this peer is
+                    // started, send it a mapping for every already-started actor, and send those actors this
+                    // peer's mapping. Each message is addressed with the RECIPIENT's own protocol version.
+                    BroadcastFusionPlayerRefMappings(state);
                 }
             }
             // Fusion's OTHER channel (101, "DATA") is its own separate low-level transport
@@ -258,10 +281,19 @@ public sealed class GameServerHandler : IOperationHandler
             // representing itself); without an Accepted reply it times out and disconnects, same
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null)
+            {
+                // A real Fusion Shared-mode server hosts this room: hand it the raw relay packet. It runs
+                // the NetPeerGroup transport (Connect/Accepted/NotifyData) and replicates state between
+                // peers, emitting its own event-101 packets back through the send callback (see Host wiring).
+                _fusion.FeedRelay(state.RoomName, state.Actor, relayIn);
+                return;   // never relay 101 peer-to-peer; it is client<->server transport
+            }
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayPayload
                      && FusionRelayProtocol.TryDecodeConnect(relayPayload) is { } connect
                      && state.AcceptedFusionRelayIds.Add(Convert.ToHexString(connect.UniqueId)))
             {
+                // Legacy solo-host fallback (no Fusion server linked): self-loopback accept.
                 peer.RaiseEvent(ServerFusionEvent(ec, FusionRelayProtocol.EncodeAccepted()));
             }
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayData
@@ -269,12 +301,41 @@ public sealed class GameServerHandler : IOperationHandler
                      && _registry.Session(state.RoomName).Count == 1)
             {
                 // AcceptedLocalId/AcceptedRemoteId form a self-loop for a solo Shared host.
-                // The Fusion plugin therefore returns its data packets to that same actor.
                 peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
+            // When a Fusion server hosts the room, its protocol-package (100) traffic is client<->server
+            // too — don't relay it peer-to-peer either.
+            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode) return;
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
+    }
+
+    /// <summary>Exchange Fusion PlayerRefMapping messages between <paramref name="joined"/> (whose Start was
+    /// just sent) and every other already-started actor in the room, so all clients register each other. The
+    /// mapping for an actor is deterministic: PlayerRef == actor number, UniqueId == UniqueIdForActor(actor).</summary>
+    private void BroadcastFusionPlayerRefMappings(PeerRoomState joined)
+    {
+        var session = _registry.Session(joined.RoomName);
+        foreach (var actor in session.Actors())
+        {
+            if (session.PeerOf(actor) is not { } otherPeer || otherPeer.Tag is not PeerRoomState os) continue;
+
+            // the just-joined peer learns about `actor` (including itself)
+            SendFusionPlayerRefMapping(session.PeerOf(joined.Actor), joined.FusionVersion, actor);
+
+            // every OTHER already-started actor learns about the just-joined peer
+            if (actor != joined.Actor && os.FusionStarted)
+                SendFusionPlayerRefMapping(otherPeer, os.FusionVersion, joined.Actor);
+        }
+    }
+
+    private static void SendFusionPlayerRefMapping(PeerConnection? recipient, FusionProtocol.JoinMessage? ver, int actor)
+    {
+        if (recipient is null || ver is null) return;
+        var msg = FusionProtocol.EncodePlayerRefMapping(ver.ProtocolVersion, ver.Major, ver.Minor, ver.Build,
+                                                        actor, actor, FusionProtocol.UniqueIdForActor(actor));
+        recipient.RaiseEvent(ServerFusionEvent(FusionProtocol.ProtocolPackageEventCode, msg));
     }
 
     // Fusion distinguishes server bootstrap traffic by Photon sender actor 0. Omitting Sender is

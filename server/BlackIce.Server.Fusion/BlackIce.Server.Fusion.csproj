@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Hosts Photon Fusion's OWN Shared-mode server simulation (the role Photon Cloud's closed
+    "Fusion plugin" plays) headless, in-process, so a self-hosted room can relay real Fusion
+    gameplay between two+ peers instead of only faking a solo host's self-loopback.
+
+    Links Fusion's shipped assemblies, which are NOT redistributable and NOT in the repo (see
+    docs/fusion-shared-server.md for how to produce them locally into server/fusion-libs/). Builds
+    ONLY when that folder is present; the rest of the server builds and runs without it
+    (GameServerHandler keeps the solo-host path). Mirrors the optional Photon3Unity3D oracle.
+  -->
+  <PropertyGroup>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <FusionLibs>$(MSBuildThisFileDirectory)..\fusion-libs</FusionLibs>
+    <FusionAvailable Condition="Exists('$(FusionLibs)\Fusion.Runtime.dll')">true</FusionAvailable>
+    <DefineConstants Condition="'$(FusionAvailable)' == 'true'">$(DefineConstants);FUSION_LIBS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\BlackIce.Server.LoadBalancing\BlackIce.Server.LoadBalancing.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(FusionAvailable)' == 'true'">
+    <PackageReference Include="Krafs.Publicizer" Version="2.3.2" PrivateAssets="all" />
+    <Publicize Include="Fusion.Runtime;Fusion.Sockets;Fusion.Common;Fusion.Log" />
+    <ProjectReference Include="..\BlackIce.Server.Fusion.UnityStub\BlackIce.Server.Fusion.UnityStub.csproj" />
+    <Reference Include="Fusion.Runtime"><HintPath>$(FusionLibs)\Fusion.Runtime.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Fusion.Sockets"><HintPath>$(FusionLibs)\Fusion.Sockets.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Fusion.Common"><HintPath>$(FusionLibs)\Fusion.Common.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Fusion.Log"><HintPath>$(FusionLibs)\Fusion.Log.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Fusion.Realtime"><HintPath>$(FusionLibs)\Fusion.Realtime.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="PhotonClient"><HintPath>$(FusionLibs)\PhotonClient.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Photon.Realtime"><HintPath>$(FusionLibs)\Photon.Realtime.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="NanoSockets"><HintPath>$(FusionLibs)\NanoSockets.dll</HintPath><Private>true</Private></Reference>
+    <None Include="$(FusionLibs)\libnanosockets.so" Link="libnanosockets.so" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

@@ -22,6 +22,7 @@ public static class FusionProtocol
     private const byte MsgIdJoin = 1;
     public const byte MsgIdNetworkConfigSync = 2;
     private const byte MsgIdStart = 5;
+    private const byte MsgIdPlayerRefMapping = 8;
 
     /// <summary>Reads just the leading message-id byte of a protocol-package payload without fully
     /// decoding it (a cheap way to tell messages apart before deciding which decoder, if any, to
@@ -106,6 +107,17 @@ public static class FusionProtocol
     /// client's own handler for receiving one is a no-op) so it's left unimplemented and simply
     /// falls through the generic relay path untouched.
     /// </summary>
+    /// <summary>The 8-byte Fusion UniqueId the server assigns to an actor. It must be STABLE for the
+    /// life of the peer's session: the client stores the Join Confirmation's UniqueId and presents it
+    /// again on its event-101 relay Connect, and the hosted Fusion server keys its player mapping on it.
+    /// Derived from the actor number so the server can recompute it without extra state.</summary>
+    public static byte[] UniqueIdForActor(int actor)
+    {
+        var id = new byte[8];
+        System.Buffers.Binary.BinaryPrimitives.WriteInt64LittleEndian(id, 0x5546 /* 'FU' */ * 0x100000000L + (uint)actor);
+        return id;
+    }
+
     public static byte[] EncodeJoinConfirmation(JoinMessage request, int playerRef)
     {
         var w = new FusionBitWriter();
@@ -116,12 +128,7 @@ public static class FusionProtocol
         w.WriteBits(request.GameMode, 8);
         w.WriteBits(PeerModeClient, 8);
         w.WriteUIntN(JoinRequestsNetworkConfig, 32);
-        if (request.ProtocolVersion >= 6)
-        {
-            var uniqueId = new byte[8];
-            Random.Shared.NextBytes(uniqueId);
-            w.WriteByteArrayLP(uniqueId);
-        }
+        if (request.ProtocolVersion >= 6) w.WriteByteArrayLP(UniqueIdForActor(playerRef));
         if (request.ProtocolVersion >= 7) w.WriteIntN(playerRef, 32);
         if (request.ProtocolVersion >= 9) { w.WriteByteArrayLP(null); w.WriteByteArrayLP(null); }
         if (request.ProtocolVersion >= 12) w.WriteIntN(0, 32);
@@ -140,6 +147,28 @@ public static class FusionProtocol
     /// a Shared-mode client attempt Fusion's own raw-UDP relay transport (NetPeerGroup/NAT-punch),
     /// which isn't implemented server-side at all.
     /// </summary>
+    /// <summary>
+    /// Builds a <c>PlayerRefMapping</c> message (protocol id 8): tells a client that an actor's
+    /// UniqueId maps to a PlayerRef, so it registers (and can spawn) that player. Photon Cloud's Fusion
+    /// plugin sends one per peer as peers come and go; a self-hosted Shared session must do the same or
+    /// clients relay state but never enter each other's world. Wire layout mirrors the SDK's
+    /// <c>PlayerRefMapping.SerializeProtected</c> (ActorId:int, PlayerRef:int, UniqueId:byte[]) wrapped in
+    /// the standard Message version header + trailing CustomData, exactly like the Join/Start encoders.
+    /// </summary>
+    public static byte[] EncodePlayerRefMapping(byte protocolVersion, int major, int minor, int build,
+                                                int actorId, int playerRef, byte[] uniqueId)
+    {
+        var w = new FusionBitWriter();
+        w.WriteBits(MsgIdPlayerRefMapping, 8);
+        w.WriteBits(protocolVersion, 8);
+        if (protocolVersion >= 2) { w.WriteIntN(major, 32); w.WriteIntN(minor, 32); w.WriteIntN(build, 32); }
+        w.WriteIntN(actorId, 32);
+        w.WriteIntN(playerRef, 32);
+        w.WriteByteArrayLP(uniqueId);
+        if (protocolVersion >= 3) w.WriteString("");
+        return w.ToArray();
+    }
+
     public static byte[] EncodeStart(byte protocolVersion, int major, int minor, int build,
                                      int remoteServerId, uint startRequests)
     {

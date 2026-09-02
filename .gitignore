@@ -15,6 +15,12 @@ Black Ice_Data/
 *.dll
 *.exe
 *.pdb
+
+# Fusion Shared-mode server: the non-redistributable Photon Fusion assemblies + native lib live
+# here, produced locally per docs/fusion-shared-server.md. NEVER commit them (copyrighted SDK).
+server/fusion-libs/
+*.so
+*.dylib
 oplog.jsonl
 steam-ticket-spike.log
 *.db

@@ -33,6 +33,13 @@ public sealed class UdpListener
     /// </summary>
     public System.Action? OnMaintenance { get; set; }
 
+    /// <summary>Optional fast hook run on the listener thread every <see cref="TickInterval"/> (default
+    /// 15 ms) — for work that must drive peers at simulation rate (the Fusion Shared-mode server ticks
+    /// at 32 Hz+). Unlike <see cref="OnMaintenance"/> it bounds the receive wait, so it costs a wakeup
+    /// per interval even when idle; leave null when unused.</summary>
+    public System.Action? OnTick { get; set; }
+    public TimeSpan TickInterval { get; set; } = TimeSpan.FromMilliseconds(15);
+
     public UdpListener(string name, int port, IOperationHandler handler, ListenerTimings? timings = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -55,12 +62,19 @@ public sealed class UdpListener
         // periods still wake us to run peer maintenance. Because receive + maintenance share this
         // one thread, _peers needs no locking.
         var lastMaintenance = DateTime.UtcNow;
+        var lastTick = lastMaintenance;
         while (!ct.IsCancellationRequested)
         {
             try
             {
                 using var recvCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                recvCts.CancelAfter(_maintenanceInterval);
+                var wait = _maintenanceInterval;
+                if (OnTick is not null)
+                {
+                    var untilTick = TickInterval - (DateTime.UtcNow - lastTick);
+                    wait = untilTick < wait ? (untilTick > TimeSpan.Zero ? untilTick : TimeSpan.FromMilliseconds(1)) : wait;
+                }
+                recvCts.CancelAfter(wait);
                 var result = await _socket.ReceiveAsync(recvCts.Token);
 
                 try { Process(result.Buffer, result.RemoteEndPoint); }
@@ -77,6 +91,12 @@ public sealed class UdpListener
             catch (SocketException ex) { Log.Debug(_name, $"recv socket error (ignored): {ex.SocketErrorCode}"); }
 
             var now = DateTime.UtcNow;
+            if (OnTick is not null && now - lastTick >= TickInterval)
+            {
+                lastTick = now;
+                try { OnTick(); }
+                catch (Exception ex) { Log.Exception(_name, "OnTick hook threw", ex); }
+            }
             if (now - lastMaintenance >= _maintenanceInterval) { RunMaintenance(now); lastMaintenance = now; }
         }
         Log.Info(_name, "listener loop exited");
