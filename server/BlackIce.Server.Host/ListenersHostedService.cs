@@ -126,8 +126,8 @@ public sealed class ListenersHostedService : BackgroundService
         if (fusion is not null)
         {
             // Advance hosted Fusion room simulations at ~simulation rate on the Game listener thread(s).
-            // Each room's sim only ticks on the listener thread that owns it (thread affinity in the host),
-            // so wiring both game and gameAlt is safe.
+            // Each room's sim only ticks from the listener LOOP that owns it (UdpListener.Current, not a
+            // thread id — the loop hops pool threads), so wiring both game and gameAlt is safe.
             game.OnTick = fusion.Tick;
             if (gameAlt != null) gameAlt.OnTick = fusion.Tick;
         }

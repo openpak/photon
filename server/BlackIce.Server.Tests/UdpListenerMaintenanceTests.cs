@@ -39,6 +39,32 @@ public class UdpListenerMaintenanceTests
     }
 
     [Fact]
+    public async Task Current_identifies_the_loop_across_thread_hops()
+    {
+        // The async loop resumes on arbitrary pool threads; Current must still name this listener on
+        // every OnTick, and must be null off-loop (regression: sim ownership keyed on a thread id).
+        var listener = new UdpListener("test-current", 0, new NullHandler()) { TickInterval = TimeSpan.FromMilliseconds(5) };
+        int ticks = 0, wrong = 0;
+        var threads = new System.Collections.Concurrent.ConcurrentDictionary<int, byte>();
+        listener.OnTick = () =>
+        {
+            Interlocked.Increment(ref ticks);
+            threads[Environment.CurrentManagedThreadId] = 0;
+            if (!ReferenceEquals(UdpListener.Current, listener)) Interlocked.Increment(ref wrong);
+        };
+
+        Assert.Null(UdpListener.Current);
+        using var cts = new CancellationTokenSource();
+        cts.CancelAfter(TimeSpan.FromMilliseconds(1500));
+        try { await listener.RunAsync(cts.Token); }
+        finally { cts.Cancel(); }
+
+        Assert.True(ticks >= 10, $"expected many ticks, got {ticks}");
+        Assert.Equal(0, wrong);
+        Assert.Null(UdpListener.Current);   // never leaks out of the loop
+    }
+
+    [Fact]
     public async Task OnMaintenance_exception_does_not_kill_the_listener()
     {
         var listener = new UdpListener("test-maint-throw", 0, new NullHandler());

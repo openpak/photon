@@ -40,6 +40,14 @@ public sealed class UdpListener
     public System.Action? OnTick { get; set; }
     public TimeSpan TickInterval { get; set; } = TimeSpan.FromMilliseconds(15);
 
+    /// <summary>The listener whose loop is running the current code (receive path, OnMaintenance,
+    /// OnTick), or null outside any loop. The loop is sequential but NOT thread-bound: each awaited
+    /// receive resumes on whatever pool thread is free, so "listener affinity" must be keyed on this,
+    /// never on a thread id (a room sim keyed on the thread id stopped ticking for 20 s when the pool
+    /// parked that thread — the 2026-09-05 two-player drop).</summary>
+    public static UdpListener? Current => _current.Value;
+    private static readonly AsyncLocal<UdpListener?> _current = new();
+
     public UdpListener(string name, int port, IOperationHandler handler, ListenerTimings? timings = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
@@ -61,6 +69,7 @@ public sealed class UdpListener
         // Single-threaded loop: ReceiveAsync is bounded by a per-iteration timeout so that idle
         // periods still wake us to run peer maintenance. Because receive + maintenance share this
         // one thread, _peers needs no locking.
+        _current.Value = this;   // flows to every continuation of this loop, whichever thread runs it
         var lastMaintenance = DateTime.UtcNow;
         var lastTick = lastMaintenance;
         while (!ct.IsCancellationRequested)

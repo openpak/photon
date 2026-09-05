@@ -1,6 +1,7 @@
 #if FUSION_LIBS
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using BlackIce.Server.Core;
 using BlackIce.Server.LoadBalancing;
 using Fusion;
 using Fusion.Sockets;
@@ -63,7 +64,7 @@ public sealed class FusionSharedServer : IFusionSessionHost
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private double _last;
         private double _lastLog;
-        private int _ownerThreadId = -1;   // the listener thread that owns this sim; ticks run only there
+        private UdpListener? _owner;   // the listener loop that owns this sim; ticks run only from it
 
         public RoomSim(string room, int playerCount, Action<string, int, byte[]> send101)
         {
@@ -75,7 +76,7 @@ public sealed class FusionSharedServer : IFusionSessionHost
 
         public void AddPlayer(int actor, byte[] uniqueId)
         {
-            _ownerThreadId = Environment.CurrentManagedThreadId;
+            _owner = UdpListener.Current;
             if (_actors.Add(actor))
                 FusionServerFactory.RegisterPlayer(_sim, actor, uniqueId, actor);
         }
@@ -87,8 +88,9 @@ public sealed class FusionSharedServer : IFusionSessionHost
 
         public void Tick()
         {
-            // Fusion's simulation is single-threaded; only its owning listener thread may drive it.
-            if (_ownerThreadId != Environment.CurrentManagedThreadId) return;
+            // Fusion's simulation is single-threaded; only its owning listener LOOP may drive it. The loop
+            // hops pool threads between receives (async), so the check is on the loop, not the thread.
+            if (_owner is null || !ReferenceEquals(_owner, UdpListener.Current)) return;
             double now = _clock.Elapsed.TotalSeconds;
             double dt = now - _last;
             _last = now;

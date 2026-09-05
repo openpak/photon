@@ -31,7 +31,8 @@ Unity runtime to *simulate* — only the `UnityEngine` facade for math, unsafe m
   again on its 101 relay Connect, so the server is told the actor↔UniqueId↔PlayerRef mapping before
   that Connect arrives (`Simulation.RegisterUniqueIdPlayerMapping`), or it answers the Connect "Waiting".
 - The room simulation is advanced from the Game listener's `OnTick` (~32 Hz). Each room ticks only on
-  the listener thread that owns it (thread affinity), keeping the single-threaded simulation safe.
+  the listener LOOP that owns it (`UdpListener.Current`, an AsyncLocal — the loop hops pool threads
+  between receives, so affinity is never keyed on a thread id), keeping the single-threaded simulation safe.
 
 ## The one required binary patch
 
