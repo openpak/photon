@@ -226,7 +226,14 @@ public sealed class PeerConnection
         Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
         OnRaised?.Invoke(ev);
         OnRaisedClassified?.Invoke(ev, unreliable);
-        var msg = WireMessage.EventMessage(ev, encrypt: _crypto is { IsInitialized: true } c ? c.Encrypt : null);
+        // Fusion's high-frequency session events (code 100 "protocol package" and 101 "relay data")
+        // are sent PLAINTEXT even on an encrypted connection -- confirmed against a real Photon Cloud
+        // capture, where auth and the classic room events (EvJoin) are encrypted but every 100/101 event
+        // is clear. Encrypting them is a wire mismatch the Fusion client may not apply as state. Other
+        // events keep the connection's encryption.
+        bool fusionEvent = ev.Code is 100 or 101;
+        var msg = WireMessage.EventMessage(ev,
+            encrypt: !fusionEvent && _crypto is { IsInitialized: true } c ? c.Encrypt : null);
         if (unreliable) _send(new[] { _enet.WrapUnreliable(msg) }, _enet.Challenge);
         else SendRaw(msg);
     }

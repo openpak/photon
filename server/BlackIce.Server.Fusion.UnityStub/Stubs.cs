@@ -30,6 +30,9 @@ namespace Unity.Collections.LowLevel.Unsafe {
         public static int SizeOf(Type type) => Marshal.SizeOf(type);
         public static int EnumToInt<T>(T enumValue) where T : struct, Enum => Convert.ToInt32(enumValue);
         public static int GetFieldOffset(FieldInfo field) => throw new NotSupportedException("UnsafeUtility.GetFieldOffset (headless stub)");
+        // Headless heuristic: Fusion calls this to validate its own INetworkStruct types, which are
+        // all unmanaged value types. Good enough for the server (no reference-field structs reach here).
+        public static bool IsUnmanaged(Type type) => type is { IsValueType: true };
     }
 }
 
@@ -207,6 +210,7 @@ namespace UnityEngine {
         public const float kEpsilon = 1E-06f;
         public Quaternion(float x, float y, float z, float w) { this.x = x; this.y = y; this.z = z; this.w = w; }
         public static Quaternion identity => new Quaternion(0, 0, 0, 1);
+        public Quaternion normalized => Normalize(this);
         public static Quaternion operator *(Quaternion l, Quaternion r) => new Quaternion(
             l.w * r.x + l.x * r.w + l.y * r.z - l.z * r.y,
             l.w * r.y + l.y * r.w + l.z * r.x - l.x * r.z,
@@ -333,7 +337,13 @@ namespace UnityEngine {
         public static Color white => new Color(1, 1, 1); public static Color yellow => new Color(1, 0.92f, 0.016f); public static Color gray => new Color(0.5f, 0.5f, 0.5f);
     }
     [StructLayout(LayoutKind.Sequential)]
-    public struct Color32 { public byte r, g, b, a; public Color32(byte r, byte g, byte b, byte a) { this.r = r; this.g = g; this.b = b; this.a = a; } }
+    public struct Color32 {
+        public byte r, g, b, a;
+        public Color32(byte r, byte g, byte b, byte a) { this.r = r; this.g = g; this.b = b; this.a = a; }
+        static byte C(float f) => (byte)Math.Clamp((int)Math.Round(f * 255f), 0, 255);
+        public static implicit operator Color32(Color c) => new Color32(C(c.r), C(c.g), C(c.b), C(c.a));
+        public static implicit operator Color(Color32 c) => new Color(c.r / 255f, c.g / 255f, c.b / 255f, c.a / 255f);
+    }
     [StructLayout(LayoutKind.Sequential)]
     public struct LayerMask { public int value; public static implicit operator int(LayerMask m) => m.value; public static implicit operator LayerMask(int v) => new LayerMask { value = v }; }
 
@@ -494,6 +504,7 @@ namespace UnityEngine.Events {
     public class UnityEvent<T0, T1, T2> { readonly List<Action<T0, T1, T2>> _l = new(); public void AddListener(Action<T0, T1, T2> a) => _l.Add(a); public void RemoveListener(Action<T0, T1, T2> a) => _l.Remove(a); public void Invoke(T0 a, T1 b, T2 c) { foreach (var x in _l.ToArray()) x(a, b, c); } }
     public class UnityEvent<T0, T1, T2, T3> { readonly List<Action<T0, T1, T2, T3>> _l = new(); public void AddListener(Action<T0, T1, T2, T3> a) => _l.Add(a); public void RemoveListener(Action<T0, T1, T2, T3> a) => _l.Remove(a); public void Invoke(T0 a, T1 b, T2 c, T3 d) { foreach (var x in _l.ToArray()) x(a, b, c, d); } }
 }
+namespace UnityEngine.Profiling { public static class Profiler { public static void BeginSample(string name) { } public static void BeginSample(string name, Object targetObject) { } public static void EndSample() { } } }
 namespace UnityEngine.Scripting { public sealed class PreserveAttribute : Attribute { } }
 namespace UnityEngine.Serialization { public sealed class FormerlySerializedAsAttribute : Attribute { public FormerlySerializedAsAttribute(string oldName) { } } }
 namespace UnityEngine.LowLevel {

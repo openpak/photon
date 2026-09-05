@@ -30,8 +30,7 @@
     <Reference Include="Fusion.Common"><HintPath>..\fusion-libs\Fusion.Common.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="Fusion.Log"><HintPath>..\fusion-libs\Fusion.Log.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="Fusion.Realtime"><HintPath>..\fusion-libs\Fusion.Realtime.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Photon.Realtime"><HintPath>..\fusion-libs\Photon.Realtime.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="PhotonClient"><HintPath>..\fusion-libs\PhotonClient.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Photon3Unity3D"><HintPath>..\fusion-libs\Photon3Unity3D.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="NanoSockets"><HintPath>..\fusion-libs\NanoSockets.dll</HintPath><Private>true</Private></Reference>
     <None Include="..\fusion-libs\libnanosockets.so" CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>

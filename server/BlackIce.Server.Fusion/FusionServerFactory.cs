@@ -19,8 +19,10 @@ internal static class FusionServerFactory
     {
         if (_logInit) return;
         _logInit = true;
-        // Route Fusion's own logs to the server log at Info; raise to Debug + TraceChannels for bring-up.
-        Log.InitializeForConsole(LogLevel.Info);
+        // Fusion 2.0.8's InitializeForConsole takes a LogSettings, not a LogLevel, and its internal log
+        // streams are null-checked, so leaving them uninitialised simply disables Fusion-internal logging
+        // (our own FusionHost Console lines are unaffected). Best-effort init; ignore any API mismatch.
+        try { Log.InitForConsole(LogType.Info); } catch { }
     }
 
     public static Simulation CreateServer(int playerCount, INetSocket socket)
@@ -28,7 +30,7 @@ internal static class FusionServerFactory
         var cfg = new NetworkProjectConfig();
         cfg.Simulation.Topology = Topologies.Shared;
         cfg.Simulation.PlayerCount = playerCount;
-        cfg.Simulation.TickRateSelection = TickRate.SharedDefault;
+        cfg.Simulation.TickRateSelection = TickRate.Default;
         cfg.Simulation.ObjectDataConsistency = SimulationConfig.DataConsistency.Full;
 
         var runner = new NetworkRunner();
@@ -62,7 +64,7 @@ internal static class FusionServerFactory
         try { sim.ShutdownNativeSocket(); sim.Dispose(); } catch { /* best-effort teardown */ }
     }
 
-    private sealed class NoopCallbacks : Simulation.ICallbacks
+    private sealed unsafe class NoopCallbacks : Simulation.ICallbacks
     {
         public bool IsSharedModeMasterClient => false;
         public bool CanReceivePlayerJoinLeaveCallbacks => true;
@@ -70,6 +72,7 @@ internal static class FusionServerFactory
         public void OnTick() { }
         public void OnServerStart() { }
         public void OnClientStart() { }
+        public SimulationMessageResult OnMessage(SimulationMessage* message) => SimulationMessageResult.Ignored;
         public void OnAfterClientSidePredictionReset() { }
         public void OnBeforeClientSidePredictionReset() { }
         public void OnAfterTick() { }
@@ -83,9 +86,7 @@ internal static class FusionServerFactory
         public void OnDisconnectedFromServer(NetDisconnectReason reason) { }
         public OnConnectionRequestReply OnConnectionRequest(NetAddress remoteAddress, byte[] token) => OnConnectionRequestReply.Ok;
         public void OnConnectionFailed(NetAddress remoteAddress, NetConnectFailedReason reason) { }
-        public void OnRejoinRequest(string sessionId) { }
-        public void OnReliableData(PlayerRef player, ReliableKey key, bool local, ReadOnlySpan<byte> dataArray) { }
-        public void OnReliableDataProgress(PlayerRef player, ReliableKey key, float progress) { }
+        public void OnReliableData(PlayerRef player, ReliableId id, bool local, byte[] dataArray) { }
         public void PlayerJoined(PlayerRef player) { }
         public void PlayerLeft(PlayerRef player) { }
         public void OnInternalConnectionAttempt(int attempt, int total, out bool shouldChange, out NetAddress newAddress) { shouldChange = false; newAddress = default; }
@@ -94,12 +95,10 @@ internal static class FusionServerFactory
         public void ObjectIsSimulatedChanged(NetworkId id, bool simulated) { }
         public void ObjectEnterAOI(PlayerRef player, NetworkId id) { }
         public void ObjectExitAOI(PlayerRef player, NetworkId id) { }
-        public RemoteObjectCreateResult OnRemoteCreate(PlayerRef player, ref readonly NetworkObjectHeader header) => RemoteObjectCreateResult.Allowed;
-        public bool OnRemoteDestroy(PlayerRef player, NetworkId id) => true;
+        public void ObjectChanged(PlayerRef player, NetworkObjectMeta obj, Simulation.ObjectChangeType changeType) { }
+        public void RemoteObjectCreated(NetworkObjectMeta obj) { }
+        public bool RemoteObjectDestroyed(NetworkId id) => true;
         public void UpdateRemotePrefabs() { }
-        public void OnObjectChanged(in NetworkObjectChange change) { }
-        public void OnObjectWrite(in NetworkObjectChange change) { }
-        public bool OnStateAuthorityRequested(PlayerRef player, NetworkObjectMeta meta, bool acquire) => true;
         public void OnInput(SimulationInput input) { }
         public void OnInputMissing(SimulationInput input) { }
     }

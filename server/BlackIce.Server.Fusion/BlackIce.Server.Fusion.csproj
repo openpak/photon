@@ -30,8 +30,7 @@
     <Reference Include="Fusion.Common"><HintPath>$(FusionLibs)\Fusion.Common.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="Fusion.Log"><HintPath>$(FusionLibs)\Fusion.Log.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="Fusion.Realtime"><HintPath>$(FusionLibs)\Fusion.Realtime.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="PhotonClient"><HintPath>$(FusionLibs)\PhotonClient.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Photon.Realtime"><HintPath>$(FusionLibs)\Photon.Realtime.dll</HintPath><Private>true</Private></Reference>
+    <Reference Include="Photon3Unity3D"><HintPath>$(FusionLibs)\Photon3Unity3D.dll</HintPath><Private>true</Private></Reference>
     <Reference Include="NanoSockets"><HintPath>$(FusionLibs)\NanoSockets.dll</HintPath><Private>true</Private></Reference>
     <None Include="$(FusionLibs)\libnanosockets.so" Link="libnanosockets.so" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
