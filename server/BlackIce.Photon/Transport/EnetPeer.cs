@@ -10,17 +10,17 @@ public sealed class EnetPeer
 {
     private static int _peerCounter;
 
-    // One in-flight reassembly per channel: eNet only fragments reliable sends, and a channel
-    // delivers them in order, so a second fragment group can't start until the first finishes.
+    // Reassemblies keyed by (channel, startSeq): unsequenced fragment groups (type 15) arrive and
+    // are retransmitted interleaved, so several can be in flight on one channel at once.
+    // ponytail: never-completed groups are never evicted; add an age sweep if a peer leaks them.
     private sealed class FragmentAssembly
     {
-        public int StartSequenceNumber;
         public int FragmentCount;
         public byte[] Buffer = Array.Empty<byte>();
         public bool[] Received = Array.Empty<bool>();
         public int ReceivedCount;
     }
-    private readonly Dictionary<byte, FragmentAssembly> _fragments = new();
+    private readonly Dictionary<(byte channel, int startSeq), FragmentAssembly> _fragments = new();
     // Guards the outgoing sequence dictionaries below. The relay is single-threaded by design (the
     // Game listener thread), but a stray cross-thread send (a console command, a timer, a future
     // code path) that corrupts these maps stamps a bad sequence number — which the client treats as
@@ -62,13 +62,16 @@ public sealed class EnetPeer
                 outgoing.Add(VerifyConnect());
                 break;
             case NCommand.SendReliable:
-                appPayload = cmd.Payload;
-                break;
+            case NCommand.SendReliableUnsequenced:
             case NCommand.SendUnreliable:
             case NCommand.SendUnsequenced:
                 appPayload = cmd.Payload;
                 break;
             case NCommand.SendFragment:
+            case NCommand.SendFragmentUnsequenced:
+                // Fusion sends every relay packet above the MTU as type 15 (two fragments). Unhandled,
+                // they were dropped AND acked with the wrong type, so the host kept retransmitting the
+                // world-sync burst until its ~10 s reliable timeout (ShutdownReason 1014).
                 appPayload = HandleFragment(cmd);
                 break;
                 // Ping (5), CT_EG_SERVERTIME (12), etc.: the reliable ACK above is all the transport
@@ -102,17 +105,18 @@ public sealed class EnetPeer
             fragmentNumber < 0 || fragmentNumber >= fragmentCount)
             return null;
 
-        if (!_fragments.TryGetValue(cmd.ChannelId, out var asm) || asm.StartSequenceNumber != startSeq)
+        var key = (cmd.ChannelId, startSeq);
+        if (!_fragments.TryGetValue(key, out var asm))
         {
             asm = new FragmentAssembly
             {
-                StartSequenceNumber = startSeq,
                 FragmentCount = fragmentCount,
                 Buffer = new byte[totalLength],
                 Received = new bool[fragmentCount],
             };
-            _fragments[cmd.ChannelId] = asm;
+            _fragments[key] = asm;
         }
+        if (fragmentCount != asm.FragmentCount || totalLength != asm.Buffer.Length) return null;   // inconsistent group
 
         if (!asm.Received[fragmentNumber])
         {
@@ -122,7 +126,7 @@ public sealed class EnetPeer
         }
 
         if (asm.ReceivedCount < asm.FragmentCount) return null;
-        _fragments.Remove(cmd.ChannelId);
+        _fragments.Remove(key);
         return asm.Buffer;
     }
 
@@ -183,7 +187,10 @@ public sealed class EnetPeer
         var payload = new byte[8];                        // [ackedReliableSeq][ackedSentTime], big-endian
         BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(0), acked.ReliableSequenceNumber);
         BinaryPrimitives.WriteInt32BigEndian(payload.AsSpan(4), sentTime);
-        return new NCommand(NCommand.Acknowledge, acked.ChannelId, 0, 4, acked.ReliableSequenceNumber, payload);
+        // The client matches an ack against its sent list by (seq, channel, unsequenced?) where
+        // "unsequenced?" comes from the ACK TYPE: 1 for sequenced, 16 for reliable-unsequenced (14/15).
+        byte type = (acked.Flags & NCommand.FlagUnsequenced) != 0 ? NCommand.AcknowledgeUnsequenced : NCommand.Acknowledge;
+        return new NCommand(type, acked.ChannelId, 0, 4, acked.ReliableSequenceNumber, payload);
     }
 
     /// <summary>Returns the next reliable sequence for a channel. Callers must hold <c>_seqLock</c>.</summary>

@@ -39,8 +39,27 @@ public sealed class Room
             var target = actorNr is int nr
                 ? (_actorProps.TryGetValue(nr, out var ap) ? ap : _actorProps[nr] = new())
                 : _gameProps;
+            List<object>? sticky = null;
             foreach (System.Collections.DictionaryEntry e in props)
-                if (e.Key is not null) target[e.Key] = e.Value!;
+            {
+                if (e.Key is null) continue;
+                // Sticky game property: Outbound's host writes knownPlayers=<saved list> and then
+                // knownPlayers="" one millisecond later at host time. A joining client keeps NO local
+                // character save (verified with FS tracing: "Save and Quit" writes only settings); it
+                // decides new-vs-returning from the room snapshot at join, and the host only
+                // re-broadcasts the list when it changes (never for a returning player). Keep the
+                // non-empty list; the caller's hashtable is patched so any broadcast carries it too.
+                // (First try of this was blamed for the host losing its own player list; that was the
+                // PlayerData clobber fixed in FusionServerFactory, not this rule.)
+                if (actorNr is null && e.Key is "knownPlayers" && e.Value is "" &&
+                    target.TryGetValue(e.Key, out var cur) && cur is string s && s.Length > 0)
+                {
+                    (sticky ??= new()).Add(e.Key);
+                    continue;
+                }
+                target[e.Key] = e.Value!;
+            }
+            if (sticky is not null) foreach (var k in sticky) props[k] = target[k];
         }
     }
 

@@ -64,6 +64,7 @@ public sealed class FusionSharedServer : IFusionSessionHost
         private readonly Stopwatch _clock = Stopwatch.StartNew();
         private double _last;
         private double _lastLog;
+        private int _dumpEvery;
         private UdpListener? _owner;   // the listener loop that owns this sim; ticks run only from it
 
         public RoomSim(string room, int playerCount, Action<string, int, byte[]> send101)
@@ -79,9 +80,21 @@ public sealed class FusionSharedServer : IFusionSessionHost
             _owner = UdpListener.Current;
             if (_actors.Add(actor))
                 FusionServerFactory.RegisterPlayer(_sim, actor, uniqueId, actor);
+            ElectMaster();
         }
 
-        public bool RemovePlayer(int actor) { _actors.Remove(actor); return _actors.Count == 0; }
+        public bool RemovePlayer(int actor) { _actors.Remove(actor); ElectMaster(); return _actors.Count == 0; }
+
+        // Master client (RuntimeConfig.MasterClient) = lowest actor. NB: the RuntimeConfig struct only
+        // exists after the sim's first Update, so for a solo host this takes effect when the SECOND
+        // actor joins — that is the behaviour of the first build in which the host saw the joiner
+        // (room DCTKKE). Making the host master from tick 1 (plus SceneInfo/PhysicsInfo authority to
+        // MasterClient) made the host stop sending its 134-RPC join sync (room KMK3EE). Do not "fix"
+        // this without re-testing that.
+        private void ElectMaster()
+        {
+            if (_actors.Count > 0) FusionServerFactory.SetMasterClient(_sim, _actors.Min());
+        }
 
         private long _fed, _emitted;
         public void Feed(int actor, byte[] payload) { _fed++; _socket.Enqueue(actor, payload); }
@@ -99,6 +112,8 @@ public sealed class FusionSharedServer : IFusionSessionHost
             {
                 _lastLog = now;
                 Console.WriteLine($"[FusionHost] room \"{_room}\" tick={_sim.Tick} players={_actors.Count} fed={_fed} emitted={_emitted}");
+                if (_actors.Count >= 2 && ++_dumpEvery % 5 == 0)   // diagnostics: per-object delivery state every 5 s
+                    Console.WriteLine("[FusionHost] objects: " + FusionServerFactory.Dump(_sim));
             }
         }
 

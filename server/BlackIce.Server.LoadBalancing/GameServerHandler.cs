@@ -420,7 +420,10 @@ public sealed class GameServerHandler : IOperationHandler
         // every client reads to determine who's authoritative for the room; its absence looks to a
         // Fusion client like a room with no valid master, and it aborts the join (OpLeave) right after
         // entering. Convention (matches classic Photon): the lowest actor number currently in the room.
-        var gameProps = new Dictionary<object, object> { { RoomMasterClientId, room.ActorNumbers.Min() } };
+        // Photon's JoinGame response carries the room's CURRENT game properties (the Fusion/Outbound
+        // custom keys included), not just the well-known ones; the client's Room.CustomProperties are
+        // seeded from it. The repeated-join path already did this; the first join only sent MasterClientId.
+        var gameProps = new Dictionary<object, object>(room.GameProperties) { [RoomMasterClientId] = room.ActorNumbers.Min() };
         if (realm is not null)
         {
             gameProps["PVP"] = realm.Pvp;

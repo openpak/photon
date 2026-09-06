@@ -221,6 +221,28 @@ public class TransportTests
     }
 
     [Fact]
+    public void SendFragmentUnsequenced_reassembles_interleaved_groups_and_acks_with_type16()
+    {
+        // Live Outbound host (Fusion relay, Photon Realtime v4): world-sync packets above the MTU arrive
+        // as type 15 (reliable|unsequenced, flags 3), groups interleaved by retransmission. Same
+        // 20-byte sub-header as type 8; ack must be type 16 or the client never matches it (-> 1014).
+        static NCommand U(int seq, int startSeq, int n, int i, int total, int off, byte[] d)
+            => Fragment(0, seq, startSeq, n, i, total, off, d) with { CommandType = NCommand.SendFragmentUnsequenced, Flags = 3 };
+        var peer = new EnetPeer();
+        var out1 = peer.HandleCommand(U(1, 1, 2, 0, 5, 0, new byte[] { 1, 2, 3 }), 0, out var p1);
+        Assert.Null(p1);
+        var ack = Assert.Single(out1, c => c.CommandType == NCommand.AcknowledgeUnsequenced);
+        Assert.Equal(1, ack.ReliableSequenceNumber);
+        Assert.Null(AckFor(out1, channel: 0, seq: 1));                       // NOT a type-1 ack
+        peer.HandleCommand(U(3, 3, 2, 0, 4, 0, new byte[] { 9, 9 }), 0, out var p2);   // second group starts
+        Assert.Null(p2);
+        peer.HandleCommand(U(2, 1, 2, 1, 5, 3, new byte[] { 4, 5 }), 0, out var p3);   // first group completes
+        Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, p3);
+        peer.HandleCommand(U(4, 3, 2, 1, 4, 2, new byte[] { 8, 8 }), 0, out var p4);   // second group completes
+        Assert.Equal(new byte[] { 9, 9, 8, 8 }, p4);
+    }
+
+    [Fact]
     public void SendFragment_still_acks_each_fragment_individually()
     {
         var peer = new EnetPeer();

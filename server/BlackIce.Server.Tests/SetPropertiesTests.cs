@@ -66,6 +66,27 @@ public class SetPropertiesTests
     }
 
     [Fact]
+    public void SetProperties_keeps_non_empty_knownPlayers_over_an_empty_overwrite()
+    {
+        // Outbound's host writes knownPlayers=<saved list> then "" 1 ms later; a joining client has no
+        // local character save and decides new-vs-returning from the room snapshot, so the list must
+        // survive the empty overwrite. Other keys and genuinely new lists still overwrite.
+        var h = Handler(out var db, out var registry);
+        using (db)
+        {
+            h.SetProperties("co-op", senderActor: 1, SetProps(new() { { "knownPlayers", "abc=,def=" }, { "scene", "s" } }, actorNr: null));
+            var second = new Dictionary<object, object> { { "knownPlayers", "" }, { "scene", "s2" } };
+            h.SetProperties("co-op", senderActor: 1, SetProps(second, actorNr: null));
+            var gp = registry.Find("co-op")!.GameProperties;
+            Assert.Equal("abc=,def=", gp["knownPlayers"]);
+            Assert.Equal("s2", gp["scene"]);
+            Assert.Equal("abc=,def=", second["knownPlayers"]);      // broadcast payload patched to the kept value
+            h.SetProperties("co-op", senderActor: 1, SetProps(new() { { "knownPlayers", "xyz=" } }, actorNr: null));
+            Assert.Equal("xyz=", registry.Find("co-op")!.GameProperties["knownPlayers"]);
+        }
+    }
+
+    [Fact]
     public void SetProperties_for_unknown_room_still_acknowledges()
     {
         // An ack (rc=0) keeps the client alive even if we can't resolve the room; failing here is

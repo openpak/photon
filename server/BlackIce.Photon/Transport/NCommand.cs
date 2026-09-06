@@ -20,7 +20,11 @@ public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte
 
     public const byte Acknowledge = 1, Connect = 2, VerifyConnect = 3, Disconnect = 4,
                       Ping = 5, SendReliable = 6, SendUnreliable = 7, SendFragment = 8,
-                      SendUnsequenced = 11;
+                      SendUnsequenced = 11,
+                      // Photon Realtime v4 additions (Fusion clients). 14/15 are reliable+unsequenced
+                      // (flags 3) twins of 6/8 with identical headers; they live in their own sequence
+                      // space and MUST be acked with type 16, or the client never matches the ack.
+                      SendReliableUnsequenced = 14, SendFragmentUnsequenced = 15, AcknowledgeUnsequenced = 16;
 
     public const byte FlagReliable = 1, FlagUnsequenced = 2;
 

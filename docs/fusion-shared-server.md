@@ -59,9 +59,76 @@ Photon Fusion 2.1.x Unity package:
 4. Drop all of the above into `server/fusion-libs/`. The build detects them and links the Fusion host;
    without them the server still builds and falls back to the solo-host relay path.
 
+## What the SDK server does NOT do on its own (the plugin's job, now ours)
+
+Fusion.Runtime ships `Simulation.Server` with the Shared-topology code paths, but the closed
+`Fusion.Plugin` (Photon Cloud) does several things around it. Each of these was found live with two
+Outbound clients and is implemented in `FusionServerFactory` / `FusionSharedServer`:
+
+1. **A `SimulationConnection` for `PlayerRef.None`.** A pure Server's `LocalPlayer` is None and nothing
+   registers a connection for it, but `StateReplicator.ReadObjectUpdates` (Shared branch) dereferences
+   `GetSimulationConnectionForPlayer(LocalPlayer)` on every object update → `NullReferenceException`
+   on the first client spawn. The transport still acks the packet, so the client marks its objects
+   confirmed and the follow-ups log "Object does not exist … marked as confirmed".
+2. **Scheduling client-created objects onto the other connections.** `NetworkRunner` does this after a
+   spawn (`Replicator.OnObjectSpawnedLocal`); our `ICallbacks.RemoteObjectCreated` does the same.
+   Without it a new object only reaches players who join *later* (the PlayerJoined sweep).
+3. **Heap page size.** Outbound's master-client world object is 9268 words (37 KB); the SDK default
+   32 KB block trips `AllocateObject`'s assert. `Heap.PageShift = _128Kb`.
+4. **Master client.** `SimulationRuntimeConfig.MasterClient` is written by nobody in the SDK.
+   `RoomSim.ElectMaster` writes the lowest actor on join/leave. Note the struct only exists after the
+   sim's first Update, so a solo host becomes master when the second actor joins — keep it that way
+   (electing from tick 1 + handing SceneInfo/PhysicsInfo to MasterClient made the host stop its join
+   sync to the joiner; reverted).
+5. **RPC relay.** Client RPCs are `SimulationMessage`s handed to `ICallbacks.OnMessage`; nothing else
+   forwards them. `OnMessage` relays like `NetworkRunner.OnMessage` does on a Host: targeted → that
+   player, otherwise every other connection. Client-to-client reliable data is already proxied inside
+   `Simulation` (`ReliableDataTransferModes` default). Each RPC is logged with its decoded `RpcHeader`
+   (`obj/beh/method`).
+6. **Internal simulation messages.** `Simulation.OnMessageInternal` is a log-only stub in the SDK: every
+   `FLAG_INTERNAL` (64) message — `SetPlayerObject`, `SharedModeRequestStateAuthority`,
+   `SharedModeSetAlwaysInterested`, `SetAreaOfInterest` — is swallowed on a pure server, and
+   `DeliverMessages` never routes them to `OnMessage`. Without `SetPlayerObject` the joiner's PlayerData
+   struct never links its avatar, so the host's `Runner.GetPlayerObject(joiner)` is null and the host
+   never runs its join sync. No assembly patch: `OnBeforeTick` (called right before `DeliverMessages`)
+   walks each connection's `MessagesIn` and swaps `FLAG_INTERNAL` for a private user flag; the SDK then
+   delivers the message through `OnMessage` in normal tick/sequence order and `HandleInternal` applies
+   it (`SetPlayerObjectId`, header `StateAuthority` write, `Add/RemoveAlwaysInterested`).
+
+**Transport prerequisite (not Fusion-specific, but found here):** Fusion clients on Photon Realtime v4
+send every relay packet above the MTU as eNet command type **15** (`CT_EG_SEND_FRAGMENT_UNSEQUENCED`,
+flags 3; 14 is the reliable-unsequenced twin of 6). Same 20-byte fragment sub-header as type 8, but
+its own sequence space and it must be acked with type **16** (`CT_EG_ACK_UNSEQUENCED`) — the client
+matches acks by (seq, channel, ack-type-is-unsequenced). Unhandled, the host's ~100-RPC world-sync
+burst was silently dropped and mis-acked, the client retransmitted until its ~10 s reliable timeout and
+Fusion reported `ShutdownReason` 1014 (`PhotonCloudTimeout`; Outbound shows 1000 + ShutdownReason).
+`EnetPeer` handles 14/15 and keys reassembly by (channel, startSeq) so interleaved groups survive.
+
+7. **Clients clobber the structs.** `StateReplicator.SendPacket` only skips ClientServer clients, so
+   Shared-mode clients run `WriteStructs` and send their copies of RuntimeConfig/SceneInfo/PhysicsInfo
+   and every PlayerData struct back; the server's `ReadObjectUpdates` copies any struct snapshot over
+   its own. A copy taken before `SetPlayerObject` was applied wipes the player→avatar link
+   (`Object=None`), every client's `GetPlayerObject` goes null, and the host drops out of its own player
+   registry — the "works one round in three" symptom. The server records each player's object and
+   re-asserts it in `OnBeforeTick`; the dump prints `P=/O=/A=` per PlayerData struct.
+
+**Game-level notes:** a joining Outbound client keeps NO local character save (FS-traced: "Save and
+Quit" writes only settings), so it decides new-vs-returning from the room's `knownPlayers` at join;
+`RoomRegistry` keeps a non-empty `knownPlayers` over the host's own empty overwrite (the host writes
+the saved list and then "" 1 ms later at host time, and only re-broadcasts when the list changes).
+The first `JoinGame` response carries the room's current game properties, as on Photon Cloud. The
+host runs the full Initialize* burst for players its save has not serialized and only
+`RequestToggleInitializedRpc` for ones it has.
+
+Diagnostics on stdout: `[FusionHost] room …` per second, `[FusionHost] remote object …` per client
+spawn, `[FusionHost] rpc …` per relayed RPC, `[FusionHost] objects: …` every 5 s (RuntimeConfig
+master/host, per-object authority/ChangedTick, per-connection Status/TickSent/TickAcknowledged).
+
 ## Status
 
-- Headless single client and **two clients** join one hosted server, reach RuntimeConfig, and tick in
-  lockstep — proven in the bring-up spike. The two-peer relay path (the whole point) is exercised.
-- **Remaining gate:** a live two-instance Outbound run (host + joiner) through this server, confirming a
-  session that holds and plays past the old ~15 s relay-death. See earlier-outbound/HANDOFF.md.
+- Live (2026-09-06, night): fresh AND returning joins work repeatably — both players see each other,
+  the joiner's character loads and it spawns beside the host. Needed items 6–7, the type-15 transport
+  fix, and the knownPlayers rule above. Still to verify on screen: pickups (state-authority requests)
+  — see earlier-outbound/HANDOFF.md, dated sections.
+- Rooms whose clients vanish without `OpLeave` keep ticking until `DeadTimeoutSeconds` evicts the
+  peers (600 s in the test rig); several idle sims at once is the visible memory growth.
