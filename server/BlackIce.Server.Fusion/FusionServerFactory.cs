@@ -71,6 +71,13 @@ internal static class FusionServerFactory
     public static void RegisterPlayer(Simulation sim, int actorId, byte[] uniqueId, int playerRef)
         => sim.RegisterUniqueIdPlayerMapping(actorId, uniqueId, PlayerRef.FromIndex(playerRef));
 
+    /// <summary>The plugin's Leave-time step: close the player's relay connection so the simulation
+    /// deletes its PlayerData, frees its DestroyWhenStateAuthorityLeaves objects and tells the other
+    /// clients PlayerLeft. Without it a leaver stays in the world as a ghost and the host never
+    /// serializes it, so its return is treated as a first arrival.</summary>
+    public static void DisconnectPlayer(Simulation sim, int playerRef)
+        => ((Simulation.Server)sim).Disconnect(PlayerRef.FromIndex(playerRef), null);
+
     /// <summary>
     /// The cloud plugin's Shared-mode bookkeeping that the SDK server never does on its own: publish the
     /// master client in the replicated RuntimeConfig, and give SceneInfo/PhysicsInfo to the master client.
@@ -307,7 +314,10 @@ internal static class FusionServerFactory
                 Sim?.Replicator.OnObjectSpawnedLocal(obj.Id);
             Console.WriteLine($"[FusionHost] remote object {obj.Id} type={obj.Type} words={obj.WordCount} SA={obj.StateAuthority} IA={obj.InputAuthority} flags={obj.Flags} conns={Sim?._connections.Count}");
         }
-        public bool RemoteObjectDestroyed(NetworkId id) => true;
+        // A client with state authority despawned an object (e.g. the host despawning a leaver's adopted
+        // avatar). Returning true means "handled" and the simulation keeps the object forever; false lets
+        // Simulation.Destroy free it and forward the destroy to every other client.
+        public bool RemoteObjectDestroyed(NetworkId id) { Console.WriteLine($"[FusionHost] remote destroy {id}"); return false; }
         public void UpdateRemotePrefabs() { }
         public void OnInput(SimulationInput input) { }
         public void OnInputMissing(SimulationInput input) { }

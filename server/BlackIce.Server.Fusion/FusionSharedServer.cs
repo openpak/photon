@@ -83,7 +83,16 @@ public sealed class FusionSharedServer : IFusionSessionHost
             ElectMaster();
         }
 
-        public bool RemovePlayer(int actor) { _actors.Remove(actor); ElectMaster(); return _actors.Count == 0; }
+        public bool RemovePlayer(int actor)
+        {
+            if (_actors.Remove(actor))
+            {
+                FusionServerFactory.DisconnectPlayer(_sim, actor);
+                Console.WriteLine($"[FusionHost] room \"{_room}\" player {actor} left -> sim disconnect");
+            }
+            ElectMaster();
+            return _actors.Count == 0;
+        }
 
         // Master client (RuntimeConfig.MasterClient) = lowest actor. NB: the RuntimeConfig struct only
         // exists after the sim's first Update, so for a solo host this takes effect when the SECOND
