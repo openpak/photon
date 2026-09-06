@@ -127,6 +127,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
+        _registry.Find(state.RoomName)?.RemoveActor(state.Actor);
         _fusion?.PlayerLeft(state.RoomName, state.Actor);
         _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }

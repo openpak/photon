@@ -26,6 +26,14 @@ public sealed class Room
         return actor;
     }
 
+    /// <summary>Drops a departed actor so occupancy, the join-response actor list and the
+    /// lowest-actor master hint stay truthful. Actor numbers are never reused.</summary>
+    public void RemoveActor(int actor)
+    {
+        lock (ActorNumbers) ActorNumbers.Remove(actor);
+        lock (_propsLock) _actorProps.Remove(actor);
+    }
+
     /// <summary>
     /// Merges a property set into the room. With <paramref name="actorNr"/>, the values are that
     /// actor's player properties; without it, they are the shared game properties. This is how

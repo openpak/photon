@@ -149,10 +149,6 @@ internal static class FusionServerFactory
         // order and we apply it here. No assembly patching.
         private const int FlagOurInternal = SimulationMessage.FLAG_USER_FLAGS_START;
 
-        private static readonly int SetPlayerObjectDelayTicks =
-            int.TryParse(Environment.GetEnvironmentVariable("FUSION_SETPLAYEROBJECT_DELAY_TICKS"), out var t) ? t : 0;
-        private readonly List<(PlayerRef player, NetworkId obj, int applyAt)> _pendingPlayerObjects = new();
-
         // Shared-topology CLIENTS also run WriteStructs (only ClientServer clients skip SendPacket), so
         // each client periodically sends its own copy of every PlayerData struct back and the server's
         // ReadObjectUpdates copies that snapshot over its own. A copy taken before SetPlayerObject was
@@ -172,15 +168,6 @@ internal static class FusionServerFactory
                 pd->Object = obj;
                 if (++_reasserts <= 20 || _reasserts % 500 == 0)
                     Console.WriteLine($"[FusionHost] PlayerData {player} Object clobbered -> re-asserted {obj} (#{_reasserts}) tick={(int)Sim.Tick}");
-            }
-            for (int i = _pendingPlayerObjects.Count - 1; i >= 0; i--)
-            {
-                var (player, obj, at) = _pendingPlayerObjects[i];
-                if ((int)Sim.Tick < at) continue;
-                _pendingPlayerObjects.RemoveAt(i);
-                if (!Sim.PlayerValid(player)) continue;
-                Sim.SetPlayerObjectId(player, obj);
-                Console.WriteLine($"[FusionHost] internal SetPlayerObject {player} -> {obj} (applied at tick {(int)Sim.Tick})");
             }
             bool logQ = (int)Sim.Tick - _qlogTick >= 64;   // diagnostics: stuck inbound queues, ~1/s
             if (logQ) _qlogTick = (int)Sim.Tick;
@@ -205,16 +192,6 @@ internal static class FusionServerFactory
                     // Client: "my player object is X". Lands in the replicated PlayerData struct, which is
                     // what every other client's Runner.GetPlayerObject(player) reads.
                     var d = Simulation.GetMessageInternalData<SimulationMessageInternal_SetPlayerObject>(m);
-                    if (SetPlayerObjectDelayTicks > 0)
-                    {
-                        // Experiment (FUSION_SETPLAYEROBJECT_DELAY_TICKS): the one returning-join that worked
-                        // (DCTKKE) ran with this message never applied; today's returning join fails with it
-                        // applied instantly. Delay lets the host handle the joiner's first init request with
-                        // Object still unset, as on that run, while later requests see it.
-                        _pendingPlayerObjects.Add((m->Source, d.Object, (int)Sim!.Tick + SetPlayerObjectDelayTicks));
-                        Console.WriteLine($"[FusionHost] internal SetPlayerObject {m->Source} -> {d.Object} (deferred {SetPlayerObjectDelayTicks} ticks)");
-                        break;
-                    }
                     Sim!.SetPlayerObjectId(m->Source, d.Object);
                     _playerObjects[m->Source] = d.Object;   // re-asserted every tick, see OnBeforeTick
                     // Read-back diagnostic: the dump showed O=None for the host after this "applied".

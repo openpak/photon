@@ -66,37 +66,49 @@ public sealed class UdpListener
     public async Task RunAsync(CancellationToken ct)
     {
         Log.Info(_name, $"listening on UDP :{((IPEndPoint)_socket.Client.LocalEndPoint!).Port}");
-        // Single-threaded loop: ReceiveAsync is bounded by a per-iteration timeout so that idle
-        // periods still wake us to run peer maintenance. Because receive + maintenance share this
-        // one thread, _peers needs no locking.
+        // Single-threaded loop: one receive and one timer task stay pending across iterations and
+        // are re-armed only when they complete, so idle periods still wake us for tick/maintenance.
+        // Never cancel a per-iteration receive: on Linux a cancelled Socket.ReceiveAsync stays queued
+        // in SocketAsyncContext until data arrives, and at one cancel per 16 ms tick that leaked
+        // ~6 M receive operations (2.8 GB) in 80 min. Because receive + maintenance share this one
+        // thread, _peers needs no locking.
         _current.Value = this;   // flows to every continuation of this loop, whichever thread runs it
         var lastMaintenance = DateTime.UtcNow;
         var lastTick = lastMaintenance;
+        Task<UdpReceiveResult>? recv = null;
+        Task? timer = null;
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                using var recvCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                var wait = _maintenanceInterval;
-                if (OnTick is not null)
+                recv ??= _socket.ReceiveAsync(ct).AsTask();
+                if (timer is null)
                 {
-                    var untilTick = TickInterval - (DateTime.UtcNow - lastTick);
-                    wait = untilTick < wait ? (untilTick > TimeSpan.Zero ? untilTick : TimeSpan.FromMilliseconds(1)) : wait;
+                    var wait = _maintenanceInterval;
+                    if (OnTick is not null)
+                    {
+                        var untilTick = TickInterval - (DateTime.UtcNow - lastTick);
+                        wait = untilTick < wait ? (untilTick > TimeSpan.Zero ? untilTick : TimeSpan.FromMilliseconds(1)) : wait;
+                    }
+                    timer = Task.Delay(wait, ct);
                 }
-                recvCts.CancelAfter(wait);
-                var result = await _socket.ReceiveAsync(recvCts.Token);
-
-                try { Process(result.Buffer, result.RemoteEndPoint); }
-                catch (Exception ex)
+                if (await Task.WhenAny(recv, timer) == recv)
                 {
-                    // A single bad datagram must never take the listener down — but we now log the
-                    // full exception (was: one-line message) so a mid-session failure is visible.
-                    Log.Exception(_name, $"drop datagram from {result.RemoteEndPoint} " +
-                                         $"({result.Buffer.Length}B: {PhotonNames.Hex(result.Buffer, 64)})", ex);
+                    var r = recv;
+                    recv = null;   // re-armed next iteration, also after a faulted receive
+                    var result = await r;
+                    try { Process(result.Buffer, result.RemoteEndPoint); }
+                    catch (Exception ex)
+                    {
+                        // A single bad datagram must never take the listener down — but we now log the
+                        // full exception (was: one-line message) so a mid-session failure is visible.
+                        Log.Exception(_name, $"drop datagram from {result.RemoteEndPoint} " +
+                                             $"({result.Buffer.Length}B: {PhotonNames.Hex(result.Buffer, 64)})", ex);
+                    }
                 }
+                else timer = null;   // timed out → fall through to tick / maintenance
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { break; }   // real shutdown
-            catch (OperationCanceledException) { /* receive timed out → fall through to maintenance */ }
             catch (SocketException ex) { Log.Debug(_name, $"recv socket error (ignored): {ex.SocketErrorCode}"); }
 
             var now = DateTime.UtcNow;
