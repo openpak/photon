@@ -44,7 +44,7 @@ public sealed class NameServerHandler : IOperationHandler
     private readonly ISteamTicketValidator _validator;
     private readonly Func<IPEndPoint, bool> _isLan;
     private readonly Action<Action> _post;
-    private readonly OpenPakIdentityRegistry? _legacyIdentities;
+    private readonly AccountIdentityRegistry? _accountIdentities;
     private readonly OperationRouter _router;
 
     /// <param name="validator">Steam ticket validator. Defaults to <see cref="NullSteamTicketValidator"/>
@@ -58,7 +58,7 @@ public sealed class NameServerHandler : IOperationHandler
     public NameServerHandler(string masterAddress, string secret, AccountService accounts,
                              ISteamTicketValidator? validator = null, bool allowAnonymousLan = true,
                              Func<IPEndPoint, bool>? isLan = null, Action<Action>? post = null,
-                             OpenPakIdentityRegistry? legacyIdentities = null)
+                             AccountIdentityRegistry? accountIdentities = null)
     {
         _masterAddress = masterAddress;
         _secret = secret;
@@ -67,7 +67,7 @@ public sealed class NameServerHandler : IOperationHandler
         _allowAnonymousLan = allowAnonymousLan;
         _isLan = isLan ?? TrustedNetwork.IsLanOrLoopback;
         _post = post ?? (a => a());
-        _legacyIdentities = legacyIdentities;
+        _accountIdentities = accountIdentities;
         _router = new OperationRouter("NameServer", "Unsupported on Name Server")
             .On(OpAuthenticate, HandleAuthenticate)
             .On(OpGetRegions, HandleGetRegions);
@@ -102,12 +102,12 @@ public sealed class NameServerHandler : IOperationHandler
         // LAN/loopback (when allowed): legacy unverified path — accept the asserted id (or a throwaway guid).
         if (_allowAnonymousLan && _isLan(peer.Remote))
         {
-            if (_legacyIdentities is not null
+            if (_accountIdentities is not null
                 && request.Parameters.TryGetValue(PAuthenticationParams, out var rawParams)
                 && rawParams is string authenticationParams
-                && OpenPakIdentityRegistry.ExtractToken(authenticationParams) is { } bsDid)
+                && AccountIdentityRegistry.ExtractToken(authenticationParams) is { } bsDid)
             {
-                Respond(peer, _legacyIdentities.Register(bsDid), verified: false);
+                Respond(peer, _accountIdentities.Register(bsDid), verified: false);
                 return;
             }
             Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false);
@@ -199,7 +199,7 @@ public sealed class NameServerHandler : IOperationHandler
     /// <paramref name="verified"/> flag. No peer side effects — shared by the sync and async paths.</summary>
     private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress)
     {
-        var account = steamId.StartsWith("legacy:", StringComparison.Ordinal)
+        var account = steamId.StartsWith("openpak:", StringComparison.Ordinal)
             ? null
             : _accounts.ResolveOrCreate(steamId, steamId);
         if (account?.IsBanned == true)

@@ -4,14 +4,14 @@ using System.Text.Json;
 
 namespace BlackIce.Server.LoadBalancing;
 
-public sealed class OpenPakIdentityRegistry
+public sealed class AccountIdentityRegistry
 {
     private readonly Dictionary<string, string> _identities = new(StringComparer.Ordinal);
 
     public string Register(string identity)
     {
         var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..32];
-        var userId = $"legacy:{hash}";
+        var userId = $"openpak:{hash}";
         _identities[userId] = identity;
         return userId;
     }

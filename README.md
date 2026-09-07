@@ -85,4 +85,5 @@ version control. You must own a legitimate copy of Black Ice to use this softwar
 
 ## License
 
-GPLv3 — see `LICENSE`.
+AGPL-3.0-only — see `LICENSE`. Network use triggers section 13: if you run a
+modified server for others, offer them its source.

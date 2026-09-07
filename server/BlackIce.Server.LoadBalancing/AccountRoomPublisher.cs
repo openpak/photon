@@ -4,14 +4,14 @@ using BlackIce.Server.Core;
 
 namespace BlackIce.Server.LoadBalancing;
 
-public sealed class OpenPakRoomPublisher
+public sealed class AccountRoomPublisher
 {
     public const string OutboundAppId = "0100ED9024EB8000";
     private readonly HttpClient _http;
     private readonly string? _baseUrl;
     private readonly string? _internalKey;
 
-    public OpenPakRoomPublisher(HttpClient http, string? baseUrl, string? internalKey = null)
+    public AccountRoomPublisher(HttpClient http, string? baseUrl, string? internalKey = null)
     {
         _http = http;
         _baseUrl = baseUrl?.TrimEnd('/');
@@ -34,13 +34,13 @@ public sealed class OpenPakRoomPublisher
             using var resolved = await _http.SendAsync(resolve).ConfigureAwait(false);
             if (!resolved.IsSuccessStatusCode)
             {
-                Log.Warn("OpenPak", $"Account resolution failed: HTTP {(int)resolved.StatusCode}");
+                Log.Warn("Account", $"Account resolution failed: HTTP {(int)resolved.StatusCode}");
                 return;
             }
             using var json = JsonDocument.Parse(await resolved.Content.ReadAsStreamAsync().ConfigureAwait(false));
             if (!json.RootElement.TryGetProperty("pid", out var pidElement) || !pidElement.TryGetUInt64(out var pid))
             {
-                Log.Warn("OpenPak", "Account resolution returned no PID");
+                Log.Warn("Account", "Account resolution returned no PID");
                 return;
             }
             using var request = new HttpRequestMessage(HttpMethod.Post, $"{_baseUrl}/internal/photon-room");
@@ -48,13 +48,13 @@ public sealed class OpenPakRoomPublisher
             request.Content = JsonContent.Create(new { pid, room, app_id = OutboundAppId });
             using var response = await _http.SendAsync(request).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
-                Log.Warn("OpenPak", $"Room presence publish failed: HTTP {(int)response.StatusCode}");
+                Log.Warn("Account", $"Room presence publish failed: HTTP {(int)response.StatusCode}");
             else
-                Log.Info("OpenPak", $"Published Outbound room {room} for PID {pid}");
+                Log.Info("Account", $"Published Outbound room {room} for PID {pid}");
         }
         catch (Exception ex)
         {
-            Log.Warn("OpenPak", $"Room presence publish failed: {ex.GetType().Name}");
+            Log.Warn("Account", $"Room presence publish failed: {ex.GetType().Name}");
         }
     }
 }

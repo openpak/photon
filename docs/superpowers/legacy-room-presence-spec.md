@@ -18,5 +18,5 @@ earlier friend feed for both emulator and real Switch clients.
 
 ## Configuration
 
-`OPENPAK_ACCOUNT_URL` enables publishing (for example
+`OPENPAK_ACCOUNT_URL` (or legacy `OPENPAK_ACCOUNT_URL`) enables publishing (for example
 `http://127.0.0.1:8099`). Unset means disabled.
