@@ -56,9 +56,11 @@ public sealed class ListenersHostedService : BackgroundService
 
         var s = _config.Server;
         var accountIdentities = new AccountIdentityRegistry();
-        // ponytail: OPENPAK_* still read as a fallback so an existing rig keeps working; drop when nothing sets them.
+        // Room presence goes to the Switch adapter (nx-baas) now, not the account server: a
+        // deliberately new variable name, so a rig still setting OPENPAK_ACCOUNT_URL stops
+        // publishing rather than posting this shape at the wrong service.
         var accountPublisher = new AccountRoomPublisher(new HttpClient(),
-                                                          Env("OPENPAK_ACCOUNT_URL", "OPENPAK_ACCOUNT_URL"),
+                                                          Env("OPENPAK_BAAS_URL"),
                                                           Env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"),
                                                           Env("OPENPAK_TITLE_ID"));
         // Steam ticket validation completes asynchronously on a Steam callback thread; its auth response must

@@ -143,15 +143,18 @@ the title being hosted rather than to the server:
 
 | Setting | Environment variable | Example |
 |---|---|---|
-| Account API for room presence | `OPENPAK_ACCOUNT_URL` | `http://127.0.0.1:8099` |
+| Switch adapter game API for room presence | `OPENPAK_BAAS_URL` | `http://127.0.0.1:20070` |
 | Internal key for that API | `OPENPAK_INTERNAL_KEY` | `<shared secret>` |
 | Title id rooms are published under | `OPENPAK_TITLE_ID` | `0100ED9024EB8000` (Outbound) |
 | Fusion heap block size, KB | `OPENPAK_FUSION_PAGE_KB` | `128` (default; `32`/`64`/`256` also valid) |
 
-Room presence is published only when `OPENPAK_ACCOUNT_URL` **and** `OPENPAK_TITLE_ID` are both set —
+Room presence is published only when `OPENPAK_BAAS_URL` **and** `OPENPAK_TITLE_ID` are both set —
 publishing under the wrong title id would file rooms against another game. `OPENPAK_FUSION_PAGE_KB`
 must be large enough to hold one player object (Outbound's is 37 KB, so the 32 KB SDK default fails).
-`OPENPAK_ACCOUNT_URL`/`OPENPAK_INTERNAL_KEY` still fall back to the older `OPENPAK_*` names.
+`OPENPAK_INTERNAL_KEY` still falls back to `OPENPAK_INTERNAL_KEY`. `OPENPAK_BAAS_URL` has no
+fallback on purpose: it points at nx-baas's game API (`POST /internal/photon-room`), not at the old
+account server, so a rig still setting `OPENPAK_ACCOUNT_URL` stops publishing instead of posting
+this shape somewhere that does not understand it.
 
 Quick launch overrides also exist: the first command-line argument sets `AdvertisedHost`,
 `--require-token` forces `AllowAnonymousLan=false`, and `--trace` / `--debug` set the log level.
