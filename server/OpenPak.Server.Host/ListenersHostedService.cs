@@ -59,7 +59,8 @@ public sealed class ListenersHostedService : BackgroundService
         // ponytail: OPENPAK_* still read as a fallback so an existing rig keeps working; drop when nothing sets them.
         var accountPublisher = new AccountRoomPublisher(new HttpClient(),
                                                           Env("OPENPAK_ACCOUNT_URL", "OPENPAK_ACCOUNT_URL"),
-                                                          Env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"));
+                                                          Env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"),
+                                                          Env("OPENPAK_TITLE_ID"));
         // Steam ticket validation completes asynchronously on a Steam callback thread; its auth response must
         // be sent on the NameServer listener's single thread. Marshal it via this queue, drained in the
         // listener's OnMaintenance (the same thread-affinity pattern as the Game listener's admin queue).

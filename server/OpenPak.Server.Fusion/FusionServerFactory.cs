@@ -33,10 +33,18 @@ internal static class FusionServerFactory
         cfg.Simulation.PlayerCount = playerCount;
         cfg.Simulation.TickRateSelection = TickRate.Default;
         cfg.Simulation.ObjectDataConsistency = SimulationConfig.DataConsistency.Full;
-        // Outbound's player object is 9268 words (37 KB); the SDK default 32 KB block makes
-        // AllocateObject assert ("37072 <= 32768"). ponytail: 128 KB blocks, PageCount default
-        // (32 MB per allocator, two per room); match the game's real HeapConfiguration if ever found.
-        cfg.Heap.PageShift = PageSizes._128Kb;
+        // A title's player object must fit one heap block: Outbound's is 9268 words (37 KB), and the
+        // SDK default 32 KB makes AllocateObject assert ("37072 <= 32768"). 128 KB by default
+        // (PageCount default = 32 MB per allocator, two per room); OPENPAK_FUSION_PAGE_KB=32|64|128|256
+        // raises it for a title with a bigger object. ponytail: env knob, not config schema —
+        // move it into openpak.server.json if a second Fusion title ever needs a different value.
+        cfg.Heap.PageShift = Environment.GetEnvironmentVariable("OPENPAK_FUSION_PAGE_KB") switch
+        {
+            "32" => PageSizes._32Kb,
+            "64" => PageSizes._64Kb,
+            "256" => PageSizes._256Kb,
+            _ => PageSizes._128Kb,
+        };
 
         var runner = new NetworkRunner();
         runner._config = cfg;

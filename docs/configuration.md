@@ -136,6 +136,23 @@ container can set secrets and connection strings without baking them into an ima
 | Log level | `OPENPAK_LOG` | `Debug` |
 | Navmesh maps directory | `OPENPAK_MAPS_DIR` | `/srv/openpak/maps` |
 
+### Per-title settings
+
+These are read straight from the environment (not `openpak.server.json`), because they belong to
+the title being hosted rather than to the server:
+
+| Setting | Environment variable | Example |
+|---|---|---|
+| Account API for room presence | `OPENPAK_ACCOUNT_URL` | `http://127.0.0.1:8099` |
+| Internal key for that API | `OPENPAK_INTERNAL_KEY` | `<shared secret>` |
+| Title id rooms are published under | `OPENPAK_TITLE_ID` | `0100ED9024EB8000` (Outbound) |
+| Fusion heap block size, KB | `OPENPAK_FUSION_PAGE_KB` | `128` (default; `32`/`64`/`256` also valid) |
+
+Room presence is published only when `OPENPAK_ACCOUNT_URL` **and** `OPENPAK_TITLE_ID` are both set —
+publishing under the wrong title id would file rooms against another game. `OPENPAK_FUSION_PAGE_KB`
+must be large enough to hold one player object (Outbound's is 37 KB, so the 32 KB SDK default fails).
+`OPENPAK_ACCOUNT_URL`/`OPENPAK_INTERNAL_KEY` still fall back to the older `OPENPAK_*` names.
+
 Quick launch overrides also exist: the first command-line argument sets `AdvertisedHost`,
 `--require-token` forces `AllowAnonymousLan=false`, and `--trace` / `--debug` set the log level.
 
