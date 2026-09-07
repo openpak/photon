@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # claim.sh — Register this Claude Code session as owning an area of the codebase.
 #
-# Part of the BlackIce.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
+# Part of the OpenPak.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
 # Multiple concurrent sessions coordinate file ownership through a single tracked
 # coordinator file, PARALLEL_WORK.md, at the repo root.
 #
 # Usage:   tools/parallel/claim.sh <area> <files_or_dirs> [description]
-# Example: tools/parallel/claim.sh authority "server/BlackIce.Server.LoadBalancing/Authority/*" "outcome rules"
+# Example: tools/parallel/claim.sh authority "server/OpenPak.Server.LoadBalancing/Authority/*" "outcome rules"
 #
 # Env:
 #   CLAUDE_SESSION_ID  — overrides the session identifier (default: host-PID).
@@ -27,7 +27,7 @@ DESCRIPTION="${3:-No description provided}"
 
 if [[ -z "$AREA" || -z "$FILES" ]]; then
     echo "Usage: $0 <area> <files_or_dirs> [description]"
-    echo "Example: $0 authority 'server/BlackIce.Server.LoadBalancing/Authority/*' 'outcome rules'"
+    echo "Example: $0 authority 'server/OpenPak.Server.LoadBalancing/Authority/*' 'outcome rules'"
     exit 1
 fi
 

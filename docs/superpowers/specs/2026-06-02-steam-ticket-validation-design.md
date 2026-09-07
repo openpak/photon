@@ -12,7 +12,7 @@ impersonation, ban evasion, and bogus privilege levels. Consequently all admin/p
 **console-only**, and the new client-side fly/speed movement plugin cannot be gated by admin level (a normal
 user could install it and cheat, and the server has no trustworthy way to exempt real admins).
 
-The client-side feasibility spike (`plugins/BlackIce.SteamTicketSpike`) already proved a BepInEx plugin can
+The client-side feasibility spike (`plugins/OpenPak.SteamTicketSpike`) already proved a BepInEx plugin can
 mint a Steam-validated `GetAuthSessionTicket`. The remaining piece is **server-side validation** via
 `ISteamGameServer::BeginAuthSession`, plus wiring the proven identity into the auth handshake and the
 admin/anti-cheat gating.
@@ -47,7 +47,7 @@ Known facts: Steam **AppID = 311800**; `steam_api64.dll` ships at
 
 ## Architecture
 
-### 1. `ISteamTicketValidator` (abstraction — `BlackIce.Server.LoadBalancing` or `.Core`)
+### 1. `ISteamTicketValidator` (abstraction — `OpenPak.Server.LoadBalancing` or `.Core`)
 
 ```
 enum SteamAuthOutcome { Verified, Rejected, Unavailable }
@@ -58,7 +58,7 @@ interface ISteamTicketValidator {
 ```
 
 - **`NullSteamTicketValidator`** (default; core/test/LAN) — always returns `Unavailable`. No Steam dependency.
-- **`SteamGameServerValidator`** (real) — lives in a new **conditionally-built** `BlackIce.Server.Steam`
+- **`SteamGameServerValidator`** (real) — lives in a new **conditionally-built** `OpenPak.Server.Steam`
   project that references **Facepunch.Steamworks** + `steam_api64.dll`. It:
   - Initializes `SteamServer` for AppID 311800 with an anonymous logon (no publisher key — per SECURITY.md
     option 1), on host startup; pumps callbacks on a dedicated thread.
@@ -99,7 +99,7 @@ the send is marshalled back to the listener thread.
   is enforced — illegitimate speed/teleport/fly is dropped (snap-back). This is the mechanism that lets an
   admin use the fly/speed plugin while a normal user cannot, regardless of what client they run.
 
-### 5. Client production plugin (`plugins/BlackIce.SteamAuth`)
+### 5. Client production plugin (`plugins/OpenPak.SteamAuth`)
 
 Extends the proven spike: on the game's PUN authentication, mint `GetAuthSessionTicket`, wait for the
 `GetAuthSessionTicketResponse_t` `OK`, and inject the ticket bytes into PUN's `AuthenticationValues` custom
@@ -141,10 +141,10 @@ client plugin mints ticket
 
 ## Component boundaries
 
-- `BlackIce.Server.Steam` (new, optional): the only place that references Facepunch.Steamworks /
+- `OpenPak.Server.Steam` (new, optional): the only place that references Facepunch.Steamworks /
   `steam_api64.dll`. Implements `ISteamTicketValidator`. No other project depends on Steam.
 - `MasterServerHandler` / op router: gain the async auth path + ticket param; depend only on
   `ISteamTicketValidator` (DI).
 - `AuthToken`: gains the signed `verified` claim.
 - `MovementValidationInterceptor`: gains the exemption predicate (depends on a verified-level lookup, injected).
-- `plugins/BlackIce.SteamAuth` (new client): mints + sends the ticket.
+- `plugins/OpenPak.SteamAuth` (new client): mints + sends the ticket.

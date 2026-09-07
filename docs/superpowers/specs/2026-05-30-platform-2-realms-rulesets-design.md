@@ -31,7 +31,7 @@ native knobs (needs Phase 3 authority); cross-realm matchmaking.
 
 ## 3. Architecture
 
-Realm *definitions* live in the database (`BlackIce.Server.Data`); live *occupancy* stays in
+Realm *definitions* live in the database (`OpenPak.Server.Data`); live *occupancy* stays in
 the in-memory `RoomRegistry`. The Master advertises realms; the Game applies a realm's rules
 when a player enters its room.
 

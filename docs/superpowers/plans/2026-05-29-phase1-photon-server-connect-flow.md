@@ -4,12 +4,12 @@
 
 **Goal:** Build a clean-room C# Photon server (transport + GpBinary + Name/Master/Game roles) so the real Black Ice client, pointed at us by a config-driven redirect mod, connects and reaches the in-room state with Photon Cloud never contacted.
 
-**Architecture:** One .NET process listens on the three Photon UDP ports (5058 Name, 5055 Master, 5056 Game) and routes each peer to a role-handler. A clean-room protocol library (`BlackIce.Photon`) implements Photon's reliable-UDP (eNet) transport and GpBinary v1.8 serialization, validated byte-for-byte against the real `Photon3Unity3D.dll` used as a **test-only oracle**. Ships no Photon code (GPLv3).
+**Architecture:** One .NET process listens on the three Photon UDP ports (5058 Name, 5055 Master, 5056 Game) and routes each peer to a role-handler. A clean-room protocol library (`OpenPak.Photon`) implements Photon's reliable-UDP (eNet) transport and GpBinary v1.8 serialization, validated byte-for-byte against the real `Photon3Unity3D.dll` used as a **test-only oracle**. Ships no Photon code (GPLv3).
 
 **Tech Stack:** .NET 8, xUnit, Mono.Cecil (already used in Phase 0), BepInEx/HarmonyX (redirect mod), the real `Photon3Unity3D.dll`/`PhotonRealtime.dll` as test-only serialization oracles.
 
 **Environment notes:**
-- `$REPO` = `C:\Users\natew\OneDrive\Documentos\blackice-re`; `$GAME` = `C:\Program Files (x86)\Steam\steamapps\common\Black Ice`; `$MANAGED` = `$GAME\Black Ice_Data\Managed`.
+- `$REPO` = `C:\Users\natew\OneDrive\Documentos\openpak-re`; `$GAME` = `C:\Program Files (x86)\Steam\steamapps\common\Black Ice`; `$MANAGED` = `$GAME\Black Ice_Data\Managed`.
 - `curl` needs `--ssl-no-revoke`. NuGet/dotnet restore is fine.
 - Decompiled references already exist: `$REPO/decompiled/Photon3Unity3D`, `/PhotonRealtime`, `/PUN`.
 - Phase 0 protocol docs: `$REPO/docs/protocol/`. Op-logger: `$GAME/BepInEx/oplog.jsonl`.
@@ -21,9 +21,9 @@
 
 ```
 server/
-  BlackIce.Server.sln
-  BlackIce.Photon/                         # clean-room protocol library
-    BlackIce.Photon.csproj
+  OpenPak.Server.sln
+  OpenPak.Photon/                         # clean-room protocol library
+    OpenPak.Photon.csproj
     GpType.cs                              # v1.8 type tags
     GpBinaryWriter.cs  GpBinaryReader.cs   # value serialize/deserialize
     OperationData.cs                       # OperationRequest/Response/EventData records
@@ -33,38 +33,38 @@ server/
       NCommand.cs                          # command header + command types
       EnetChannel.cs                       # per-channel sequencing
       EnetPeer.cs                          # connection state machine (reliable path)
-  BlackIce.Photon.Crypto/
-    BlackIce.Photon.Crypto.csproj
+  OpenPak.Photon.Crypto/
+    OpenPak.Photon.Crypto.csproj
     EncryptionHandshake.cs                 # implemented after Task 7 spike
-  BlackIce.Server.Core/
-    BlackIce.Server.Core.csproj
+  OpenPak.Server.Core/
+    OpenPak.Server.Core.csproj
     UdpListener.cs                         # socket loop
     PeerConnection.cs                      # per-peer state, owns an EnetPeer
     IOperationHandler.cs                   # role-handler interface
     OperationDispatcher.cs
-  BlackIce.Server.LoadBalancing/
-    BlackIce.Server.LoadBalancing.csproj
+  OpenPak.Server.LoadBalancing/
+    OpenPak.Server.LoadBalancing.csproj
     NameServerHandler.cs  MasterServerHandler.cs  GameServerHandler.cs
     Room.cs  RoomRegistry.cs  AuthToken.cs
-  BlackIce.Server.Host/
-    BlackIce.Server.Host.csproj
+  OpenPak.Server.Host/
+    OpenPak.Server.Host.csproj
     Program.cs  ServerConfig.cs
-  BlackIce.Photon.Tests/                   # references real Photon DLL (test-only oracle)
-    BlackIce.Photon.Tests.csproj
+  OpenPak.Photon.Tests/                   # references real Photon DLL (test-only oracle)
+    OpenPak.Photon.Tests.csproj
     OracleFixture.cs  GpBinaryTests.cs  MessageTests.cs  TransportTests.cs
-  BlackIce.Server.Tests/
-    BlackIce.Server.Tests.csproj
+  OpenPak.Server.Tests/
+    OpenPak.Server.Tests.csproj
     NameServerTests.cs  MasterServerTests.cs  GameServerTests.cs
 plugins/
-  BlackIce.Redirect/                       # config-driven realmlist redirect
-    BlackIce.Redirect.csproj  RedirectPlugin.cs
+  OpenPak.Redirect/                       # config-driven realmlist redirect
+    OpenPak.Redirect.csproj  RedirectPlugin.cs
 ```
 
 ---
 
 ## Task 1: Solution scaffold and branch
 
-**Files:** `server/BlackIce.Server.sln` and the seven project files above.
+**Files:** `server/OpenPak.Server.sln` and the seven project files above.
 
 - [ ] **Step 1: Branch**
 
@@ -77,12 +77,12 @@ Expected: `phase1-connect`.
 
 ```bash
 cd "$REPO/server" 2>/dev/null || { mkdir -p "$REPO/server"; cd "$REPO/server"; }
-for p in BlackIce.Photon BlackIce.Photon.Crypto BlackIce.Server.Core BlackIce.Server.LoadBalancing; do
+for p in OpenPak.Photon OpenPak.Photon.Crypto OpenPak.Server.Core OpenPak.Server.LoadBalancing; do
   dotnet new classlib -n $p -o $p --framework net8.0 >/dev/null && rm -f $p/Class1.cs; done
-dotnet new console -n BlackIce.Server.Host -o BlackIce.Server.Host --framework net8.0 >/dev/null
-dotnet new xunit -n BlackIce.Photon.Tests -o BlackIce.Photon.Tests --framework net8.0 >/dev/null && rm -f BlackIce.Photon.Tests/UnitTest1.cs
-dotnet new xunit -n BlackIce.Server.Tests -o BlackIce.Server.Tests --framework net8.0 >/dev/null && rm -f BlackIce.Server.Tests/UnitTest1.cs
-dotnet new sln -n BlackIce.Server >/dev/null
+dotnet new console -n OpenPak.Server.Host -o OpenPak.Server.Host --framework net8.0 >/dev/null
+dotnet new xunit -n OpenPak.Photon.Tests -o OpenPak.Photon.Tests --framework net8.0 >/dev/null && rm -f OpenPak.Photon.Tests/UnitTest1.cs
+dotnet new xunit -n OpenPak.Server.Tests -o OpenPak.Server.Tests --framework net8.0 >/dev/null && rm -f OpenPak.Server.Tests/UnitTest1.cs
+dotnet new sln -n OpenPak.Server >/dev/null
 dotnet sln add */*.csproj >/dev/null && echo "projects added"
 ```
 
@@ -90,18 +90,18 @@ dotnet sln add */*.csproj >/dev/null && echo "projects added"
 
 ```bash
 cd "$REPO/server"
-dotnet add BlackIce.Photon.Crypto reference BlackIce.Photon
-dotnet add BlackIce.Server.Core reference BlackIce.Photon BlackIce.Photon.Crypto
-dotnet add BlackIce.Server.LoadBalancing reference BlackIce.Server.Core
-dotnet add BlackIce.Server.Host reference BlackIce.Server.LoadBalancing
-dotnet add BlackIce.Photon.Tests reference BlackIce.Photon
-dotnet add BlackIce.Server.Tests reference BlackIce.Server.LoadBalancing
+dotnet add OpenPak.Photon.Crypto reference OpenPak.Photon
+dotnet add OpenPak.Server.Core reference OpenPak.Photon OpenPak.Photon.Crypto
+dotnet add OpenPak.Server.LoadBalancing reference OpenPak.Server.Core
+dotnet add OpenPak.Server.Host reference OpenPak.Server.LoadBalancing
+dotnet add OpenPak.Photon.Tests reference OpenPak.Photon
+dotnet add OpenPak.Server.Tests reference OpenPak.Server.LoadBalancing
 echo "references wired"
 ```
 
-- [ ] **Step 4: Add the test-only Photon oracle reference to BlackIce.Photon.Tests**
+- [ ] **Step 4: Add the test-only Photon oracle reference to OpenPak.Photon.Tests**
 
-Edit `BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj`, add inside an `<ItemGroup>`:
+Edit `OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj`, add inside an `<ItemGroup>`:
 
 ```xml
     <Reference Include="Photon3Unity3D">
@@ -124,7 +124,7 @@ Expected: `Build succeeded.`
 
 ```bash
 cd "$REPO" && git add server/ && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo "clean"
-git commit -m "chore(server): scaffold BlackIce.Server solution"
+git commit -m "chore(server): scaffold OpenPak.Server solution"
 ```
 
 ---
@@ -161,15 +161,15 @@ git add server/ORACLE.md && git commit -m "docs(server): record Photon serializa
 ## Task 3: GpBinary v1.8 — scalar values (oracle-driven TDD)
 
 **Files:**
-- Create: `server/BlackIce.Photon/GpType.cs`, `GpBinaryWriter.cs`, `GpBinaryReader.cs`
-- Test: `server/BlackIce.Photon.Tests/OracleFixture.cs`, `GpBinaryTests.cs`
+- Create: `server/OpenPak.Photon/GpType.cs`, `GpBinaryWriter.cs`, `GpBinaryReader.cs`
+- Test: `server/OpenPak.Photon.Tests/OracleFixture.cs`, `GpBinaryTests.cs`
 
 - [ ] **Step 1: Define the type tags**
 
-Create `BlackIce.Photon/GpType.cs`:
+Create `OpenPak.Photon/GpType.cs`:
 
 ```csharp
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>GpBinary v1.8 type markers (ASCII), extracted from Photon3Unity3D.</summary>
 public enum GpType : byte
@@ -184,13 +184,13 @@ public enum GpType : byte
 
 - [ ] **Step 2: Write the oracle fixture**
 
-Create `BlackIce.Photon.Tests/OracleFixture.cs` (uses the exact API recorded in Task 2; the
+Create `OpenPak.Photon.Tests/OracleFixture.cs` (uses the exact API recorded in Task 2; the
 signature below is the expected shape — adjust to the recorded one):
 
 ```csharp
 using ExitGames.Client.Photon;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 /// <summary>Produces reference bytes using the real Photon serializer (test-only oracle).</summary>
 public static class Oracle
@@ -208,12 +208,12 @@ public static class Oracle
 
 - [ ] **Step 3: Write failing scalar round-trip tests**
 
-Create `BlackIce.Photon.Tests/GpBinaryTests.cs`:
+Create `OpenPak.Photon.Tests/GpBinaryTests.cs`:
 
 ```csharp
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class GpBinaryTests
 {
@@ -245,19 +245,19 @@ public class GpBinaryTests
 - [ ] **Step 4: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter GpBinaryTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter GpBinaryTests 2>&1 | tail -5
 ```
 Expected: FAIL (types not defined).
 
 - [ ] **Step 5: Implement the writer**
 
-Create `BlackIce.Photon/GpBinaryWriter.cs`. Big-endian integers; one type byte then payload:
+Create `OpenPak.Photon/GpBinaryWriter.cs`. Big-endian integers; one type byte then payload:
 
 ```csharp
 using System.Buffers.Binary;
 using System.Text;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>Writes values in GpBinary v1.8. Integers are big-endian.</summary>
 public sealed class GpBinaryWriter
@@ -298,13 +298,13 @@ public sealed class GpBinaryWriter
 
 - [ ] **Step 6: Implement the reader**
 
-Create `BlackIce.Photon/GpBinaryReader.cs`:
+Create `OpenPak.Photon/GpBinaryReader.cs`:
 
 ```csharp
 using System.Buffers.Binary;
 using System.Text;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>Reads values in GpBinary v1.8.</summary>
 public sealed class GpBinaryReader
@@ -341,7 +341,7 @@ public sealed class GpBinaryReader
 - [ ] **Step 7: Run tests; reconcile against the oracle**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter GpBinaryTests 2>&1 | tail -6
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter GpBinaryTests 2>&1 | tail -6
 ```
 Expected: PASS. **If any scalar mismatches the oracle** (e.g. string length width, bool encoding), the oracle bytes are ground truth — adjust the writer/reader to match exactly, do not change the assertion. Re-run until green.
 
@@ -383,7 +383,7 @@ Append to `GpBinaryTests.cs`:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter "ByteArray_matches_oracle|ParameterDictionary_roundtrips" 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter "ByteArray_matches_oracle|ParameterDictionary_roundtrips" 2>&1 | tail -5
 ```
 Expected: FAIL.
 
@@ -444,7 +444,7 @@ And the helpers:
 - [ ] **Step 5: Run and reconcile against oracle**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests 2>&1 | tail -6
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests 2>&1 | tail -6
 ```
 Expected: PASS. Reconcile any dictionary/array header mismatch against oracle bytes (ground truth) until green.
 
@@ -459,15 +459,15 @@ cd "$REPO" && git add server/ && git commit -m "feat(photon): GpBinary v1.8 coll
 ## Task 5: Operation/Event message envelopes
 
 **Files:**
-- Create: `server/BlackIce.Photon/OperationData.cs`, `MessageSerializer.cs`
-- Test: `server/BlackIce.Photon.Tests/MessageTests.cs`
+- Create: `server/OpenPak.Photon/OperationData.cs`, `MessageSerializer.cs`
+- Test: `server/OpenPak.Photon.Tests/MessageTests.cs`
 
 - [ ] **Step 1: Define the message records**
 
-Create `BlackIce.Photon/OperationData.cs`:
+Create `OpenPak.Photon/OperationData.cs`:
 
 ```csharp
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 public sealed record OperationRequest(byte OperationCode, Dictionary<byte, object> Parameters);
 public sealed record OperationResponse(byte OperationCode, short ReturnCode, string? DebugMessage, Dictionary<byte, object> Parameters);
@@ -476,14 +476,14 @@ public sealed record EventData(byte Code, Dictionary<byte, object> Parameters);
 
 - [ ] **Step 2: Failing test for an OperationRequest envelope vs oracle**
 
-Create `BlackIce.Photon.Tests/MessageTests.cs` (the oracle call uses the
+Create `OpenPak.Photon.Tests/MessageTests.cs` (the oracle call uses the
 `SerializeOperationRequest` signature recorded in Task 2):
 
 ```csharp
 using ExitGames.Client.Photon;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class MessageTests
 {
@@ -506,17 +506,17 @@ public class MessageTests
 - [ ] **Step 3: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter OperationRequest_matches_oracle 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter OperationRequest_matches_oracle 2>&1 | tail -5
 ```
 Expected: FAIL.
 
 - [ ] **Step 4: Implement MessageSerializer**
 
-Create `BlackIce.Photon/MessageSerializer.cs`. The v1.8 operation-request envelope is:
+Create `OpenPak.Photon/MessageSerializer.cs`. The v1.8 operation-request envelope is:
 `[OperationCode:byte][paramCount:int16]` then for each param `[key:byte][typed value]`:
 
 ```csharp
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>Serializes/deserializes Photon operation requests, responses, and events.</summary>
 public static class MessageSerializer
@@ -578,7 +578,7 @@ public byte ReadRawByte() => _data[_pos++];
 - [ ] **Step 5: Run and reconcile**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests 2>&1 | tail -6
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests 2>&1 | tail -6
 ```
 Expected: PASS. The response/event envelopes mirror the request; if the oracle differs (e.g.
 response return-code width), match it.
@@ -594,21 +594,21 @@ cd "$REPO" && git add server/ && git commit -m "feat(photon): operation/response
 ## Task 6: Transport — packet & command framing
 
 **Files:**
-- Create: `server/BlackIce.Photon/Transport/PhotonHeader.cs`, `NCommand.cs`
-- Test: `server/BlackIce.Photon.Tests/TransportTests.cs`
+- Create: `server/OpenPak.Photon/Transport/PhotonHeader.cs`, `NCommand.cs`
+- Test: `server/OpenPak.Photon.Tests/TransportTests.cs`
 
 > Layouts are defined by `docs/protocol/05-transport.md` (from the decompiled enet layer);
 > these tests are self-contained (no oracle needed).
 
 - [ ] **Step 1: Failing test for the 12-byte packet header round-trip**
 
-Create `BlackIce.Photon.Tests/TransportTests.cs`:
+Create `OpenPak.Photon.Tests/TransportTests.cs`:
 
 ```csharp
-using BlackIce.Photon.Transport;
+using OpenPak.Photon.Transport;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class TransportTests
 {
@@ -627,18 +627,18 @@ public class TransportTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter PacketHeader_roundtrips 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter PacketHeader_roundtrips 2>&1 | tail -5
 ```
 Expected: FAIL.
 
 - [ ] **Step 3: Implement PhotonHeader**
 
-Create `BlackIce.Photon/Transport/PhotonHeader.cs` (big-endian; layout per 05-transport.md):
+Create `OpenPak.Photon/Transport/PhotonHeader.cs` (big-endian; layout per 05-transport.md):
 
 ```csharp
 using System.Buffers.Binary;
 
-namespace BlackIce.Photon.Transport;
+namespace OpenPak.Photon.Transport;
 
 /// <summary>The 12-byte Photon UDP packet header (one per datagram, followed by N commands).</summary>
 public readonly record struct PhotonHeader(short PeerId, bool CrcEnabled, byte CommandCount, int ServerTime, int Challenge)
@@ -681,13 +681,13 @@ Append to `TransportTests.cs`:
     }
 ```
 
-Create `BlackIce.Photon/Transport/NCommand.cs` (command header is 12 bytes: type, channel,
+Create `OpenPak.Photon/Transport/NCommand.cs` (command header is 12 bytes: type, channel,
 flags, reserved, length(int32 incl. header), reliableSeq(int32)):
 
 ```csharp
 using System.Buffers.Binary;
 
-namespace BlackIce.Photon.Transport;
+namespace OpenPak.Photon.Transport;
 
 /// <summary>One eNet command: a 12-byte header followed by an optional payload.</summary>
 public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte ReservedByte,
@@ -724,7 +724,7 @@ public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte
 - [ ] **Step 5: Run tests**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Photon.Tests --filter "Command_roundtrips|PacketHeader_roundtrips" 2>&1 | tail -6
+cd "$REPO/server" && dotnet test OpenPak.Photon.Tests --filter "Command_roundtrips|PacketHeader_roundtrips" 2>&1 | tail -6
 ```
 Expected: PASS.
 
@@ -739,8 +739,8 @@ cd "$REPO" && git add server/ && git commit -m "feat(photon): packet + command f
 ## Task 7: Encryption spike + handshake
 
 **Files:**
-- Create: `server/BlackIce.Photon.Crypto/EncryptionHandshake.cs`
-- Modify: `plugins/BlackIce.OpLogger/PhotonPatches.cs` (temporary crypto trace)
+- Create: `server/OpenPak.Photon.Crypto/EncryptionHandshake.cs`
+- Modify: `plugins/OpenPak.OpLogger/PhotonPatches.cs` (temporary crypto trace)
 
 > The exact handshake is the highest-risk unknown. Confirm ground truth from the live client
 > before implementing.
@@ -771,14 +771,14 @@ Expected: confirms whether the client initiates encryption before `Authenticate`
 
 - [ ] **Step 3: Implement the confirmed path**
 
-Create `BlackIce.Photon.Crypto/EncryptionHandshake.cs`.
+Create `OpenPak.Photon.Crypto/EncryptionHandshake.cs`.
 
 - **If the trace shows NO pre-auth encryption** (token-only auth, as the Phase 0 op-log
   suggested): implement a pass-through that records the auth token and performs no datagram
   crypto:
 
 ```csharp
-namespace BlackIce.Photon.Crypto;
+namespace OpenPak.Photon.Crypto;
 
 /// <summary>Encryption handshake. Phase 0 evidence indicates token-only auth (no datagram
 /// crypto); this pass-through is replaced if the Task 7 spike shows otherwise.</summary>
@@ -813,18 +813,18 @@ cd "$REPO" && git add server/ plugins/ && git commit -m "feat(crypto): encryptio
 ## Task 8: Server core — UDP loop, peers, dispatch
 
 **Files:**
-- Create: `server/BlackIce.Server.Core/UdpListener.cs`, `PeerConnection.cs`, `IOperationHandler.cs`, `OperationDispatcher.cs`
-- Create: `server/BlackIce.Photon/Transport/EnetPeer.cs`, `EnetChannel.cs`
-- Test: `server/BlackIce.Server.Tests/TransportLoopTests.cs`
+- Create: `server/OpenPak.Server.Core/UdpListener.cs`, `PeerConnection.cs`, `IOperationHandler.cs`, `OperationDispatcher.cs`
+- Create: `server/OpenPak.Photon/Transport/EnetPeer.cs`, `EnetChannel.cs`
+- Test: `server/OpenPak.Server.Tests/TransportLoopTests.cs`
 
 - [ ] **Step 1: Define the role-handler interface**
 
-Create `BlackIce.Server.Core/IOperationHandler.cs`:
+Create `OpenPak.Server.Core/IOperationHandler.cs`:
 
 ```csharp
-using BlackIce.Photon;
+using OpenPak.Photon;
 
-namespace BlackIce.Server.Core;
+namespace OpenPak.Server.Core;
 
 /// <summary>A server role (Name/Master/Game) reacts to an operation and may reply / raise events.</summary>
 public interface IOperationHandler
@@ -837,13 +837,13 @@ public interface IOperationHandler
 
 - [ ] **Step 2: Implement EnetPeer reliable state (failing test first)**
 
-Create `BlackIce.Server.Tests/TransportLoopTests.cs`:
+Create `OpenPak.Server.Tests/TransportLoopTests.cs`:
 
 ```csharp
-using BlackIce.Photon.Transport;
+using OpenPak.Photon.Transport;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class TransportLoopTests
 {
@@ -866,13 +866,13 @@ public class TransportLoopTests
 }
 ```
 
-Create `BlackIce.Photon/Transport/EnetChannel.cs` and `EnetPeer.cs` implementing the minimal
+Create `OpenPak.Photon/Transport/EnetChannel.cs` and `EnetPeer.cs` implementing the minimal
 reliable path: respond to `Connect` with `VerifyConnect` (assigning a PeerId), `Ack` every
 incoming reliable command, surface reassembled reliable payloads, and queue outgoing reliable
 commands with incrementing sequence numbers per channel. (Fragmentation/unreliable deferred.)
 
 ```csharp
-namespace BlackIce.Photon.Transport;
+namespace OpenPak.Photon.Transport;
 
 public sealed class EnetChannel
 {
@@ -919,13 +919,13 @@ public sealed class EnetPeer
 - [ ] **Step 3: Run transport-loop tests**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter TransportLoopTests 2>&1 | tail -6
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter TransportLoopTests 2>&1 | tail -6
 ```
 Expected: PASS.
 
 - [ ] **Step 4: Implement the UDP listener + peer connection + dispatcher**
 
-Create `BlackIce.Server.Core/PeerConnection.cs` (owns an `EnetPeer`, a remote endpoint, and a
+Create `OpenPak.Server.Core/PeerConnection.cs` (owns an `EnetPeer`, a remote endpoint, and a
 `Send` callback that frames commands into a packet), `UdpListener.cs` (a `UdpClient` receive
 loop that parses the packet header + commands, feeds each to the peer, and sends back queued
 commands wrapped in a `PhotonHeader`), and `OperationDispatcher.cs` (decodes reliable payloads
@@ -937,9 +937,9 @@ Key listener logic:
 ```csharp
 using System.Net;
 using System.Net.Sockets;
-using BlackIce.Photon.Transport;
+using OpenPak.Photon.Transport;
 
-namespace BlackIce.Server.Core;
+namespace OpenPak.Server.Core;
 
 /// <summary>Receives Photon UDP datagrams for one role and routes commands to peers.</summary>
 public sealed class UdpListener
@@ -1014,19 +1014,19 @@ cd "$REPO" && git add server/ && git commit -m "feat(core): UDP listener, peer l
 ## Task 9: Name Server role
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/AuthToken.cs`, `NameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/NameServerTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/AuthToken.cs`, `NameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/NameServerTests.cs`
 
 - [ ] **Step 1: Failing test — Authenticate returns a Master address + token**
 
-Create `BlackIce.Server.Tests/NameServerTests.cs`:
+Create `OpenPak.Server.Tests/NameServerTests.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class NameServerTests
 {
@@ -1049,19 +1049,19 @@ public class NameServerTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter NameServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter NameServerTests 2>&1 | tail -5
 ```
 Expected: FAIL.
 
 - [ ] **Step 3: Implement AuthToken (HMAC-signed) and the handler**
 
-Create `BlackIce.Server.LoadBalancing/AuthToken.cs`:
+Create `OpenPak.Server.LoadBalancing/AuthToken.cs`:
 
 ```csharp
 using System.Security.Cryptography;
 using System.Text;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>Opaque token minted by the Name Server, validated by Master/Game. HMAC-signed userId.</summary>
 public static class AuthToken
@@ -1088,10 +1088,10 @@ public static class AuthToken
 Create `NameServerHandler.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>Photon Name Server role: authenticates and hands the client to the Master Server.</summary>
 public sealed class NameServerHandler : IOperationHandler
@@ -1127,7 +1127,7 @@ and sends through the peer's `EnetPeer.WrapReliable`.)
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter NameServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter NameServerTests 2>&1 | tail -5
 ```
 Expected: PASS.
 
@@ -1142,19 +1142,19 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): Name Server role + HMA
 ## Task 10: Master Server role
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/MasterServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/MasterServerTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/MasterServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/MasterServerTests.cs`
 
 - [ ] **Step 1: Failing tests — Authenticate(token), JoinLobby, CreateGame→Game address**
 
-Create `BlackIce.Server.Tests/MasterServerTests.cs`:
+Create `OpenPak.Server.Tests/MasterServerTests.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class MasterServerTests
 {
@@ -1188,7 +1188,7 @@ public class MasterServerTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter MasterServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter MasterServerTests 2>&1 | tail -5
 ```
 Expected: FAIL.
 
@@ -1197,7 +1197,7 @@ Expected: FAIL.
 Create `RoomRegistry.cs` and `Room.cs`:
 
 ```csharp
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 public sealed class Room
 {
@@ -1217,10 +1217,10 @@ public sealed class RoomRegistry
 Create `MasterServerHandler.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>Photon Master Server role: lobby + matchmaking; routes the client to the Game Server.</summary>
 public sealed class MasterServerHandler : IOperationHandler
@@ -1274,7 +1274,7 @@ public sealed class MasterServerHandler : IOperationHandler
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter MasterServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter MasterServerTests 2>&1 | tail -5
 ```
 Expected: PASS.
 
@@ -1289,19 +1289,19 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): Master Server role + r
 ## Task 11: Game Server role
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/GameServerTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/GameServerTests.cs`
 
 - [ ] **Step 1: Failing tests — Authenticate(token), CreateGame assigns actor + Join event**
 
-Create `BlackIce.Server.Tests/GameServerTests.cs`:
+Create `OpenPak.Server.Tests/GameServerTests.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class GameServerTests
 {
@@ -1321,7 +1321,7 @@ public class GameServerTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter GameServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter GameServerTests 2>&1 | tail -5
 ```
 Expected: FAIL.
 
@@ -1330,10 +1330,10 @@ Expected: FAIL.
 Create `GameServerHandler.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>Photon Game Server role: enters the actual room and emits the Join event.</summary>
 public sealed class GameServerHandler : IOperationHandler
@@ -1388,19 +1388,19 @@ public sealed class GameServerHandler : IOperationHandler
 - [ ] **Step 4: Run tests**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter GameServerTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter GameServerTests 2>&1 | tail -5
 ```
 Expected: PASS.
 
 - [ ] **Step 5: Wire the host entrypoint**
 
-Create `BlackIce.Server.Host/ServerConfig.cs` and `Program.cs` to start three `UdpListener`s
+Create `OpenPak.Server.Host/ServerConfig.cs` and `Program.cs` to start three `UdpListener`s
 (Name 5058, Master 5055, Game 5056) sharing one `RoomRegistry` and `secret`, bound to the
 configured address:
 
 ```csharp
-using BlackIce.Server.Core;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Server.Core;
+using OpenPak.Server.LoadBalancing;
 
 var bind = args.Length > 0 ? args[0] : "0.0.0.0";
 var secret = "change-me-phase1";
@@ -1413,7 +1413,7 @@ var listeners = new[]
 };
 using var cts = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
-Console.WriteLine($"BlackIce.Server listening on {bind} (NS 5058 / Master 5055 / Game 5056)");
+Console.WriteLine($"OpenPak.Server listening on {bind} (NS 5058 / Master 5055 / Game 5056)");
 await Task.WhenAll(listeners.Select(l => l.RunAsync(cts.Token)));
 ```
 
@@ -1429,45 +1429,45 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): Game Server role + hos
 ## Task 12: Realmlist-style redirect mod
 
 **Files:**
-- Create: `plugins/BlackIce.Redirect/BlackIce.Redirect.csproj`, `RedirectPlugin.cs`
+- Create: `plugins/OpenPak.Redirect/OpenPak.Redirect.csproj`, `RedirectPlugin.cs`
 
 - [ ] **Step 1: Scaffold the plugin (mirror the op-logger project setup)**
 
 ```bash
 cd "$REPO/plugins"
-dotnet new classlib -n BlackIce.Redirect -o BlackIce.Redirect --framework netstandard2.0 >/dev/null
-rm -f BlackIce.Redirect/Class1.cs
+dotnet new classlib -n OpenPak.Redirect -o OpenPak.Redirect --framework netstandard2.0 >/dev/null
+rm -f OpenPak.Redirect/Class1.cs
 ```
-Replace the csproj with the same `<Reference>` block as `BlackIce.OpLogger` (BepInEx, 0Harmony,
+Replace the csproj with the same `<Reference>` block as `OpenPak.OpLogger` (BepInEx, 0Harmony,
 UnityEngine, UnityEngine.CoreModule, PhotonRealtime, PhotonUnityNetworking), plus
 `<Nullable>annotations</Nullable>` and `<LangVersion>latest</LangVersion>`.
 
 - [ ] **Step 2: Implement the config-driven redirect**
 
-Create `BlackIce.Redirect/RedirectPlugin.cs`:
+Create `OpenPak.Redirect/RedirectPlugin.cs`:
 
 ```csharp
 using BepInEx;
 using BepInEx.Configuration;
 using Photon.Pun;
 
-namespace BlackIce.Redirect;
+namespace OpenPak.Redirect;
 
 /// <summary>Realmlist-style redirect: points the client at a custom server via one config value.</summary>
-[BepInPlugin("blackice.redirect", "BlackIce Server Redirect", "0.1.0")]
+[BepInPlugin("openpak.redirect", "OpenPak Server Redirect", "0.1.0")]
 public sealed class RedirectPlugin : BaseUnityPlugin
 {
     private void Awake()
     {
         var address = Config.Bind("Server", "ServerAddress", "127.0.0.1",
-            "Custom BlackIce server address (the Name Server). Like WoW's realmlist.").Value;
+            "Custom OpenPak server address (the Name Server). Like WoW's realmlist.").Value;
         var port = Config.Bind("Server", "Port", 5058, "Name Server UDP port.").Value;
 
         var settings = PhotonNetwork.PhotonServerSettings.AppSettings;
         settings.Server = address;
         settings.Port = port;
         settings.UseNameServer = true;   // client does full Name->Master->Game against us
-        Logger.LogInfo($"BlackIce redirect active -> {address}:{port}");
+        Logger.LogInfo($"OpenPak redirect active -> {address}:{port}");
     }
 }
 ```
@@ -1475,8 +1475,8 @@ public sealed class RedirectPlugin : BaseUnityPlugin
 - [ ] **Step 3: Build and deploy**
 
 ```bash
-cd "$REPO/plugins/BlackIce.Redirect" && dotnet build -c Release 2>&1 | grep -E "Build succeeded|error" | head
-cp bin/Release/netstandard2.0/BlackIce.Redirect.dll "/c/Program Files (x86)/Steam/steamapps/common/Black Ice/BepInEx/plugins/"
+cd "$REPO/plugins/OpenPak.Redirect" && dotnet build -c Release 2>&1 | grep -E "Build succeeded|error" | head
+cp bin/Release/netstandard2.0/OpenPak.Redirect.dll "/c/Program Files (x86)/Steam/steamapps/common/Black Ice/BepInEx/plugins/"
 echo "deployed"
 ```
 Expected: `Build succeeded.` and the DLL copied.
@@ -1484,7 +1484,7 @@ Expected: `Build succeeded.` and the DLL copied.
 - [ ] **Step 4: Commit (source only)**
 
 ```bash
-cd "$REPO" && git add plugins/BlackIce.Redirect/ && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
+cd "$REPO" && git add plugins/OpenPak.Redirect/ && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
 git commit -m "feat(redirect): realmlist-style config-driven server redirect mod"
 ```
 
@@ -1497,15 +1497,15 @@ git commit -m "feat(redirect): realmlist-style config-driven server redirect mod
 - [ ] **Step 1: Run the server**
 
 ```bash
-cd "$REPO/server" && dotnet run --project BlackIce.Server.Host 127.0.0.1 &
+cd "$REPO/server" && dotnet run --project OpenPak.Server.Host 127.0.0.1 &
 sleep 2 && echo "server started"
 ```
 Expected: prints the listening banner.
 
 - [ ] **Step 2: Clear the op-log and launch the redirected client**
 
-Clear `$GAME/BepInEx/oplog.jsonl`, ensure both `BlackIce.OpLogger.dll` and
-`BlackIce.Redirect.dll` are in `$GAME/BepInEx/plugins`, launch the game ~40s (it auto-connects),
+Clear `$GAME/BepInEx/oplog.jsonl`, ensure both `OpenPak.OpLogger.dll` and
+`OpenPak.Redirect.dll` are in `$GAME/BepInEx/plugins`, launch the game ~40s (it auto-connects),
 then stop it (use the Phase 0 PowerShell launch/stop pattern).
 
 - [ ] **Step 3: Verify the client reached the Game Server and Join**
@@ -1526,12 +1526,12 @@ console logged peers on all three ports.
 kill %1 2>/dev/null; echo "server stopped"
 ```
 Append the observed timeline (sanitized) to `docs/protocol/01-connection-flow.md` under a new
-"Verified against BlackIce.Server (Phase 1)" section.
+"Verified against OpenPak.Server (Phase 1)" section.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-cd "$REPO" && git add docs/ && git commit -m "test(phase1): client reaches in-room through BlackIce.Server"
+cd "$REPO" && git add docs/ && git commit -m "test(phase1): client reaches in-room through OpenPak.Server"
 ```
 
 > If the client stalls before `Join`, debug with: the server console (which op failed), the

@@ -1,5 +1,5 @@
-BlackIce.Server
-Copyright (C) 2026 BlackIce.Server contributors
+OpenPak.Server
+Copyright (C) 2026 OpenPak contributors
 
 Part of the OpenPak stack.
 
@@ -9,6 +9,7 @@ Foundation. See the LICENSE file for details. Because this is network server sof
 the AGPL's section 13 applies: users interacting with a modified version over a network
 must be offered its source.
 
-"Black Ice" is the property of its respective owner. This project is not affiliated
-with or endorsed by the game's developer. It is an independent interoperability and
-preservation effort and ships no copyrighted game material.
+"Black Ice", "Outbound" and every other title named here are the property of their
+respective owners. This project is not affiliated with or endorsed by those developers.
+It is an independent interoperability and preservation effort and ships no copyrighted
+game material.

@@ -19,17 +19,17 @@
 ## Task 1: BotIdentity + generator
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/BotIdentity.cs`
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/BotIdentityGenerator.cs`
-- Test: `server/BlackIce.Server.Tests/Bots/BotIdentityGeneratorTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/BotIdentity.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/BotIdentityGenerator.cs`
+- Test: `server/OpenPak.Server.Tests/Bots/BotIdentityGeneratorTests.cs`
 
 - [ ] **Step 1 — failing test:**
 
 ```csharp
-using BlackIce.Server.LoadBalancing.Bots;
+using OpenPak.Server.LoadBalancing.Bots;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Bots;
+namespace OpenPak.Server.Tests.Bots;
 
 public class BotIdentityGeneratorTests
 {
@@ -52,22 +52,22 @@ public class BotIdentityGeneratorTests
 }
 ```
 
-- [ ] **Step 2 — run, expect FAIL:** `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter BotIdentityGeneratorTests`
+- [ ] **Step 2 — run, expect FAIL:** `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter BotIdentityGeneratorTests`
 
-- [ ] **Step 3 — implement.** Create `server/BlackIce.Server.LoadBalancing/Bots/BotIdentity.cs`:
+- [ ] **Step 3 — implement.** Create `server/OpenPak.Server.LoadBalancing/Bots/BotIdentity.cs`:
 
 ```csharp
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>A generated synthetic-player identity. All fields are free-form (the client does not
 /// validate them) and map to the player custom properties a real client sets after joining.</summary>
 public sealed record BotIdentity(string Name, int ModelIndex, float[][] ModelColors, int Level, int Team);
 ```
 
-Create `server/BlackIce.Server.LoadBalancing/Bots/BotIdentityGenerator.cs`:
+Create `server/OpenPak.Server.LoadBalancing/Bots/BotIdentityGenerator.cs`:
 
 ```csharp
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>Produces varied, free-form bot identities from fixed pools + a seeded RNG (deterministic for tests).</summary>
 public sealed class BotIdentityGenerator
@@ -93,7 +93,7 @@ public sealed class BotIdentityGenerator
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Bots/BotIdentity.cs server/BlackIce.Server.LoadBalancing/Bots/BotIdentityGenerator.cs server/BlackIce.Server.Tests/Bots/BotIdentityGeneratorTests.cs
+git add server/OpenPak.Server.LoadBalancing/Bots/BotIdentity.cs server/OpenPak.Server.LoadBalancing/Bots/BotIdentityGenerator.cs server/OpenPak.Server.Tests/Bots/BotIdentityGeneratorTests.cs
 git commit -m "feat(bots): BotIdentity + seeded free-form identity generator"
 ```
 
@@ -102,23 +102,23 @@ git commit -m "feat(bots): BotIdentity + seeded free-form identity generator"
 ## Task 2: PlayerBot — emits the join+identity+instantiate lifecycle
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/PlayerBot.cs`
-- Test: `server/BlackIce.Server.Tests/Bots/PlayerBotLifecycleTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/PlayerBot.cs`
+- Test: `server/OpenPak.Server.Tests/Bots/PlayerBotLifecycleTests.cs`
 
 **Context:** `RoomSession.RelayFrom(int senderActor, EventData ev, bool unreliable=false)` runs the interceptor chain then sends to every member except `senderActor`. A bot's actor number is NOT a member, so `RelayFrom(botActor, ev)` reaches all real players — exactly the origination channel we want. Event/param codes (from GameServerHandler constants / recon): EvJoin=255, EvPunInstantiation=202, EvPunRpc=200, EvPropertiesChanged=253; param keys ActorNr=254, Properties=251, TargetActorNr=253, PData=245. ViewID = botActor*1000+1.
 
-- [ ] **Step 1 — failing test** (`server/BlackIce.Server.Tests/Bots/PlayerBotLifecycleTests.cs`):
+- [ ] **Step 1 — failing test** (`server/OpenPak.Server.Tests/Bots/PlayerBotLifecycleTests.cs`):
 
 ```csharp
 using System.Collections.Generic;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Bots;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Bots;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Bots;
+namespace OpenPak.Server.Tests.Bots;
 
 public class PlayerBotLifecycleTests
 {
@@ -174,13 +174,13 @@ public class PlayerBotLifecycleTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement** `server/BlackIce.Server.LoadBalancing/Bots/PlayerBot.cs`:
+- [ ] **Step 3 — implement** `server/OpenPak.Server.LoadBalancing/Bots/PlayerBot.cs`:
 
 ```csharp
 using System.Collections.Generic;
-using BlackIce.Photon;
+using OpenPak.Photon;
 
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>
 /// A server-originated synthetic player. Owns a reserved actor number and viewID and emits the same
@@ -267,7 +267,7 @@ public sealed class PlayerBot
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Bots/PlayerBot.cs server/BlackIce.Server.Tests/Bots/PlayerBotLifecycleTests.cs
+git add server/OpenPak.Server.LoadBalancing/Bots/PlayerBot.cs server/OpenPak.Server.Tests/Bots/PlayerBotLifecycleTests.cs
 git commit -m "feat(bots): PlayerBot emits join+identity+instantiate+refresh lifecycle to real players"
 ```
 
@@ -276,19 +276,19 @@ git commit -m "feat(bots): PlayerBot emits join+identity+instantiate+refresh lif
 ## Task 3: BotBehavior — per-tick wander producing a position event
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/IBotBehavior.cs`
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/WanderBehavior.cs`
-- Test: `server/BlackIce.Server.Tests/Bots/WanderBehaviorTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/IBotBehavior.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/WanderBehavior.cs`
+- Test: `server/OpenPak.Server.Tests/Bots/WanderBehaviorTests.cs`
 
 **Context:** The position stream is event 201 (unreliable). For 2a the relay forwards 201 payloads opaquely; for a *bot* we must construct a minimal valid 201 payload. The observed 201 payload shape (from trace) is an object[] like `[networkTime(int), null, [viewID, false, null, Vector3(86), Quaternion(81), ...]]`. A minimal mover only needs to move the avatar's transform. To avoid guessing the full serialize sub-stream, WanderBehavior produces the position as a structured `BotPositionUpdate` (viewId + x/y/z) and PlayerBot/ BotManager builds the 201 event from it; the EXACT 201 sub-stream layout is verified by the interop step in Task 5 before trusting it live. For now the behavior is pure and testable.
 
 - [ ] **Step 1 — failing test:**
 
 ```csharp
-using BlackIce.Server.LoadBalancing.Bots;
+using OpenPak.Server.LoadBalancing.Bots;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Bots;
+namespace OpenPak.Server.Tests.Bots;
 
 public class WanderBehaviorTests
 {
@@ -317,10 +317,10 @@ public class WanderBehaviorTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement.** Create `server/BlackIce.Server.LoadBalancing/Bots/IBotBehavior.cs`:
+- [ ] **Step 3 — implement.** Create `server/OpenPak.Server.LoadBalancing/Bots/IBotBehavior.cs`:
 
 ```csharp
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>One step of bot decision-making, producing where the bot now is. Movement first; combat later.</summary>
 public readonly record struct BotPositionUpdate(float X, float Y, float Z);
@@ -331,10 +331,10 @@ public interface IBotBehavior
 }
 ```
 
-Create `server/BlackIce.Server.LoadBalancing/Bots/WanderBehavior.cs`:
+Create `server/OpenPak.Server.LoadBalancing/Bots/WanderBehavior.cs`:
 
 ```csharp
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>A simple random-walk bounded to a radius around the spawn point. Deterministic with a seed.</summary>
 public sealed class WanderBehavior : IBotBehavior
@@ -363,7 +363,7 @@ public sealed class WanderBehavior : IBotBehavior
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Bots/IBotBehavior.cs server/BlackIce.Server.LoadBalancing/Bots/WanderBehavior.cs server/BlackIce.Server.Tests/Bots/WanderBehaviorTests.cs
+git add server/OpenPak.Server.LoadBalancing/Bots/IBotBehavior.cs server/OpenPak.Server.LoadBalancing/Bots/WanderBehavior.cs server/OpenPak.Server.Tests/Bots/WanderBehaviorTests.cs
 git commit -m "feat(bots): IBotBehavior + bounded WanderBehavior (deterministic)"
 ```
 
@@ -372,8 +372,8 @@ git commit -m "feat(bots): IBotBehavior + bounded WanderBehavior (deterministic)
 ## Task 4: BotManager — reserve actor, spawn, drive ticks
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/Bots/BotManager.cs`
-- Test: `server/BlackIce.Server.Tests/Bots/BotManagerTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Bots/BotManager.cs`
+- Test: `server/OpenPak.Server.Tests/Bots/BotManagerTests.cs`
 
 **Context:** `BotManager` reserves a bot actor number from a HIGH range that never collides with real actors (real actors come from `Room.AddActor()` starting at 1; use a bot base like 10000+ so viewID blocks `10000*1000+…` never overlap real `actor*1000` blocks for realistic player counts). It spawns a `PlayerBot` into a `RoomSession` and, each tick, asks the behavior for a position and relays a 201 event for the bot. `Tick(session)` is called by the host off the listener maintenance cadence (the host wiring is Task 5; here it's directly unit-tested).
 
@@ -382,13 +382,13 @@ git commit -m "feat(bots): IBotBehavior + bounded WanderBehavior (deterministic)
 ```csharp
 using System.Collections.Generic;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Bots;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Bots;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Bots;
+namespace OpenPak.Server.Tests.Bots;
 
 public class BotManagerTests
 {
@@ -434,14 +434,14 @@ public class BotManagerTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement** `server/BlackIce.Server.LoadBalancing/Bots/BotManager.cs`:
+- [ ] **Step 3 — implement** `server/OpenPak.Server.LoadBalancing/Bots/BotManager.cs`:
 
 ```csharp
 using System.Collections.Generic;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing.Bots;
+namespace OpenPak.Server.LoadBalancing.Bots;
 
 /// <summary>
 /// Owns the live bots: reserves non-colliding actor numbers, spawns them into a room session, and
@@ -513,7 +513,7 @@ public sealed class BotManager
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Bots/BotManager.cs server/BlackIce.Server.Tests/Bots/BotManagerTests.cs
+git add server/OpenPak.Server.LoadBalancing/Bots/BotManager.cs server/OpenPak.Server.Tests/Bots/BotManagerTests.cs
 git commit -m "feat(bots): BotManager reserves actors, spawns bots, ticks wander movement"
 ```
 
@@ -522,8 +522,8 @@ git commit -m "feat(bots): BotManager reserves actors, spawns bots, ticks wander
 ## Task 5: Host wiring + console command + interop review
 
 **Files:**
-- Modify: `server/BlackIce.Server.Host/Program.cs` (construct BotManager, tick it off the maintenance loop, add a console `bot` command)
-- Modify: `server/BlackIce.Server.Core/UdpListener.cs` OR Program console — wire `BotManager.Tick()` into the 1 Hz cadence.
+- Modify: `server/OpenPak.Server.Host/Program.cs` (construct BotManager, tick it off the maintenance loop, add a console `bot` command)
+- Modify: `server/OpenPak.Server.Core/UdpListener.cs` OR Program console — wire `BotManager.Tick()` into the 1 Hz cadence.
 
 - [ ] **Step 1 — dispatch photon-interop-reviewer** on `PlayerBot`'s instantiate (202) payload, the model-color custom type (67), and `BotManager`'s 201 position batch — confirm against the real DLL that the prefab/viewID/instantiation-data keys and the serialize-batch shape are what an unmodified client accepts (so a bot actually appears + moves). Fix findings; re-review. This is the gate before live.
 
@@ -531,7 +531,7 @@ git commit -m "feat(bots): BotManager reserves actors, spawns bots, ticks wander
 
 - [ ] **Step 3 — commit:**
 ```bash
-git add server/BlackIce.Server.Host/Program.cs server/BlackIce.Server.Core/UdpListener.cs
+git add server/OpenPak.Server.Host/Program.cs server/OpenPak.Server.Core/UdpListener.cs
 git commit -m "feat(host): spawn + tick playerbots; console 'bot <realm>' command"
 ```
 

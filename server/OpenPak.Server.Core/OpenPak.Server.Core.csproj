@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\OpenPak.Photon\OpenPak.Photon.csproj" />
+    <ProjectReference Include="..\OpenPak.Photon.Crypto\OpenPak.Photon.Crypto.csproj" />
+    <ProjectReference Include="..\OpenPak.Server.Data\OpenPak.Server.Data.csproj" />
+  </ItemGroup>
+
+</Project>

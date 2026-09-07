@@ -59,4 +59,4 @@ and Phase 4 (anti-cheat).
 | `generated/instantiations.csv` | 1 | Literal prefab names to `PhotonNetwork.Instantiate` |
 | `generated/connection-timeline.sample.txt` | — | Sanitized live op timeline (no credentials) |
 
-Regenerate the tables with: `dotnet run --project tools/BlackIce.Recon.Catalog`.
+Regenerate the tables with: `dotnet run --project tools/OpenPak.Recon.Catalog`.

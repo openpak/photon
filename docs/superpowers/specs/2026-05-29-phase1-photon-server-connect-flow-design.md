@@ -49,16 +49,16 @@ role-handler; redirect responses hand back our own ports.
 
 | Project | Responsibility | Depends on |
 |---|---|---|
-| `BlackIce.Photon` | Clean-room transport (eNet reliable UDP) + GpBinary (`Protocol16`) serialize/deserialize | — |
-| `BlackIce.Photon.Crypto` | Encryption handshake (Photon DH / token), isolated | `BlackIce.Photon` |
-| `BlackIce.Server.Core` | UDP socket loop, peer/connection lifecycle, operation dispatch | `BlackIce.Photon`, `.Crypto` |
-| `BlackIce.Server.LoadBalancing` | NameServer / MasterServer / GameServer role-handlers + in-memory room registry | `.Core` |
-| `BlackIce.Server.Host` | Console entrypoint + config (ports, bind address) | `.LoadBalancing` |
-| `BlackIce.Photon.Tests` | Round-trip serialization tests vs the real Photon DLL oracle | `BlackIce.Photon` + Photon DLL (test-only) |
-| `BlackIce.Server.Tests` | Transport, dispatch, role-handler unit tests | all |
+| `OpenPak.Photon` | Clean-room transport (eNet reliable UDP) + GpBinary (`Protocol16`) serialize/deserialize | — |
+| `OpenPak.Photon.Crypto` | Encryption handshake (Photon DH / token), isolated | `OpenPak.Photon` |
+| `OpenPak.Server.Core` | UDP socket loop, peer/connection lifecycle, operation dispatch | `OpenPak.Photon`, `.Crypto` |
+| `OpenPak.Server.LoadBalancing` | NameServer / MasterServer / GameServer role-handlers + in-memory room registry | `.Core` |
+| `OpenPak.Server.Host` | Console entrypoint + config (ports, bind address) | `.LoadBalancing` |
+| `OpenPak.Photon.Tests` | Round-trip serialization tests vs the real Photon DLL oracle | `OpenPak.Photon` + Photon DLL (test-only) |
+| `OpenPak.Server.Tests` | Transport, dispatch, role-handler unit tests | all |
 
-Client redirect lives in the existing `plugins/BlackIce.OpLogger` (or a sibling
-`plugins/BlackIce.Redirect`): read `ServerAddress` / `Port` from a BepInEx config entry and
+Client redirect lives in the existing `plugins/OpenPak.OpLogger` (or a sibling
+`plugins/OpenPak.Redirect`): read `ServerAddress` / `Port` from a BepInEx config entry and
 assign `PhotonServerSettings.AppSettings.Server` at startup, keeping `UseNameServer = true`.
 This is the realmlist-style UX — the player edits one config line.
 
@@ -94,7 +94,7 @@ per-session Diffie-Hellman — but this is not assumed.
 
 **First implementation step is a spike:** instrument the client's crypto path (decompiled
 `ExitGames.Client.Photon.Encryption`) to confirm exactly which handshake, if any, the client
-performs, then implement precisely that in `BlackIce.Photon.Crypto`. Documented fallback if
+performs, then implement precisely that in `OpenPak.Photon.Crypto`. Documented fallback if
 the client requires encryption we cannot yet satisfy: disable it client-side via the BepInEx
 mod for Phase 1 and revisit. Expect iteration here.
 

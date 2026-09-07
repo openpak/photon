@@ -5,7 +5,7 @@ Photon's transport is an eNet-derived reliable-UDP protocol implemented in
 is from static analysis of that code.
 
 > **Status:** documented from the binary. Live byte-level validation with a packet capture
-> is deferred — run `tools/capture/capture.ps1` after installing Wireshark/npcap to confirm
+> is deferred — run `tools/capture/capture.ps1` (frozen `earlier-photon` copy) after installing Wireshark/npcap to confirm
 > against the wire (npcap requires an interactive driver install, so it was not possible in
 > the automated recon run).
 

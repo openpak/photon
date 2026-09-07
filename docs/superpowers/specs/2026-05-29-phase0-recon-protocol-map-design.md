@@ -41,14 +41,14 @@ can implement the connect flow without further reversing.
 
 ## 3. Repository & open-source hygiene
 
-- Repo at `C:\Users\natew\OneDrive\Documentos\blackice-re\`, working name **`BlackIce.Server`**.
+- Repo at `C:\Users\natew\OneDrive\Documentos\openpak-re\`, working name **`OpenPak.Server`**.
 - `git init`; licensed **GPLv3** (keeps community forks open, TrinityCore-style).
 - **`.gitignore` excludes ALL game-derived material**: original DLLs, decompiled `.cs`,
   Unity asset dumps, raw packet captures. These remain local analysis-only artifacts.
 - `README` + `NOTICE` state this is an independent, clean-room-style interoperability
   project for a game the operator owns; it ships only original code and protocol docs.
   Precedents: OpenRA, TrinityCore.
-- Decompiled sources already produced live at `blackice-re/decompiled/` (gitignored).
+- Decompiled sources already produced live at `openpak-re/decompiled/` (gitignored).
 
 ## 4. Recon methodology — three complementary prongs
 

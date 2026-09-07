@@ -1,13 +1,17 @@
-# BlackIce.Server
+# OpenPak.Server — Photon-compatible game server
 
-An independent, open-source server implementation for the Unity game **Black Ice**,
-created for interoperability, preservation, and server-authoritative anti-cheat.
+OpenPak's server for Unity games on Photon: a clean-room implementation of Photon's
+transport and LoadBalancing protocol, plus a headless host for Photon Fusion's own
+Shared-mode simulation. Self-host the titles you own instead of depending on Photon Cloud.
 
-Black Ice's multiplayer runs on Photon PUN with a *master-client authority* model:
-one player simulates the shared world for everyone, which makes client-side cheating
-trivial. This project reimplements the server side of that protocol so the game can run
-on infrastructure you control, and so world authority can move from an untrusted player
-to the server.
+Titles it currently serves:
+
+- **Outbound** (Nintendo Switch, Photon Fusion Shared mode) — the rig that drives it is
+  [`servers/outbound`](../outbound).
+- **Black Ice** (PC, Photon PUN) — the codebase's origin. Its multiplayer runs a
+  *master-client authority* model where one player simulates the world for everyone, so
+  moving authority to the server also kills client-side cheating. The PC-side client mods
+  and asset tooling are not in this repo; they live in the frozen `earlier-photon` copy.
 
 ## Status
 
@@ -26,14 +30,14 @@ server's Fusion session-lobby event conforms to that contract.
 Requires the **.NET 8 SDK**. No game files are needed to build or test the server:
 
 ```bash
-dotnet build server/BlackIce.Server.sln          # build the server
-dotnet test  server/BlackIce.Server.sln          # run the test suite
-dotnet run --project server/BlackIce.Server.Host 127.0.0.1   # run, advertising 127.0.0.1
+dotnet build server/OpenPak.Server.sln          # build the server
+dotnet test  server/OpenPak.Server.sln          # run the test suite
+dotnet run --project server/OpenPak.Server.Host 127.0.0.1   # run, advertising 127.0.0.1
 ```
 
-On first run the server writes a documented `blackice.server.json` next to the binary, applies the
+On first run the server writes a documented `openpak.server.json` next to the binary, applies the
 database schema, prints a one-time admin bootstrap code, and starts the Name/Master/Game listeners.
-Configure it via that file or `BLACKICE_*` environment variables — see
+Configure it via that file or `OPENPAK_*` environment variables — see
 [`docs/configuration.md`](docs/configuration.md). Stop with Ctrl-C (graceful shutdown).
 
 ## Building & running (Visual Studio)
@@ -42,13 +46,13 @@ Requires **Visual Studio 2022 (17.8+)** with the **.NET 8 SDK**. A local copy of
 needed for the full interop **oracle** tests and the BepInEx plugins; the server itself builds and
 tests without it.
 
-1. Open **`BlackIce.sln`** at the repo root — it contains the server and the client plugins.
-2. Set **`BlackIce.Server.Host`** as the startup project (right-click → *Set as Startup Project*).
+1. Open **`OpenPak.sln`** at the repo root — it contains the server and the client plugins.
+2. Set **`OpenPak.Server.Host`** as the startup project (right-click → *Set as Startup Project*).
 3. Press **F5**. Launch profiles are provided (Run/Debug dropdown):
-   - *BlackIce.Server (local LAN)* — advertises `127.0.0.1` (same-PC testing).
-   - *BlackIce.Server (advertise this PC on LAN)* — edit the IP in the profile to this machine's
+   - *OpenPak.Server (local LAN)* — advertises `127.0.0.1` (same-PC testing).
+   - *OpenPak.Server (advertise this PC on LAN)* — edit the IP in the profile to this machine's
      LAN address so other PCs can connect.
-   - *BlackIce.Server (require Name Server token)* — disables anonymous LAN auth.
+   - *OpenPak.Server (require Name Server token)* — disables anonymous LAN auth.
 
 Run tests via **Test → Run All Tests**. (With the game's `Photon3Unity3D.dll` present, the full
 interop oracle suite runs too; without it, those tests are skipped and the rest still run.)
@@ -62,7 +66,7 @@ once it reaches our Name Server the server drives Name Server → Master → Gam
 - **Built-in LAN mode (the mod-free direct connection).** Black Ice has a native LAN mode: enable it and
   enter the server's IP/port (`127.0.0.1` / `5055`), then connect — the completely unmodified client walks
   the stack into the match.
-- **`BlackIce.Redirect` (optional client mod).** Use it when you want the game's **normal online startup /
+- **`OpenPak.Redirect` (optional client mod).** Use it when you want the game's **normal online startup /
   server browser** to surface **our custom realm list** instead of Photon Cloud. It's optional — the
   redirect's only job is the startup/server-list experience; gameplay works without it.
 

@@ -57,7 +57,7 @@ build only once navmesh pathing proves out.
 - **Clean-room guard:** the tool refuses to write its output anywhere git-tracked; documents that the
   artifact is local-only; never copies raw game bytes into the repo tree.
 
-### 2. NavMesh format + loader — `server/BlackIce.Server.Core/Navigation/` (committed)
+### 2. NavMesh format + loader — `server/OpenPak.Server.Core/Navigation/` (committed)
 - `NavMesh` — vertices, triangles, per-triangle neighbor links; built from the artifact. Pure data + queries:
   `NearestPointOnMesh(x,z)`, `FindPath(from, to)` (A* over triangles + funnel), `Sample(y)` ground height.
 - `NavMeshFile` — read/write our binary format (versioned header, float verts, int tris/links). Original

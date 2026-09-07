@@ -23,7 +23,7 @@ to be read from a live client. The ordered table (88 entries) is captured in
 [`generated/rpc-shortcuts.csv`](generated/rpc-shortcuts.csv) and resolves any `"5":N` seen in a capture
 to a method name (e.g. `5:39` → `ReceiveChatMessage`, `5:63` → `TakeDamage`, `5:48` → `SetDying`). The
 first ~74 entries are alphabetical; indices 74+ were appended as the game added features (so the order is
-the asset's, not re-sortable). Re-dump it after a game update with `BlackIce.OpLogger` (it records a
+the asset's, not re-sortable). Re-dump it after a game update with `OpenPak.OpLogger` (it records a
 `kind:"rpclist"` line on launch).
 
 ## Authority finding — now confirmed live

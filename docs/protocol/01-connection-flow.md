@@ -51,7 +51,7 @@ Redirecting the client to that server requires changing the AppId/region/server 
 either by patching the baked `PhotonServerSettings` asset or by DNS/hosts redirection of the
 Name Server hostname (decision deferred to Phase 1).
 
-## Verified against BlackIce.Server (Phase 1) — 2026-05-30
+## Verified against OpenPak.Server (Phase 1) — 2026-05-30
 
 The real client reaches the in-room state through the reimplemented server. Observed,
 end to end, with Photon Cloud never contacted:

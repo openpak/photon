@@ -11,7 +11,7 @@
 **Environment notes (this machine):**
 - `curl` needs `--ssl-no-revoke` (schannel revocation-check failure on downloads).
 - Game root: `C:\Program Files (x86)\Steam\steamapps\common\Black Ice` (referred to below as `$GAME`).
-- Repo root: `C:\Users\natew\OneDrive\Documentos\blackice-re` (referred to below as `$REPO`).
+- Repo root: `C:\Users\natew\OneDrive\Documentos\openpak-re` (referred to below as `$REPO`).
 - Decompiled analysis sources already exist at `$REPO/decompiled/` (gitignored).
 - Run Bash-tool commands from `$REPO` unless stated. `git` user is configured in Task 1.
 
@@ -20,7 +20,7 @@
 ## File Structure
 
 ```
-blackice-re/
+openpak-re/
   LICENSE                         # GPLv3 (Task 1)
   README.md  NOTICE               # OSS framing (Task 1)
   .gitignore                      # exists — excludes game-derived material
@@ -31,16 +31,16 @@ blackice-re/
       03-rpc-catalog.md  04-serialization.md  05-transport.md   # (Task 8)
       generated/                  # machine-extracted tables (Task 4 output)
   tools/
-    BlackIce.Recon.sln            # (Task 4)
-    BlackIce.Recon.Catalog/       # Mono.Cecil extractor (Task 4)
-      BlackIce.Recon.Catalog.csproj  Program.cs  CecilExtensions.cs  Records.cs
-    BlackIce.Recon.Catalog.Tests/ # characterization tests (Task 4)
+    OpenPak.Recon.sln            # (Task 4)
+    OpenPak.Recon.Catalog/       # Mono.Cecil extractor (Task 4)
+      OpenPak.Recon.Catalog.csproj  Program.cs  CecilExtensions.cs  Records.cs
+    OpenPak.Recon.Catalog.Tests/ # characterization tests (Task 4)
     capture/
       parse_oplog.py  test_parse_oplog.py   # correlation parser (Task 7)
       capture.ps1                 # tshark wrapper (Task 6)
   plugins/
-    BlackIce.OpLogger/            # BepInEx plugin (Task 5)
-      BlackIce.OpLogger.csproj  Plugin.cs  PhotonPatches.cs
+    OpenPak.OpLogger/            # BepInEx plugin (Task 5)
+      OpenPak.OpLogger.csproj  Plugin.cs  PhotonPatches.cs
   third-party/                    # downloaded tools (gitignored)
   decompiled/                     # gitignored (exists)
   captures/                       # gitignored corpus; sample fixture committed
@@ -76,7 +76,7 @@ Expected: `                    GNU GENERAL PUBLIC LICENSE`
 - [ ] **Step 3: Write README.md**
 
 ```markdown
-# BlackIce.Server
+# OpenPak.Server
 
 An independent, open-source server implementation for the Unity game **Black Ice**,
 created for interoperability, preservation, and server-authoritative anti-cheat.
@@ -108,8 +108,8 @@ GPLv3 — see `LICENSE`.
 - [ ] **Step 4: Write NOTICE**
 
 ```
-BlackIce.Server
-Copyright (C) 2026 BlackIce.Server contributors
+OpenPak.Server
+Copyright (C) 2026 OpenPak.Server contributors
 
 This program is free software: you can redistribute it and/or modify it under the
 terms of the GNU General Public License v3.0 as published by the Free Software
@@ -323,13 +323,13 @@ git commit -m "docs: verified Mono soft-debugger + gdb attach recipe"
 ## Task 4: Static-catalog extractor (Mono.Cecil)
 
 **Files:**
-- Create: `$REPO/tools/BlackIce.Recon.sln`
-- Create: `$REPO/tools/BlackIce.Recon.Catalog/BlackIce.Recon.Catalog.csproj`
-- Create: `$REPO/tools/BlackIce.Recon.Catalog/Records.cs`
-- Create: `$REPO/tools/BlackIce.Recon.Catalog/CecilExtensions.cs`
-- Create: `$REPO/tools/BlackIce.Recon.Catalog/Program.cs`
-- Test: `$REPO/tools/BlackIce.Recon.Catalog.Tests/BlackIce.Recon.Catalog.Tests.csproj`
-- Test: `$REPO/tools/BlackIce.Recon.Catalog.Tests/CatalogTests.cs`
+- Create: `$REPO/tools/OpenPak.Recon.sln`
+- Create: `$REPO/tools/OpenPak.Recon.Catalog/OpenPak.Recon.Catalog.csproj`
+- Create: `$REPO/tools/OpenPak.Recon.Catalog/Records.cs`
+- Create: `$REPO/tools/OpenPak.Recon.Catalog/CecilExtensions.cs`
+- Create: `$REPO/tools/OpenPak.Recon.Catalog/Program.cs`
+- Test: `$REPO/tools/OpenPak.Recon.Catalog.Tests/OpenPak.Recon.Catalog.Tests.csproj`
+- Test: `$REPO/tools/OpenPak.Recon.Catalog.Tests/CatalogTests.cs`
 
 > The extractor reads the game's own assemblies with Mono.Cecil (no decompiled text needed).
 > Tests are **characterization tests**: they assert facts we already verified by grep
@@ -340,21 +340,21 @@ git commit -m "docs: verified Mono soft-debugger + gdb attach recipe"
 
 ```bash
 cd "$REPO/tools"
-dotnet new console -n BlackIce.Recon.Catalog -o BlackIce.Recon.Catalog --framework net8.0
-dotnet new xunit   -n BlackIce.Recon.Catalog.Tests -o BlackIce.Recon.Catalog.Tests --framework net8.0
-dotnet new sln -n BlackIce.Recon
-dotnet sln add BlackIce.Recon.Catalog BlackIce.Recon.Catalog.Tests
-dotnet add BlackIce.Recon.Catalog package Mono.Cecil --version 0.11.5
-dotnet add BlackIce.Recon.Catalog.Tests reference BlackIce.Recon.Catalog
-dotnet add BlackIce.Recon.Catalog.Tests package Mono.Cecil --version 0.11.5
+dotnet new console -n OpenPak.Recon.Catalog -o OpenPak.Recon.Catalog --framework net8.0
+dotnet new xunit   -n OpenPak.Recon.Catalog.Tests -o OpenPak.Recon.Catalog.Tests --framework net8.0
+dotnet new sln -n OpenPak.Recon
+dotnet sln add OpenPak.Recon.Catalog OpenPak.Recon.Catalog.Tests
+dotnet add OpenPak.Recon.Catalog package Mono.Cecil --version 0.11.5
+dotnet add OpenPak.Recon.Catalog.Tests reference OpenPak.Recon.Catalog
+dotnet add OpenPak.Recon.Catalog.Tests package Mono.Cecil --version 0.11.5
 ```
 
 - [ ] **Step 2: Define the record types**
 
-Create `BlackIce.Recon.Catalog/Records.cs`:
+Create `OpenPak.Recon.Catalog/Records.cs`:
 
 ```csharp
-namespace BlackIce.Recon.Catalog;
+namespace OpenPak.Recon.Catalog;
 
 /// <summary>A networked remote-procedure-call handler discovered via the [PunRPC] attribute.</summary>
 public sealed record RpcEntry(string DeclaringType, string Method, string[] Parameters, bool ReferencesMasterClient);
@@ -371,10 +371,10 @@ public sealed record InstantiateEntry(string DeclaringType, string Method, strin
 
 - [ ] **Step 3: Write the failing test for RPC extraction**
 
-Create `BlackIce.Recon.Catalog.Tests/CatalogTests.cs`:
+Create `OpenPak.Recon.Catalog.Tests/CatalogTests.cs`:
 
 ```csharp
-using BlackIce.Recon.Catalog;
+using OpenPak.Recon.Catalog;
 using Mono.Cecil;
 using Xunit;
 
@@ -401,20 +401,20 @@ public class CatalogTests
 
 ```bash
 cd "$REPO/tools"
-dotnet test BlackIce.Recon.Catalog.Tests
+dotnet test OpenPak.Recon.Catalog.Tests
 ```
 
 Expected: FAIL — `Catalog` / `ExtractRpcs` does not exist (compile error).
 
 - [ ] **Step 5: Implement Cecil helpers**
 
-Create `BlackIce.Recon.Catalog/CecilExtensions.cs`:
+Create `OpenPak.Recon.Catalog/CecilExtensions.cs`:
 
 ```csharp
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace BlackIce.Recon.Catalog;
+namespace OpenPak.Recon.Catalog;
 
 internal static class CecilExtensions
 {
@@ -444,13 +444,13 @@ internal static class CecilExtensions
 
 - [ ] **Step 6: Implement the RPC extractor**
 
-Create `BlackIce.Recon.Catalog/Program.cs` (the `Catalog` class; `Main` added in Step 13):
+Create `OpenPak.Recon.Catalog/Program.cs` (the `Catalog` class; `Main` added in Step 13):
 
 ```csharp
 using Mono.Cecil;
 using Mono.Cecil.Cil;
 
-namespace BlackIce.Recon.Catalog;
+namespace OpenPak.Recon.Catalog;
 
 public static class Catalog
 {
@@ -474,7 +474,7 @@ public static class Catalog
 
 ```bash
 cd "$REPO/tools"
-dotnet test BlackIce.Recon.Catalog.Tests --filter Finds_at_least_80_PunRPC_methods
+dotnet test OpenPak.Recon.Catalog.Tests --filter Finds_at_least_80_PunRPC_methods
 ```
 
 Expected: PASS.
@@ -499,7 +499,7 @@ Append to `CatalogTests.cs`:
 - [ ] **Step 9: Run it to verify it fails**
 
 ```bash
-dotnet test BlackIce.Recon.Catalog.Tests --filter Extracts_Photon_OperationCode_with_Authenticate
+dotnet test OpenPak.Recon.Catalog.Tests --filter Extracts_Photon_OperationCode_with_Authenticate
 ```
 
 Expected: FAIL — `ExtractNamedConstants` not defined.
@@ -532,7 +532,7 @@ Add to the `Catalog` class in `Program.cs`:
 - [ ] **Step 11: Run the constant test to verify it passes**
 
 ```bash
-dotnet test BlackIce.Recon.Catalog.Tests --filter Extracts_Photon_OperationCode_with_Authenticate
+dotnet test OpenPak.Recon.Catalog.Tests --filter Extracts_Photon_OperationCode_with_Authenticate
 ```
 
 Expected: PASS. (If `Authenticate` lives in a differently-named type, the test output shows
@@ -589,7 +589,7 @@ Add to the `Catalog` class in `Program.cs`:
 Add to `Program.cs` (top-level type, same file or separate; here as a static entrypoint class):
 
 ```csharp
-namespace BlackIce.Recon.Catalog;
+namespace OpenPak.Recon.Catalog;
 
 public static class Program
 {
@@ -639,7 +639,7 @@ public static class Program
 
 ```bash
 cd "$REPO/tools"
-dotnet run --project BlackIce.Recon.Catalog
+dotnet run --project OpenPak.Recon.Catalog
 ls "$REPO/docs/protocol/generated/"
 head -5 "$REPO/docs/protocol/generated/photon_constants.csv"
 wc -l "$REPO/docs/protocol/generated/rpcs.csv"
@@ -651,7 +651,7 @@ contains rows like `OperationCode,Authenticate,230`.
 - [ ] **Step 15: Run the full test suite**
 
 ```bash
-dotnet test BlackIce.Recon.Catalog.Tests
+dotnet test OpenPak.Recon.Catalog.Tests
 ```
 
 Expected: all tests PASS.
@@ -670,9 +670,9 @@ git commit -m "feat(recon): Mono.Cecil static catalog extractor + generated tabl
 ## Task 5: BepInEx in-process op-logger plugin
 
 **Files:**
-- Create: `$REPO/plugins/BlackIce.OpLogger/BlackIce.OpLogger.csproj`
-- Create: `$REPO/plugins/BlackIce.OpLogger/Plugin.cs`
-- Create: `$REPO/plugins/BlackIce.OpLogger/PhotonPatches.cs`
+- Create: `$REPO/plugins/OpenPak.OpLogger/OpenPak.OpLogger.csproj`
+- Create: `$REPO/plugins/OpenPak.OpLogger/Plugin.cs`
+- Create: `$REPO/plugins/OpenPak.OpLogger/PhotonPatches.cs`
 
 > The plugin Harmony-patches the Photon client's structured event/response/send entry
 > points so it logs decoded operations (post-decryption). Exact method signatures vary by
@@ -697,16 +697,16 @@ signatures; the patch targets in Step 4 must match them.
 
 ```bash
 cd "$REPO/plugins"
-dotnet new classlib -n BlackIce.OpLogger -o BlackIce.OpLogger --framework netstandard2.0
+dotnet new classlib -n OpenPak.OpLogger -o OpenPak.OpLogger --framework netstandard2.0
 ```
 
-Replace `BlackIce.OpLogger/BlackIce.OpLogger.csproj` with:
+Replace `OpenPak.OpLogger/OpenPak.OpLogger.csproj` with:
 
 ```xml
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <TargetFramework>netstandard2.0</TargetFramework>
-    <AssemblyName>BlackIce.OpLogger</AssemblyName>
+    <AssemblyName>OpenPak.OpLogger</AssemblyName>
     <LangVersion>latest</LangVersion>
     <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
     <!-- Reference assemblies resolved from the local game/BepInEx install (not committed). -->
@@ -725,7 +725,7 @@ Replace `BlackIce.OpLogger/BlackIce.OpLogger.csproj` with:
 
 - [ ] **Step 3: Write the plugin entrypoint**
 
-Create `BlackIce.OpLogger/Plugin.cs`:
+Create `OpenPak.OpLogger/Plugin.cs`:
 
 ```csharp
 using System;
@@ -733,9 +733,9 @@ using System.IO;
 using BepInEx;
 using HarmonyLib;
 
-namespace BlackIce.OpLogger;
+namespace OpenPak.OpLogger;
 
-[BepInPlugin("blackice.oplogger", "BlackIce Op Logger", "0.1.0")]
+[BepInPlugin("openpak.oplogger", "OpenPak Op Logger", "0.1.0")]
 public sealed class Plugin : BaseUnityPlugin
 {
     internal static StreamWriter Log = null!;
@@ -745,8 +745,8 @@ public sealed class Plugin : BaseUnityPlugin
         var path = Path.Combine(Paths.BepInExRootPath, "oplog.jsonl");
         Log = new StreamWriter(path, append: true) { AutoFlush = true };
         Write("session", new { note = "op-logger started", utc = DateTime.UtcNow.ToString("o") });
-        new Harmony("blackice.oplogger").PatchAll();
-        Logger.LogInfo($"BlackIce op-logger active -> {path}");
+        new Harmony("openpak.oplogger").PatchAll();
+        Logger.LogInfo($"OpenPak op-logger active -> {path}");
     }
 
     /// <summary>Append one structured record as a single JSON line.</summary>
@@ -760,7 +760,7 @@ public sealed class Plugin : BaseUnityPlugin
 
 - [ ] **Step 4: Write the Harmony patches**
 
-Create `BlackIce.OpLogger/PhotonPatches.cs` (adjust the `[HarmonyPatch]` targets to the
+Create `OpenPak.OpLogger/PhotonPatches.cs` (adjust the `[HarmonyPatch]` targets to the
 exact types/signatures confirmed in Step 1):
 
 ```csharp
@@ -769,7 +769,7 @@ using ExitGames.Client.Photon;
 using HarmonyLib;
 using Photon.Realtime;
 
-namespace BlackIce.OpLogger;
+namespace OpenPak.OpLogger;
 
 /// <summary>Logs every incoming event (decoded, post-decryption).</summary>
 [HarmonyPatch(typeof(LoadBalancingClient), nameof(LoadBalancingClient.OnEvent))]
@@ -806,7 +806,7 @@ internal static class OnOperationResponsePatch
 
 - [ ] **Step 5: Add a minimal JSON serializer (avoid extra dependencies in the plugin)**
 
-Create `BlackIce.OpLogger/SimpleJson.cs`:
+Create `OpenPak.OpLogger/SimpleJson.cs`:
 
 ```csharp
 using System.Collections;
@@ -814,7 +814,7 @@ using System.Globalization;
 using System.Reflection;
 using System.Text;
 
-namespace BlackIce.OpLogger;
+namespace OpenPak.OpLogger;
 
 /// <summary>Tiny reflection-based JSON writer — enough for flat log records.</summary>
 internal static class SimpleJson
@@ -877,14 +877,14 @@ internal static class SimpleJson
 - [ ] **Step 6: Build and deploy the plugin**
 
 ```bash
-cd "$REPO/plugins/BlackIce.OpLogger"
+cd "$REPO/plugins/OpenPak.OpLogger"
 dotnet build -c Release
-cp bin/Release/netstandard2.0/BlackIce.OpLogger.dll \
+cp bin/Release/netstandard2.0/OpenPak.OpLogger.dll \
    "/c/Program Files (x86)/Steam/steamapps/common/Black Ice/BepInEx/plugins/"
 ls "/c/Program Files (x86)/Steam/steamapps/common/Black Ice/BepInEx/plugins/"
 ```
 
-Expected: build succeeds; `BlackIce.OpLogger.dll` is in the game's `BepInEx/plugins`.
+Expected: build succeeds; `OpenPak.OpLogger.dll` is in the game's `BepInEx/plugins`.
 
 - [ ] **Step 7: Run the game and verify the op-log populates**
 
@@ -936,7 +936,7 @@ Create `tools/capture/capture.ps1`:
 param([int]$Seconds = 120, [string]$OutDir = "$PSScriptRoot\..\..\captures")
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$out = Join-Path $OutDir "blackice-$stamp.pcapng"
+$out = Join-Path $OutDir "openpak-$stamp.pcapng"
 # Photon default ports: Name 5058/27000(udp), Master/Game in 5055-5056/27000+; capture all UDP, filter later.
 Write-Host "Capturing UDP for $Seconds s -> $out"
 tshark -a "duration:$Seconds" -f "udp" -w $out
@@ -952,7 +952,7 @@ pwsh "$REPO/tools/capture/capture.ps1" -Seconds 120
 ls -la "$REPO/captures/"
 ```
 
-Expected: a `blackice-*.pcapng` file (non-empty).
+Expected: a `openpak-*.pcapng` file (non-empty).
 
 - [ ] **Step 4: Summarize the transport in the capture**
 

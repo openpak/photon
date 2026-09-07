@@ -1,4 +1,4 @@
-# ---- BlackIce.Server .gitignore ----
+# ---- OpenPak.Server .gitignore ----
 # Build output
 bin/
 obj/
@@ -26,7 +26,7 @@ steam-ticket-spike.log
 *.db
 *.db-shm
 *.db-wal
-blackice.server.json
+openpak.server.json
 
 # Dev environment
 .remember/

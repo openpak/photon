@@ -6,12 +6,12 @@
 
 **Architecture:** A new `RpcShortcuts` table lets `PunRpcInfo` resolve shortcut-indexed RPCs by name, so the relay's `killfeed` interceptor can recognize `KilledPlayerRemote`, publish a `DeathNotice` on the existing `KillBus`, and the `arena` plugin scores the victim's opposing team. On round reset the `arena` sends server-authored respawn RPCs (built by `ServerRpc`, reusing a promoted `PhotonCustomData.Vector3` factory) to every room participant. All server-side, Steam-free, no game DLL needed for tests.
 
-**Tech Stack:** C# / .NET 8, xUnit. Projects: `BlackIce.Photon` (wire types), `BlackIce.Server.LoadBalancing` (relay/plugins), `BlackIce.Server.Core` (options). Tests in `BlackIce.Photon.Tests` and `BlackIce.Server.Tests` (the latter has `InternalsVisibleTo`, so internal types are directly testable).
+**Tech Stack:** C# / .NET 8, xUnit. Projects: `OpenPak.Photon` (wire types), `OpenPak.Server.LoadBalancing` (relay/plugins), `OpenPak.Server.Core` (options). Tests in `OpenPak.Photon.Tests` and `OpenPak.Server.Tests` (the latter has `InternalsVisibleTo`, so internal types are directly testable).
 
 **Spec:** `docs/superpowers/specs/2026-06-02-arena-down-and-respawn-design.md`
 
 **Conventions:** Conventional commits, scoped (`feat(lb):`, `feat(data):`, `refactor(...):`, `test(...):`).
-Build with `dotnet build server/BlackIce.Server.sln`; test with `dotnet test server/BlackIce.Server.sln`. **Note:** if the dev server is running it locks `BlackIce.Photon.dll`; stop it (or test only the relevant project) before a full solution build.
+Build with `dotnet build server/OpenPak.Server.sln`; test with `dotnet test server/OpenPak.Server.sln`. **Note:** if the dev server is running it locks `OpenPak.Photon.dll`; stop it (or test only the relevant project) before a full solution build.
 
 ---
 
@@ -19,43 +19,43 @@ Build with `dotnet build server/BlackIce.Server.sln`; test with `dotnet test ser
 
 | File | Change | Responsibility |
 |---|---|---|
-| `server/BlackIce.Photon/PhotonCustomData.cs` | modify | add static `Vector3(x,y,z)` factory (the one Vector3 encoder) |
-| `server/BlackIce.Photon/RpcShortcuts.cs` | create | ordered shortcut-index → method-name table (88 entries) |
-| `server/BlackIce.Photon/PunRpcInfo.cs` | modify | resolve shortcut RPCs to a method name; expose `MethodIndex` + `Args` |
-| `server/BlackIce.Server.LoadBalancing/KillBus.cs` | modify | add `DeathNotice` record + `Died` event + `PublishDeath` |
-| `server/BlackIce.Server.LoadBalancing/ServerRpc.cs` | modify | add `Teleport` + `BecomeTangible` builders |
-| `server/BlackIce.Server.Core/ArenaOptions.cs` | modify | add `RespawnAtReset` + spawn-point fields |
-| `server/BlackIce.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` | modify | real-death detector + announcer; retire HP-summing |
-| `server/BlackIce.Server.LoadBalancing/Plugins/ArenaPlugin.cs` | modify | death-based scoring; respawn at reset |
-| `server/BlackIce.Server.LoadBalancing/Bots/GameActions.cs` | modify | `Vec3` delegates to the shared factory (DRY) |
-| `server/BlackIce.Photon.Tests/RpcShortcutsTests.cs` | create | table lookups |
-| `server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs` | modify | update the shortcut test (now resolves) |
-| `server/BlackIce.Photon.Tests/PhotonCustomDataTests.cs` | create | Vector3 factory encoding |
-| `server/BlackIce.Server.Tests/ServerRpcTests.cs` | create | respawn RPC builders |
-| `server/BlackIce.Server.Tests/KillBusTests.cs` | create | death channel |
-| `server/BlackIce.Server.Tests/KillfeedDeathTests.cs` | create | death detection/debounce |
-| `server/BlackIce.Server.Tests/ArenaMatchTests.cs` | create | scoring + respawn |
+| `server/OpenPak.Photon/PhotonCustomData.cs` | modify | add static `Vector3(x,y,z)` factory (the one Vector3 encoder) |
+| `server/OpenPak.Photon/RpcShortcuts.cs` | create | ordered shortcut-index → method-name table (88 entries) |
+| `server/OpenPak.Photon/PunRpcInfo.cs` | modify | resolve shortcut RPCs to a method name; expose `MethodIndex` + `Args` |
+| `server/OpenPak.Server.LoadBalancing/KillBus.cs` | modify | add `DeathNotice` record + `Died` event + `PublishDeath` |
+| `server/OpenPak.Server.LoadBalancing/ServerRpc.cs` | modify | add `Teleport` + `BecomeTangible` builders |
+| `server/OpenPak.Server.Core/ArenaOptions.cs` | modify | add `RespawnAtReset` + spawn-point fields |
+| `server/OpenPak.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` | modify | real-death detector + announcer; retire HP-summing |
+| `server/OpenPak.Server.LoadBalancing/Plugins/ArenaPlugin.cs` | modify | death-based scoring; respawn at reset |
+| `server/OpenPak.Server.LoadBalancing/Bots/GameActions.cs` | modify | `Vec3` delegates to the shared factory (DRY) |
+| `server/OpenPak.Photon.Tests/RpcShortcutsTests.cs` | create | table lookups |
+| `server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs` | modify | update the shortcut test (now resolves) |
+| `server/OpenPak.Photon.Tests/PhotonCustomDataTests.cs` | create | Vector3 factory encoding |
+| `server/OpenPak.Server.Tests/ServerRpcTests.cs` | create | respawn RPC builders |
+| `server/OpenPak.Server.Tests/KillBusTests.cs` | create | death channel |
+| `server/OpenPak.Server.Tests/KillfeedDeathTests.cs` | create | death detection/debounce |
+| `server/OpenPak.Server.Tests/ArenaMatchTests.cs` | create | scoring + respawn |
 
 ---
 
 ### Task 1: Promote the Vector3 encoder to a shared factory
 
 **Files:**
-- Modify: `server/BlackIce.Photon/PhotonCustomData.cs`
-- Modify: `server/BlackIce.Server.LoadBalancing/Bots/GameActions.cs`
-- Test: `server/BlackIce.Photon.Tests/PhotonCustomDataTests.cs`
+- Modify: `server/OpenPak.Photon/PhotonCustomData.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/Bots/GameActions.cs`
+- Test: `server/OpenPak.Photon.Tests/PhotonCustomDataTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Photon.Tests/PhotonCustomDataTests.cs`:
+Create `server/OpenPak.Photon.Tests/PhotonCustomDataTests.cs`:
 
 ```csharp
 using System;
 using System.Buffers.Binary;
-using BlackIce.Photon;
+using OpenPak.Photon;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class PhotonCustomDataTests
 {
@@ -74,18 +74,18 @@ public class PhotonCustomDataTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter Vector3_factory_encodes_three_big_endian_floats_with_the_vector3_code`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter Vector3_factory_encodes_three_big_endian_floats_with_the_vector3_code`
 Expected: FAIL — `PhotonCustomData` has no `Vector3` member (compile error).
 
 - [ ] **Step 3: Add the factory**
 
-Replace the body of `server/BlackIce.Photon/PhotonCustomData.cs` with:
+Replace the body of `server/OpenPak.Photon/PhotonCustomData.cs` with:
 
 ```csharp
 using System;
 using System.Buffers.Binary;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>
 /// A registered Photon custom type as it appears on the wire: a 1-byte type code plus its raw
@@ -109,7 +109,7 @@ public sealed record PhotonCustomData(byte Code, byte[] Data)
 
 - [ ] **Step 4: Point `GameActions.Vec3` at the shared factory**
 
-In `server/BlackIce.Server.LoadBalancing/Bots/GameActions.cs`, replace the `Vec3` helper body:
+In `server/OpenPak.Server.LoadBalancing/Bots/GameActions.cs`, replace the `Vec3` helper body:
 
 ```csharp
     private static PhotonCustomData Vec3(float x, float y, float z) => PhotonCustomData.Vector3(x, y, z);
@@ -119,15 +119,15 @@ In `server/BlackIce.Server.LoadBalancing/Bots/GameActions.cs`, replace the `Vec3
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter Vector3_factory`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter Vector3_factory`
 Expected: PASS.
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter GameActions`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter GameActions`
 Expected: PASS (existing `GameActionsTests` still green — the bot Vector3 path is unchanged in behavior).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add server/BlackIce.Photon/PhotonCustomData.cs server/BlackIce.Server.LoadBalancing/Bots/GameActions.cs server/BlackIce.Photon.Tests/PhotonCustomDataTests.cs
+git add server/OpenPak.Photon/PhotonCustomData.cs server/OpenPak.Server.LoadBalancing/Bots/GameActions.cs server/OpenPak.Photon.Tests/PhotonCustomDataTests.cs
 git commit -m "refactor(photon): single Vector3 custom-type factory, reused by bots"
 ```
 
@@ -136,18 +136,18 @@ git commit -m "refactor(photon): single Vector3 custom-type factory, reused by b
 ### Task 2: RpcShortcuts table
 
 **Files:**
-- Create: `server/BlackIce.Photon/RpcShortcuts.cs`
-- Test: `server/BlackIce.Photon.Tests/RpcShortcutsTests.cs`
+- Create: `server/OpenPak.Photon/RpcShortcuts.cs`
+- Test: `server/OpenPak.Photon.Tests/RpcShortcutsTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Photon.Tests/RpcShortcutsTests.cs`:
+Create `server/OpenPak.Photon.Tests/RpcShortcutsTests.cs`:
 
 ```csharp
-using BlackIce.Photon;
+using OpenPak.Photon;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class RpcShortcutsTests
 {
@@ -172,17 +172,17 @@ public class RpcShortcutsTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter RpcShortcuts`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter RpcShortcuts`
 Expected: FAIL — `RpcShortcuts` does not exist (compile error).
 
 - [ ] **Step 3: Create the table**
 
-Create `server/BlackIce.Photon/RpcShortcuts.cs`. The list order is authoritative (index = position) and mirrors `docs/protocol/generated/rpc-shortcuts.csv`:
+Create `server/OpenPak.Photon/RpcShortcuts.cs`. The list order is authoritative (index = position) and mirrors `docs/protocol/generated/rpc-shortcuts.csv`:
 
 ```csharp
 using System.Collections.Generic;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>
 /// PUN's ordered RPC method list (the project's <c>RpcList</c>), captured live from the game client.
@@ -190,7 +190,7 @@ namespace BlackIce.Photon;
 /// the "method shortcut") instead of by name — e.g. <c>KilledPlayerRemote</c> arrives as index 32.
 /// This table resolves that index back to a method name so the relay can recognize the call.
 /// Mirrors <c>docs/protocol/generated/rpc-shortcuts.csv</c>; regenerate both from a fresh
-/// <c>BlackIce.OpLogger</c> "rpclist" capture after a game update (indices are not version-stable).
+/// <c>OpenPak.OpLogger</c> "rpclist" capture after a game update (indices are not version-stable).
 /// </summary>
 public static class RpcShortcuts
 {
@@ -222,13 +222,13 @@ public static class RpcShortcuts
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter RpcShortcuts`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter RpcShortcuts`
 Expected: PASS (both tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Photon/RpcShortcuts.cs server/BlackIce.Photon.Tests/RpcShortcutsTests.cs
+git add server/OpenPak.Photon/RpcShortcuts.cs server/OpenPak.Photon.Tests/RpcShortcutsTests.cs
 git commit -m "feat(photon): RpcShortcuts table to resolve shortcut-indexed RPCs"
 ```
 
@@ -237,12 +237,12 @@ git commit -m "feat(photon): RpcShortcuts table to resolve shortcut-indexed RPCs
 ### Task 3: PunRpcInfo resolves shortcut RPCs + exposes Args
 
 **Files:**
-- Modify: `server/BlackIce.Photon/PunRpcInfo.cs`
-- Test: `server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs` (update the existing shortcut test, add new ones)
+- Modify: `server/OpenPak.Photon/PunRpcInfo.cs`
+- Test: `server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs` (update the existing shortcut test, add new ones)
 
 - [ ] **Step 1: Update the existing shortcut test and add resolution/args tests**
 
-In `server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs`, **replace** the `Handles_shortcut_rpc_with_null_method_name` test with:
+In `server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs`, **replace** the `Handles_shortcut_rpc_with_null_method_name` test with:
 
 ```csharp
     [Fact]
@@ -285,18 +285,18 @@ In `server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs`, **replace** the `Handles
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter PunRpc`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter PunRpc`
 Expected: FAIL — `PunRpcInfo` has no `MethodIndex`/`Args` and does not resolve shortcuts (compile errors / assertion failures).
 
 - [ ] **Step 3: Extend PunRpcInfo**
 
-Replace `server/BlackIce.Photon/PunRpcInfo.cs` with:
+Replace `server/OpenPak.Photon/PunRpcInfo.cs` with:
 
 ```csharp
 using System.Buffers.Binary;
 using System.Collections;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>
 /// Decoded view of a PUN RPC event (Photon event code 200) for authority checks: the target view id,
@@ -349,13 +349,13 @@ public readonly record struct PunRpcInfo(
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj`
+Run: `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj`
 Expected: PASS (all PunRpc tests, including the updated shortcut test; the named-RPC, non-RPC, and no-damage tests still pass).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Photon/PunRpcInfo.cs server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs
+git add server/OpenPak.Photon/PunRpcInfo.cs server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs
 git commit -m "feat(photon): PunRpcInfo resolves shortcut RPCs and exposes args"
 ```
 
@@ -364,18 +364,18 @@ git commit -m "feat(photon): PunRpcInfo resolves shortcut RPCs and exposes args"
 ### Task 4: KillBus death channel
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/KillBus.cs`
-- Test: `server/BlackIce.Server.Tests/KillBusTests.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/KillBus.cs`
+- Test: `server/OpenPak.Server.Tests/KillBusTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Server.Tests/KillBusTests.cs`:
+Create `server/OpenPak.Server.Tests/KillBusTests.cs`:
 
 ```csharp
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class KillBusTests
 {
@@ -397,12 +397,12 @@ public class KillBusTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter KillBus`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter KillBus`
 Expected: FAIL — no `DeathNotice` / `Died` / `PublishDeath` (compile error).
 
 - [ ] **Step 3: Add the death channel**
 
-In `server/BlackIce.Server.LoadBalancing/KillBus.cs`, add the record next to `KillNotice`:
+In `server/OpenPak.Server.LoadBalancing/KillBus.cs`, add the record next to `KillNotice`:
 
 ```csharp
 /// <summary>A server-detected real death: the room and the victim actor. No killer — the death RPC
@@ -421,13 +421,13 @@ And inside the `KillBus` class, add alongside `Killed`/`Publish`:
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter KillBus`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter KillBus`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/KillBus.cs server/BlackIce.Server.Tests/KillBusTests.cs
+git add server/OpenPak.Server.LoadBalancing/KillBus.cs server/OpenPak.Server.Tests/KillBusTests.cs
 git commit -m "feat(lb): KillBus death channel (DeathNotice/Died)"
 ```
 
@@ -436,21 +436,21 @@ git commit -m "feat(lb): KillBus death channel (DeathNotice/Died)"
 ### Task 5: ServerRpc respawn builders
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/ServerRpc.cs`
-- Test: `server/BlackIce.Server.Tests/ServerRpcTests.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/ServerRpc.cs`
+- Test: `server/OpenPak.Server.Tests/ServerRpcTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Server.Tests/ServerRpcTests.cs`:
+Create `server/OpenPak.Server.Tests/ServerRpcTests.cs`:
 
 ```csharp
 using System.Buffers.Binary;
 using System.Collections;
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class ServerRpcTests
 {
@@ -489,12 +489,12 @@ public class ServerRpcTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter ServerRpc`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter ServerRpc`
 Expected: FAIL — `ServerRpc` has no `Teleport`/`BecomeTangible` (compile error).
 
 - [ ] **Step 3: Add the builders**
 
-In `server/BlackIce.Server.LoadBalancing/ServerRpc.cs`, add these methods inside the `ServerRpc` class (after `Chat`). They mirror `Chat`'s shape (RPC on the actor's pawn view, addressed by method name):
+In `server/OpenPak.Server.LoadBalancing/ServerRpc.cs`, add these methods inside the `ServerRpc` class (after `Chat`). They mirror `Chat`'s shape (RPC on the actor's pawn view, addressed by method name):
 
 ```csharp
     /// <summary>A <c>TeleportImmediately(Vector3)</c> RPC on <paramref name="actor"/>'s pawn view — used to
@@ -528,13 +528,13 @@ In `server/BlackIce.Server.LoadBalancing/ServerRpc.cs`, add these methods inside
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter ServerRpc`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter ServerRpc`
 Expected: PASS (both tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/ServerRpc.cs server/BlackIce.Server.Tests/ServerRpcTests.cs
+git add server/OpenPak.Server.LoadBalancing/ServerRpc.cs server/OpenPak.Server.Tests/ServerRpcTests.cs
 git commit -m "feat(lb): ServerRpc Teleport/BecomeTangible respawn builders"
 ```
 
@@ -547,21 +547,21 @@ victim actor from the RPC's first arg (the pawn viewId), debounces repeats, publ
 announces the elimination. State shrinks to an on/off flag plus a per-room "currently dead" set.
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` (full rewrite)
-- Test: `server/BlackIce.Server.Tests/KillfeedDeathTests.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` (full rewrite)
+- Test: `server/OpenPak.Server.Tests/KillfeedDeathTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Server.Tests/KillfeedDeathTests.cs`:
+Create `server/OpenPak.Server.Tests/KillfeedDeathTests.cs`:
 
 ```csharp
 using System.Collections.Generic;
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Plugins;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Plugins;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class KillfeedDeathTests
 {
@@ -644,22 +644,22 @@ public class KillfeedDeathTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter KillfeedDeath`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter KillfeedDeath`
 Expected: FAIL — the new `KillfeedInterceptor(state, bus)` ctor, `KillfeedState.ClearDead`, etc. don't exist yet (compile errors).
 
 - [ ] **Step 3: Rewrite the plugin**
 
-Replace the entire contents of `server/BlackIce.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` with:
+Replace the entire contents of `server/OpenPak.Server.LoadBalancing/Plugins/KillfeedPlugin.cs` with:
 
 ```csharp
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.Data;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.Data;
 
-namespace BlackIce.Server.LoadBalancing.Plugins;
+namespace OpenPak.Server.LoadBalancing.Plugins;
 
 /// <summary>
 /// Built-in plugin that detects <b>real player deaths</b> from the relay and announces them, with zero
@@ -770,13 +770,13 @@ internal sealed class KillfeedCommands
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter KillfeedDeath`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter KillfeedDeath`
 Expected: PASS (all five tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Plugins/KillfeedPlugin.cs server/BlackIce.Server.Tests/KillfeedDeathTests.cs
+git add server/OpenPak.Server.LoadBalancing/Plugins/KillfeedPlugin.cs server/OpenPak.Server.Tests/KillfeedDeathTests.cs
 git commit -m "feat(lb): killfeed detects real deaths (KilledPlayerRemote), retires HP-summing"
 ```
 
@@ -785,14 +785,14 @@ git commit -m "feat(lb): killfeed detects real deaths (KilledPlayerRemote), reti
 ### Task 7: ArenaOptions — respawn toggle + spawn point
 
 **Files:**
-- Modify: `server/BlackIce.Server.Core/ArenaOptions.cs`
+- Modify: `server/OpenPak.Server.Core/ArenaOptions.cs`
 
 No new test file — the values are plain config consumed by the arena (covered by Task 8). This is a small,
 self-contained config addition.
 
 - [ ] **Step 1: Add the options**
 
-In `server/BlackIce.Server.Core/ArenaOptions.cs`, add these properties inside the `ArenaOptions` class
+In `server/OpenPak.Server.Core/ArenaOptions.cs`, add these properties inside the `ArenaOptions` class
 (after `ResetOnWin`):
 
 ```csharp
@@ -809,13 +809,13 @@ In `server/BlackIce.Server.Core/ArenaOptions.cs`, add these properties inside th
 
 - [ ] **Step 2: Build to verify it compiles**
 
-Run: `dotnet build server/BlackIce.Server.Core/BlackIce.Server.Core.csproj`
+Run: `dotnet build server/OpenPak.Server.Core/OpenPak.Server.Core.csproj`
 Expected: Build succeeded, 0 errors.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add server/BlackIce.Server.Core/ArenaOptions.cs
+git add server/OpenPak.Server.Core/ArenaOptions.cs
 git commit -m "feat(core): ArenaOptions respawn toggle + spawn point"
 ```
 
@@ -827,23 +827,23 @@ The arena now scores on the `Died` channel (victim's opposing team gains a point
 orchestrates respawn for every room participant.
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/Plugins/ArenaPlugin.cs`
-- Test: `server/BlackIce.Server.Tests/ArenaMatchTests.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/Plugins/ArenaPlugin.cs`
+- Test: `server/OpenPak.Server.Tests/ArenaMatchTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `server/BlackIce.Server.Tests/ArenaMatchTests.cs`:
+Create `server/OpenPak.Server.Tests/ArenaMatchTests.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Plugins;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Plugins;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class ArenaMatchTests
 {
@@ -933,21 +933,21 @@ public class ArenaMatchTests
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter ArenaMatch`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter ArenaMatch`
 Expected: FAIL — `ArenaMatch.OnDeath`, `ArenaMatch.RespawnAll`, and `ArenaState.SpawnX/SpawnY/SpawnZ` don't exist (compile errors).
 
 - [ ] **Step 3: Rewrite the plugin**
 
-Replace the entire contents of `server/BlackIce.Server.LoadBalancing/Plugins/ArenaPlugin.cs` with:
+Replace the entire contents of `server/OpenPak.Server.LoadBalancing/Plugins/ArenaPlugin.cs` with:
 
 ```csharp
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using BlackIce.Server.Core;
-using BlackIce.Server.Data;
+using OpenPak.Server.Core;
+using OpenPak.Server.Data;
 
-namespace BlackIce.Server.LoadBalancing.Plugins;
+namespace OpenPak.Server.LoadBalancing.Plugins;
 
 /// <summary>
 /// Built-in plugin that turns a Team-vs-Team realm into a scored, replayable <b>arena match</b>, entirely
@@ -1133,13 +1133,13 @@ internal sealed class ArenaCommands
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter ArenaMatch`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter ArenaMatch`
 Expected: PASS (all four tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Plugins/ArenaPlugin.cs server/BlackIce.Server.Tests/ArenaMatchTests.cs
+git add server/OpenPak.Server.LoadBalancing/Plugins/ArenaPlugin.cs server/OpenPak.Server.Tests/ArenaMatchTests.cs
 git commit -m "feat(lb): arena scores real deaths and respawns at round reset"
 ```
 
@@ -1152,31 +1152,31 @@ No new code; this verifies the whole system holds together (both plugins are aut
 
 - [ ] **Step 1: Confirm both plugins still discover**
 
-Run: `dotnet test server/BlackIce.Server.sln --filter Built_in_plugins_are_discovered`
+Run: `dotnet test server/OpenPak.Server.sln --filter Built_in_plugins_are_discovered`
 Expected: PASS (the existing discovery test; `killfeed` and `arena` remain registered `IServerPlugin`s).
 
 - [ ] **Step 2: Full solution build**
 
-(Stop the dev server first if running — it locks `BlackIce.Photon.dll`.)
-Run: `dotnet build server/BlackIce.Server.sln`
+(Stop the dev server first if running — it locks `OpenPak.Photon.dll`.)
+Run: `dotnet build server/OpenPak.Server.sln`
 Expected: Build succeeded, **0 warnings, 0 errors**. Fix any warning that appears.
 
 - [ ] **Step 3: Full test suite**
 
-Run: `dotnet test server/BlackIce.Server.sln`
+Run: `dotnet test server/OpenPak.Server.sln`
 Expected: all tests pass (the prior suite plus the new `RpcShortcuts`, `PhotonCustomData`, `PunRpc`
 (updated), `KillBus`, `ServerRpc`, `KillfeedDeath`, `ArenaMatch` tests). No failures, no skips beyond the
 oracle-gated ones.
 
 - [ ] **Step 4: Style check**
 
-Run: `dotnet format server/BlackIce.Server.sln --verify-no-changes`
-Expected: no changes required. If it reports drift, run `dotnet format server/BlackIce.Server.sln` and
+Run: `dotnet format server/OpenPak.Server.sln --verify-no-changes`
+Expected: no changes required. If it reports drift, run `dotnet format server/OpenPak.Server.sln` and
 include the result.
 
 - [ ] **Step 5: Gap-inventory check**
 
-Run: `git grep -nE "// (STUB|GAP):" server/BlackIce.Server.LoadBalancing/Plugins/ArenaPlugin.cs`
+Run: `git grep -nE "// (STUB|GAP):" server/OpenPak.Server.LoadBalancing/Plugins/ArenaPlugin.cs`
 Expected: the one intended `// GAP:` (per-team spawn points). Confirm no stray `// STUB:` was introduced.
 
 - [ ] **Step 6: Commit any format/cleanup**

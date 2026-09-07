@@ -1,5 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Dev tool: produces the server-side copy of Fusion.Runtime.dll that BlackIce.Server.Fusion
+  <!-- Dev tool: produces the server-side copy of Fusion.Runtime.dll that OpenPak.Server.Fusion
        loads (see docs/fusion-shared-server.md). Never commit its input or output DLLs. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

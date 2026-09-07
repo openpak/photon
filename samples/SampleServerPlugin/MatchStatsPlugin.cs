@@ -1,9 +1,9 @@
 using System.Collections.Concurrent;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.Data;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Plugins;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.Data;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Plugins;
 
 namespace SampleServerPlugin;
 

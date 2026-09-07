@@ -115,7 +115,7 @@ an "invited nobody" timer. So a host that drops ~2-4 min after opening Invite
 Friends was **evicted by the server**: the Invite Friends system applet suspends
 the game, the host stops answering keepalive pings, and the listener evicts any
 peer silent past `Server:Listener:DeadTimeoutSeconds` (**default 120 s**). Raise
-it via `BLACKICE_Server__Listener__DeadTimeoutSeconds` (note the `BLACKICE_`
+it via `OPENPAK_Server__Listener__DeadTimeoutSeconds` (note the `OPENPAK_`
 prefix and `Server__` segment — a bare `Listener__…` is ignored), or hold the
 host's slot while its room has a live registration instead of evicting on inbound
 silence alone.

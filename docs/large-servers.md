@@ -37,7 +37,7 @@ Nothing caps the *server* at 8.
   authority). That's an in-match client concern, not a connection block.
 
 **An unmodified client joins a >8 realm fine.** The optional client mod
-[`BlackIce.BigLobby`](../plugins/BlackIce.BigLobby/README.md) is a **smoothing/verification** aid, not a
+`OpenPak.BigLobby` (a PC client mod, kept only in the frozen `earlier-photon` copy) is a **smoothing/verification** aid, not a
 requirement: the client that *creates* a room still calls PUN with the game's small baked-in
 `RoomOptions.MaxPlayers` (~8), which the server ignores for the gate but which the creating client's own
 local PUN/HUD still believes — BigLobby raises that so the creating client's view matches the big realm.
@@ -56,6 +56,6 @@ advertised number saturates. (The server console's `rooms` command shows the tru
 
 - **Want more players overall?** Add realms / raise per-realm caps. Already supported, no mod.
 - **Want a single match with >8 players?** Raise the server realm's `MaxPlayers`. Unmodified clients will
-  **join** it (the server is the gate). Optionally install `BlackIce.BigLobby` on clients so the
+  **join** it (the server is the gate). Optionally install `OpenPak.BigLobby` on clients so the
   room-creator's local view matches the big cap — and treat the game's in-match stability above 8 as
   **unverified** until tested against the real client.

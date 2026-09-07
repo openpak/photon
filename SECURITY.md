@@ -11,7 +11,7 @@ Server requires a Steam **game-server auth ticket** from non-LAN peers and valid
 `ISteamGameServer::BeginAuthSession` (Facepunch.Steamworks, AppID 311800, anonymous logon — no publisher
 key). A validated peer's SteamID is signed into the auth token with a `verified` claim, and admin/anti-cheat
 code trusts a SteamID's permission level **only when the connection is verified**. Public peers that present
-no/invalid ticket **fail closed**. The real validator is the optional `BlackIce.Server.Steam` project; the
+no/invalid ticket **fail closed**. The real validator is the optional `OpenPak.Server.Steam` project; the
 default build ships `NullSteamTicketValidator` (Steam-free), so without the Steam build a public server
 rejects everyone — run it with the Steam build, or on LAN.
 

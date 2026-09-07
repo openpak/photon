@@ -6,7 +6,7 @@
 
 **Architecture:** A new `RoomSession` (one per room) holds the live `PeerConnection` set and runs an ordered `IEventInterceptor` chain that returns Forward/Drop/Rewrite/Originate; `RoomSession` then delivers the resulting event to every *other* member. `GameServerHandler` registers/unregisters peers and routes inbound gameplay events into the session instead of dropping them. Authority interceptors and playerbots (Phases 2b/2c) plug into the same seam later — this plan ships only the substrate and a pass-through default.
 
-**Tech Stack:** C# / .NET 8, xUnit. Builds on existing `BlackIce.Server.LoadBalancing` (`Room`/`RoomRegistry`, `GameServerHandler`), `BlackIce.Server.Core` (`PeerConnection`, `IOperationHandler`), and `BlackIce.Photon` (`EventData`, `OperationRequest`).
+**Tech Stack:** C# / .NET 8, xUnit. Builds on existing `OpenPak.Server.LoadBalancing` (`Room`/`RoomRegistry`, `GameServerHandler`), `OpenPak.Server.Core` (`PeerConnection`, `IOperationHandler`), and `OpenPak.Photon` (`EventData`, `OperationRequest`).
 
 **Scope note:** This is sub-plan **2a** of the Phase 2 spec (`docs/superpowers/specs/2026-05-30-phase2-relay-authority-playerbots-design.md`). 2b (mod-free authority interceptors) and 2c (playerbots) get their own plans once 2a's interfaces are real and byte layouts are verified live.
 
@@ -14,13 +14,13 @@
 
 ## File structure
 
-- Create `server/BlackIce.Server.LoadBalancing/RelayVerdict.cs` — the verdict type returned by interceptors.
-- Create `server/BlackIce.Server.LoadBalancing/EventContext.cs` — decoded inbound event + sender actor + room handle passed to interceptors.
-- Create `server/BlackIce.Server.LoadBalancing/IEventInterceptor.cs` — the seam interface + the default pass-through interceptor.
-- Create `server/BlackIce.Server.LoadBalancing/RoomSession.cs` — per-room membership (`PeerConnection`s), interceptor chain, and fan-out.
-- Modify `server/BlackIce.Server.LoadBalancing/RoomRegistry.cs` — give `Room` a `RoomSession`, or hold sessions in the registry (decided in Task 2).
-- Modify `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs` — register peer on join, unregister on disconnect, route OpRaiseEvent gameplay events into the session.
-- Create tests: `server/BlackIce.Server.Tests/RelayVerdictTests.cs`, `RoomSessionRelayTests.cs`, `InterceptorChainTests.cs`, `GameServerRelayTests.cs`.
+- Create `server/OpenPak.Server.LoadBalancing/RelayVerdict.cs` — the verdict type returned by interceptors.
+- Create `server/OpenPak.Server.LoadBalancing/EventContext.cs` — decoded inbound event + sender actor + room handle passed to interceptors.
+- Create `server/OpenPak.Server.LoadBalancing/IEventInterceptor.cs` — the seam interface + the default pass-through interceptor.
+- Create `server/OpenPak.Server.LoadBalancing/RoomSession.cs` — per-room membership (`PeerConnection`s), interceptor chain, and fan-out.
+- Modify `server/OpenPak.Server.LoadBalancing/RoomRegistry.cs` — give `Room` a `RoomSession`, or hold sessions in the registry (decided in Task 2).
+- Modify `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs` — register peer on join, unregister on disconnect, route OpRaiseEvent gameplay events into the session.
+- Create tests: `server/OpenPak.Server.Tests/RelayVerdictTests.cs`, `RoomSessionRelayTests.cs`, `InterceptorChainTests.cs`, `GameServerRelayTests.cs`.
 
 The codec decoders named in the spec (DamagePacket, position stream, 202) are **not** in 2a — the pass-through relay forwards raw `EventData` without needing to understand its contents. Decoders arrive with 2b when authority needs to read payloads.
 
@@ -29,18 +29,18 @@ The codec decoders named in the spec (DamagePacket, position stream, 202) are **
 ## Task 1: RelayVerdict — the interceptor result type
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/RelayVerdict.cs`
-- Test: `server/BlackIce.Server.Tests/RelayVerdictTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/RelayVerdict.cs`
+- Test: `server/OpenPak.Server.Tests/RelayVerdictTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
 using System.Collections.Generic;
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class RelayVerdictTests
 {
@@ -87,17 +87,17 @@ public class RelayVerdictTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RelayVerdictTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RelayVerdictTests`
 Expected: FAIL — `RelayVerdict`/`RelayAction` do not exist (compile error).
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `server/BlackIce.Server.LoadBalancing/RelayVerdict.cs`:
+Create `server/OpenPak.Server.LoadBalancing/RelayVerdict.cs`:
 
 ```csharp
-using BlackIce.Photon;
+using OpenPak.Photon;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>What the relay should do with an inbound event after the interceptor chain runs.</summary>
 public enum RelayAction { Forward, Drop, Rewrite, Originate }
@@ -132,13 +132,13 @@ public sealed class RelayVerdict
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RelayVerdictTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RelayVerdictTests`
 Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/RelayVerdict.cs server/BlackIce.Server.Tests/RelayVerdictTests.cs
+git add server/OpenPak.Server.LoadBalancing/RelayVerdict.cs server/OpenPak.Server.Tests/RelayVerdictTests.cs
 git commit -m "feat(lb): RelayVerdict — interceptor decision type (forward/drop/rewrite/originate)"
 ```
 
@@ -147,18 +147,18 @@ git commit -m "feat(lb): RelayVerdict — interceptor decision type (forward/dro
 ## Task 2: EventContext and IEventInterceptor (the seam)
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/EventContext.cs`
-- Create: `server/BlackIce.Server.LoadBalancing/IEventInterceptor.cs`
-- Test: `server/BlackIce.Server.Tests/InterceptorChainTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/EventContext.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/IEventInterceptor.cs`
+- Test: `server/OpenPak.Server.Tests/InterceptorChainTests.cs`
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class InterceptorChainTests
 {
@@ -210,17 +210,17 @@ public class InterceptorChainTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter InterceptorChainTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter InterceptorChainTests`
 Expected: FAIL — `EventContext`, `IEventInterceptor`, `PassthroughInterceptor`, `InterceptorChain` do not exist.
 
 - [ ] **Step 3: Write minimal implementation**
 
-Create `server/BlackIce.Server.LoadBalancing/EventContext.cs`:
+Create `server/OpenPak.Server.LoadBalancing/EventContext.cs`:
 
 ```csharp
-using BlackIce.Photon;
+using OpenPak.Photon;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>
 /// The decoded inbound event handed to interceptors: which room it is in, which actor sent it, and
@@ -240,12 +240,12 @@ public sealed class EventContext
 }
 ```
 
-Create `server/BlackIce.Server.LoadBalancing/IEventInterceptor.cs`:
+Create `server/OpenPak.Server.LoadBalancing/IEventInterceptor.cs`:
 
 ```csharp
-using BlackIce.Server.Core;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>
 /// One authority/relay decision over an inbound in-room event. The default chain is a single
@@ -293,13 +293,13 @@ public sealed class InterceptorChain
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter InterceptorChainTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter InterceptorChainTests`
 Expected: PASS (3 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/EventContext.cs server/BlackIce.Server.LoadBalancing/IEventInterceptor.cs server/BlackIce.Server.Tests/InterceptorChainTests.cs
+git add server/OpenPak.Server.LoadBalancing/EventContext.cs server/OpenPak.Server.LoadBalancing/IEventInterceptor.cs server/OpenPak.Server.Tests/InterceptorChainTests.cs
 git commit -m "feat(lb): IEventInterceptor seam + chain (pass-through default, throw-safe)"
 ```
 
@@ -308,22 +308,22 @@ git commit -m "feat(lb): IEventInterceptor seam + chain (pass-through default, t
 ## Task 3: RoomSession — membership + fan-out
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/RoomSession.cs`
-- Test: `server/BlackIce.Server.Tests/RoomSessionRelayTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/RoomSession.cs`
+- Test: `server/OpenPak.Server.Tests/RoomSessionRelayTests.cs`
 
-**Context:** `PeerConnection` (in `BlackIce.Server.Core`) exposes `public void RaiseEvent(EventData ev)` and a per-peer `object? Tag`. It also exposes `IPEndPoint Remote`. `RoomSession` needs to map an actor number to the `PeerConnection` that owns it, deliver to *other* actors, and run the interceptor chain. The session is driven from the single-threaded UDP listener loop, so a simple lock around membership is sufficient (matches the existing `Room` locking style).
+**Context:** `PeerConnection` (in `OpenPak.Server.Core`) exposes `public void RaiseEvent(EventData ev)` and a per-peer `object? Tag`. It also exposes `IPEndPoint Remote`. `RoomSession` needs to map an actor number to the `PeerConnection` that owns it, deliver to *other* actors, and run the interceptor chain. The session is driven from the single-threaded UDP listener loop, so a simple lock around membership is sufficient (matches the existing `Room` locking style).
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
 using System.Collections.Generic;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class RoomSessionRelayTests
 {
@@ -414,12 +414,12 @@ public class RoomSessionRelayTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RoomSessionRelayTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RoomSessionRelayTests`
 Expected: FAIL — `RoomSession`, `PeerConnection.OnRaised` do not exist.
 
 - [ ] **Step 3: Add the test-only raise hook to PeerConnection**
 
-In `server/BlackIce.Server.Core/PeerConnection.cs`, change `RaiseEvent` to notify an optional hook so tests can observe relays without a socket. Find:
+In `server/OpenPak.Server.Core/PeerConnection.cs`, change `RaiseEvent` to notify an optional hook so tests can observe relays without a socket. Find:
 
 ```csharp
     public void RaiseEvent(EventData ev)
@@ -449,13 +449,13 @@ Replace with:
 
 - [ ] **Step 4: Write minimal RoomSession implementation**
 
-Create `server/BlackIce.Server.LoadBalancing/RoomSession.cs`:
+Create `server/OpenPak.Server.LoadBalancing/RoomSession.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing;
+namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>
 /// Per-room relay: holds the connected peers by actor number, runs the interceptor chain over an
@@ -506,13 +506,13 @@ public sealed class RoomSession
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RoomSessionRelayTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RoomSessionRelayTests`
 Expected: PASS (4 tests).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/RoomSession.cs server/BlackIce.Server.Core/PeerConnection.cs server/BlackIce.Server.Tests/RoomSessionRelayTests.cs
+git add server/OpenPak.Server.LoadBalancing/RoomSession.cs server/OpenPak.Server.Core/PeerConnection.cs server/OpenPak.Server.Tests/RoomSessionRelayTests.cs
 git commit -m "feat(lb): RoomSession — per-room peer membership + interceptor-driven fan-out"
 ```
 
@@ -521,18 +521,18 @@ git commit -m "feat(lb): RoomSession — per-room peer membership + interceptor-
 ## Task 4: Hold a RoomSession per room in the registry
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/RoomRegistry.cs`
-- Test: `server/BlackIce.Server.Tests/RoomSessionRegistryTests.cs` (create)
+- Modify: `server/OpenPak.Server.LoadBalancing/RoomRegistry.cs`
+- Test: `server/OpenPak.Server.Tests/RoomSessionRegistryTests.cs` (create)
 
 **Context:** `RoomRegistry.GetOrCreate(string)` returns a `Room`. We add a parallel `Session(string)` accessor that lazily creates one `RoomSession` per room, wired with the default pass-through chain. (2b will replace the chain factory with one that includes authority interceptors.)
 
 - [ ] **Step 1: Write the failing test**
 
 ```csharp
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class RoomSessionRegistryTests
 {
@@ -557,12 +557,12 @@ public class RoomSessionRegistryTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RoomSessionRegistryTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RoomSessionRegistryTests`
 Expected: FAIL — `RoomRegistry.Session` does not exist.
 
 - [ ] **Step 3: Implement the Session accessor**
 
-In `server/BlackIce.Server.LoadBalancing/RoomRegistry.cs`, the `RoomRegistry` class currently is:
+In `server/OpenPak.Server.LoadBalancing/RoomRegistry.cs`, the `RoomRegistry` class currently is:
 
 ```csharp
 public sealed class RoomRegistry
@@ -597,13 +597,13 @@ public sealed class RoomRegistry
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter RoomSessionRegistryTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter RoomSessionRegistryTests`
 Expected: PASS (2 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/RoomRegistry.cs server/BlackIce.Server.Tests/RoomSessionRegistryTests.cs
+git add server/OpenPak.Server.LoadBalancing/RoomRegistry.cs server/OpenPak.Server.Tests/RoomSessionRegistryTests.cs
 git commit -m "feat(lb): RoomRegistry.Session — one relay session per room (default pass-through)"
 ```
 
@@ -612,8 +612,8 @@ git commit -m "feat(lb): RoomRegistry.Session — one relay session per room (de
 ## Task 5: Wire the relay into GameServerHandler
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/GameServerRelayTests.cs` (create)
+- Modify: `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/GameServerRelayTests.cs` (create)
 
 **Context:** Today `OnOperationRequest`'s `OpRaiseEvent` case only handles `/motd` and otherwise drops the event. We make it: (1) on successful join, register the peer into the room's session under its actor number and store the actor on `peer.Tag`; (2) on disconnect, unregister; (3) on `OpRaiseEvent`, after the chat-command check returns null (not a command), route the event into the session for relay. We must preserve `peer.Tag` for the room name (used by SetProperties + chat). To carry both room name and actor, change `peer.Tag` to a small record.
 
@@ -624,13 +624,13 @@ git commit -m "feat(lb): RoomRegistry.Session — one relay session per room (de
 ```csharp
 using System.Collections.Generic;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Server.Core;
-using BlackIce.Server.Data;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
+using OpenPak.Server.Data;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class GameServerRelayTests
 {
@@ -732,12 +732,12 @@ public class GameServerRelayTests
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter GameServerRelayTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter GameServerRelayTests`
 Expected: FAIL — gameplay RPC is not relayed (b receives nothing); compile errors if `PeerRoomState` not yet referenced.
 
 - [ ] **Step 3: Add PeerRoomState and update Tag usage**
 
-In `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`, add this record near the top of the namespace (after the `using`s, before the class):
+In `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`, add this record near the top of the namespace (after the `using`s, before the class):
 
 ```csharp
 /// <summary>Per-peer in-room state stashed on PeerConnection.Tag once a peer joins a room.</summary>
@@ -842,13 +842,13 @@ In `GameServerHandler.cs`, `OnDisconnect` is currently `public void OnDisconnect
 
 - [ ] **Step 8: Run the new tests + full suite**
 
-Run: `dotnet test server/BlackIce.Server.sln`
+Run: `dotnet test server/OpenPak.Server.sln`
 Expected: PASS — `GameServerRelayTests` (3) green, and all pre-existing tests still pass (the `/motd` test and `ChatCommandTests` continue to work because `TryHandleChatCommand` is unchanged and still receives the room name).
 
 - [ ] **Step 9: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/GameServerHandler.cs server/BlackIce.Server.Tests/GameServerRelayTests.cs
+git add server/OpenPak.Server.LoadBalancing/GameServerHandler.cs server/OpenPak.Server.Tests/GameServerRelayTests.cs
 git commit -m "feat(lb): relay non-command gameplay events to other actors in the room"
 ```
 
@@ -857,8 +857,8 @@ git commit -m "feat(lb): relay non-command gameplay events to other actors in th
 ## Task 6: Relay join/leave so actors see each other arrive and depart
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/GameServerRelayTests.cs` (add)
+- Modify: `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/GameServerRelayTests.cs` (add)
 
 **Context:** Today the join event (255) is raised only to the *joining* peer (`peer.RaiseEvent(join)`), so existing players never learn a new actor arrived, and the newcomer never learns who is already present. Real Photon raises a join event to the others (with the updated actor list) and the newcomer gets the existing actor list in its own join. For 2a we add: when actor J joins, relay a join event (255, ActorNr=J, ActorList=all) to the *other* actors. Leave (event 254) is raised to others on disconnect.
 
@@ -906,7 +906,7 @@ git commit -m "feat(lb): relay non-command gameplay events to other actors in th
 
 - [ ] **Step 2: Run to verify it fails**
 
-Run: `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter GameServerRelayTests`
+Run: `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter GameServerRelayTests`
 Expected: FAIL — no join/leave notification is relayed to others.
 
 - [ ] **Step 3: Relay the join to others**
@@ -945,13 +945,13 @@ Update `OnDisconnect` (from Task 5) to notify the others before removing the pee
 
 - [ ] **Step 5: Run the tests + full suite**
 
-Run: `dotnet test server/BlackIce.Server.sln`
+Run: `dotnet test server/OpenPak.Server.sln`
 Expected: PASS — the two new tests green, all prior tests still pass.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add server/BlackIce.Server.LoadBalancing/GameServerHandler.cs server/BlackIce.Server.Tests/GameServerRelayTests.cs
+git add server/OpenPak.Server.LoadBalancing/GameServerHandler.cs server/OpenPak.Server.Tests/GameServerRelayTests.cs
 git commit -m "feat(lb): relay join (255) and leave (254) so actors see each other arrive/depart"
 ```
 
@@ -963,12 +963,12 @@ git commit -m "feat(lb): relay join (255) and leave (254) so actors see each oth
 
 - [ ] **Step 1: Run the entire solution test suite**
 
-Run: `dotnet test server/BlackIce.Server.sln`
+Run: `dotnet test server/OpenPak.Server.sln`
 Expected: PASS — all tests including the new relay tests; no regressions in Photon oracle / MOTD / keepalive / SetProperties suites.
 
 - [ ] **Step 2: Build the whole solution clean**
 
-Run: `dotnet build server/BlackIce.Server.sln`
+Run: `dotnet build server/OpenPak.Server.sln`
 Expected: Build succeeded, 0 warnings, 0 errors.
 
 - [ ] **Step 3: Update the handoff note**
@@ -986,7 +986,7 @@ git commit -m "docs(remember): Phase 2a relay substrate complete; live two-clien
 
 ## Live verification (manual, after the plan executes)
 
-Not a code task, but the real acceptance test: run the server (`dotnet run --project server/BlackIce.Server.Host -c Debug -- 127.0.0.1 --trace`) and connect **two** game clients to the same realm. Each should see the other's avatar spawn and move, and (entering combat) see damage/death replicate — all via the pass-through relay, no per-event code. The `--trace` log will show `RelayFrom` fan-out. This is the gate before starting Phase 2b (authority interceptors).
+Not a code task, but the real acceptance test: run the server (`dotnet run --project server/OpenPak.Server.Host -c Debug -- 127.0.0.1 --trace`) and connect **two** game clients to the same realm. Each should see the other's avatar spawn and move, and (entering combat) see damage/death replicate — all via the pass-through relay, no per-event code. The `--trace` log will show `RelayFrom` fan-out. This is the gate before starting Phase 2b (authority interceptors).
 
 ---
 

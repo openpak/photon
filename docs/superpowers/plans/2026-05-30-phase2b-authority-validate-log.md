@@ -4,7 +4,7 @@
 
 **Goal:** Add the first server-authority interceptors to the relay seam, in **validate-and-LOG-only** mode: decode relayed damage RPCs and movement updates, detect impossible values (speedhack / inflated damage), and LOG violations. **No drop/clamp/rewrite yet** — every verdict stays Forward. This gives the anticheat signal with zero risk of breaking legit play; enforcement (Drop/Rewrite) is a later, threshold-tuned step done with the user watching live.
 
-**Architecture:** Concrete `IEventInterceptor`s plug into the existing chain (`RoomRegistry.Session` builds it). They use new codec helpers in `BlackIce.Photon` to decode the relevant payloads: the PUN RPC method + `DamagePacket` (custom type 68, damage = first 4 bytes, big-endian float), and the absolute position from the event-201 serialize batch. Per-actor state (last position+time) lives in a small tracker the movement interceptor owns.
+**Architecture:** Concrete `IEventInterceptor`s plug into the existing chain (`RoomRegistry.Session` builds it). They use new codec helpers in `OpenPak.Photon` to decode the relevant payloads: the PUN RPC method + `DamagePacket` (custom type 68, damage = first 4 bytes, big-endian float), and the absolute position from the event-201 serialize batch. Per-actor state (last position+time) lives in a small tracker the movement interceptor owns.
 
 **Tech Stack:** C#/.NET 8, xUnit, oracle = real Photon3Unity3D.dll.
 
@@ -17,20 +17,20 @@
 ## Task 1: DamagePacket + RPC-method decode helpers (codec, oracle-tested)
 
 **Files:**
-- Create: `server/BlackIce.Photon/PunRpcInfo.cs`
-- Test: `server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs`
+- Create: `server/OpenPak.Photon/PunRpcInfo.cs`
+- Test: `server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs`
 
 **Context:** A relayed gameplay event is an `EventData` whose `Parameters[245]` holds the RPC hashtable for event 200 (keys: 0=viewId, 3=methodName string OR 5=method shortcut byte, 4=args object[]). Damage args contain a `PhotonCustomData(68, bytes)` where bytes[0..4] is the damage float (big-endian). We add a pure helper that, given an `EventData`, extracts: the RPC method name (or null if shortcut-only), and any `DamagePacket` damage value found in the args.
 
-- [ ] **Step 1 — failing test** (`server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs`):
+- [ ] **Step 1 — failing test** (`server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs`):
 
 ```csharp
 using System.Buffers.Binary;
 using System.Collections.Generic;
-using BlackIce.Photon;
+using OpenPak.Photon;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class PunRpcDecodeTests
 {
@@ -105,13 +105,13 @@ public class PunRpcDecodeTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement** `server/BlackIce.Photon/PunRpcInfo.cs`:
+- [ ] **Step 3 — implement** `server/OpenPak.Photon/PunRpcInfo.cs`:
 
 ```csharp
 using System.Buffers.Binary;
 using System.Collections;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>
 /// Decoded view of a PUN RPC event (Photon event code 200) for authority checks: the target view id,
@@ -169,7 +169,7 @@ Run; if the oracle lacks code 68 registration, extend `OracleFixture` (it alread
 
 - [ ] **Step 6 — commit:**
 ```bash
-git add server/BlackIce.Photon/PunRpcInfo.cs server/BlackIce.Photon.Tests/PunRpcDecodeTests.cs server/BlackIce.Photon.Tests/OracleFixture.cs
+git add server/OpenPak.Photon/PunRpcInfo.cs server/OpenPak.Photon.Tests/PunRpcDecodeTests.cs server/OpenPak.Photon.Tests/OracleFixture.cs
 git commit -m "feat(photon): PunRpcInfo — decode RPC method + DamagePacket damage for authority checks"
 ```
 
@@ -178,22 +178,22 @@ git commit -m "feat(photon): PunRpcInfo — decode RPC method + DamagePacket dam
 ## Task 2: DamageValidationInterceptor (log-only)
 
 **Files:**
-- Create: `server/BlackIce.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs`
-- Test: `server/BlackIce.Server.Tests/Authority/DamageValidationInterceptorTests.cs`
+- Create: `server/OpenPak.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs`
+- Test: `server/OpenPak.Server.Tests/Authority/DamageValidationInterceptorTests.cs`
 
 **Context:** Implements `IEventInterceptor`. For an event the `PunRpcInfo.From` decodes with a damage value, if damage exceeds a configured sane maximum, LOG a Warn naming the sender actor + value. ALWAYS returns `RelayVerdict.Forward(ctx.Event)` (log-only this phase). This is the seam working without enforcing.
 
 - [ ] **Step 1 — failing test:**
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Authority;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Authority;
 using Xunit;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 
-namespace BlackIce.Server.Tests.Authority;
+namespace OpenPak.Server.Tests.Authority;
 
 public class DamageValidationInterceptorTests
 {
@@ -241,13 +241,13 @@ public class DamageValidationInterceptorTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement** `server/BlackIce.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs`:
+- [ ] **Step 3 — implement** `server/OpenPak.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing.Authority;
+namespace OpenPak.Server.LoadBalancing.Authority;
 
 /// <summary>
 /// Watches relayed damage RPCs (PUN event 200 carrying a DamagePacket) and LOGS any damage value
@@ -279,7 +279,7 @@ public sealed class DamageValidationInterceptor : IEventInterceptor
 - [ ] **Step 4 — run, expect PASS.**
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs server/BlackIce.Server.Tests/Authority/DamageValidationInterceptorTests.cs
+git add server/OpenPak.Server.LoadBalancing/Authority/DamageValidationInterceptor.cs server/OpenPak.Server.Tests/Authority/DamageValidationInterceptorTests.cs
 git commit -m "feat(authority): DamageValidationInterceptor — log over-threshold damage (forward-only)"
 ```
 
@@ -288,20 +288,20 @@ git commit -m "feat(authority): DamageValidationInterceptor — log over-thresho
 ## Task 3: MovementValidationInterceptor (log-only)
 
 **Files:**
-- Create: `server/BlackIce.Photon/PositionInfo.cs` (decode absolute position from event 201)
-- Create: `server/BlackIce.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs`
-- Test: `server/BlackIce.Photon.Tests/PositionDecodeTests.cs`, `server/BlackIce.Server.Tests/Authority/MovementValidationInterceptorTests.cs`
+- Create: `server/OpenPak.Photon/PositionInfo.cs` (decode absolute position from event 201)
+- Create: `server/OpenPak.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs`
+- Test: `server/OpenPak.Photon.Tests/PositionDecodeTests.cs`, `server/OpenPak.Server.Tests/Authority/MovementValidationInterceptorTests.cs`
 
 **Context:** Event 201's `Parameters[245]` is an `object[]` batch: `[networkTime, prefix, perViewEntry...]` where a per-view entry is `[viewId, false, null, Vector3(86), Quaternion(81), ...]`. The Vector3 is a `PhotonCustomData(86, 12 bytes)` = 3 big-endian floats (x,y,z). `PositionInfo.From(ev)` extracts the first (viewId, x,y,z) it finds, or null. The interceptor tracks per-actor last position+timestamp and logs if implied speed exceeds a max (units/sec). Log-only → always Forward.
 
-- [ ] **Step 1 — failing test** for the decoder (`server/BlackIce.Photon.Tests/PositionDecodeTests.cs`):
+- [ ] **Step 1 — failing test** for the decoder (`server/OpenPak.Photon.Tests/PositionDecodeTests.cs`):
 
 ```csharp
 using System.Buffers.Binary;
-using BlackIce.Photon;
+using OpenPak.Photon;
 using Xunit;
 
-namespace BlackIce.Photon.Tests;
+namespace OpenPak.Photon.Tests;
 
 public class PositionDecodeTests
 {
@@ -339,12 +339,12 @@ public class PositionDecodeTests
 
 - [ ] **Step 2 — run, expect FAIL.**
 
-- [ ] **Step 3 — implement** `server/BlackIce.Photon/PositionInfo.cs`:
+- [ ] **Step 3 — implement** `server/OpenPak.Photon/PositionInfo.cs`:
 
 ```csharp
 using System.Buffers.Binary;
 
-namespace BlackIce.Photon;
+namespace OpenPak.Photon;
 
 /// <summary>
 /// The absolute position of one networked view, decoded from a PUN serialize batch (Photon event 201).
@@ -381,16 +381,16 @@ public readonly record struct PositionInfo(int ViewId, float X, float Y, float Z
 
 - [ ] **Step 4 — run the decoder test, expect PASS.**
 
-- [ ] **Step 5 — failing test** for the interceptor (`server/BlackIce.Server.Tests/Authority/MovementValidationInterceptorTests.cs`):
+- [ ] **Step 5 — failing test** for the interceptor (`server/OpenPak.Server.Tests/Authority/MovementValidationInterceptorTests.cs`):
 
 ```csharp
 using System.Buffers.Binary;
-using BlackIce.Photon;
-using BlackIce.Server.LoadBalancing;
-using BlackIce.Server.LoadBalancing.Authority;
+using OpenPak.Photon;
+using OpenPak.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing.Authority;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Authority;
+namespace OpenPak.Server.Tests.Authority;
 
 public class MovementValidationInterceptorTests
 {
@@ -437,13 +437,13 @@ public class MovementValidationInterceptorTests
 
 - [ ] **Step 6 — run, expect FAIL.**
 
-- [ ] **Step 7 — implement** `server/BlackIce.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs`:
+- [ ] **Step 7 — implement** `server/OpenPak.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs`:
 
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Core;
+using OpenPak.Photon;
+using OpenPak.Server.Core;
 
-namespace BlackIce.Server.LoadBalancing.Authority;
+namespace OpenPak.Server.LoadBalancing.Authority;
 
 /// <summary>
 /// Watches relayed position updates (PUN event 201) and LOGS implied speeds above a sane maximum
@@ -491,7 +491,7 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
 - [ ] **Step 8 — run both tests, expect PASS.**
 - [ ] **Step 9 — commit:**
 ```bash
-git add server/BlackIce.Photon/PositionInfo.cs server/BlackIce.Photon.Tests/PositionDecodeTests.cs server/BlackIce.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs server/BlackIce.Server.Tests/Authority/MovementValidationInterceptorTests.cs
+git add server/OpenPak.Photon/PositionInfo.cs server/OpenPak.Photon.Tests/PositionDecodeTests.cs server/OpenPak.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs server/OpenPak.Server.Tests/Authority/MovementValidationInterceptorTests.cs
 git commit -m "feat(authority): MovementValidationInterceptor — log speedhack/teleport (forward-only)"
 ```
 
@@ -500,18 +500,18 @@ git commit -m "feat(authority): MovementValidationInterceptor — log speedhack/
 ## Task 4: Wire the authority interceptors into the room chain
 
 **Files:**
-- Modify: `server/BlackIce.Server.LoadBalancing/RoomRegistry.cs` (the `Session` chain factory)
-- Test: `server/BlackIce.Server.Tests/Authority/AuthorityChainTests.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/RoomRegistry.cs` (the `Session` chain factory)
+- Test: `server/OpenPak.Server.Tests/Authority/AuthorityChainTests.cs`
 
 **Context:** `RoomRegistry.Session(name)` currently builds `new InterceptorChain(new IEventInterceptor[] { new PassthroughInterceptor() })`. Add the two validators BEFORE the passthrough (they Forward anyway, so order only affects logging). Use generous default thresholds (won't false-positive on legit play): maxDamage e.g. 100000f, maxUnitsPerSecond e.g. 200f. Because they're log-only and always Forward, relay behavior is unchanged — existing relay tests still pass.
 
-- [ ] **Step 1 — failing test** (`server/BlackIce.Server.Tests/Authority/AuthorityChainTests.cs`):
+- [ ] **Step 1 — failing test** (`server/OpenPak.Server.Tests/Authority/AuthorityChainTests.cs`):
 
 ```csharp
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests.Authority;
+namespace OpenPak.Server.Tests.Authority;
 
 public class AuthorityChainTests
 {
@@ -533,7 +533,7 @@ public class AuthorityChainTests
 
 - [ ] **Step 2 — run (will PASS once Session builds with the new chain; if you add no new API it may pass immediately — that's fine, it's a smoke test). Implement Step 3 regardless.**
 
-- [ ] **Step 3 — implement.** In `server/BlackIce.Server.LoadBalancing/RoomRegistry.cs`, update the `Session` factory:
+- [ ] **Step 3 — implement.** In `server/OpenPak.Server.LoadBalancing/RoomRegistry.cs`, update the `Session` factory:
 
 ```csharp
     public RoomSession Session(string name) =>
@@ -549,11 +549,11 @@ public class AuthorityChainTests
 ```
 (Add `using` if needed; `Authority.` qualifies the new namespace.)
 
-- [ ] **Step 4 — run the whole solution** `dotnet test server/BlackIce.Server.sln` — expect ALL green, especially the existing `RoomSessionRelayTests`/`GameServerRelayTests`/`UnreliableRelayTests` (relay unchanged because validators Forward).
+- [ ] **Step 4 — run the whole solution** `dotnet test server/OpenPak.Server.sln` — expect ALL green, especially the existing `RoomSessionRelayTests`/`GameServerRelayTests`/`UnreliableRelayTests` (relay unchanged because validators Forward).
 
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Server.LoadBalancing/RoomRegistry.cs server/BlackIce.Server.Tests/Authority/AuthorityChainTests.cs
+git add server/OpenPak.Server.LoadBalancing/RoomRegistry.cs server/OpenPak.Server.Tests/Authority/AuthorityChainTests.cs
 git commit -m "feat(authority): wire damage + movement validators (log-only) into every room chain"
 ```
 

@@ -81,7 +81,7 @@ inbound (RaiseEvent 253 / SetProperties 252 / join / leave) from actor A in room
   inspect a decoded event and return Forward/Drop/Rewrite/Originate. The default chain is a single
   pass-through (pure relay). Authority interceptors (spawn, damage, movement) are added by event
   type. A throwing interceptor is caught and treated as **Forward** (never drops a player on a bug).
-- **Codec decoders** (`BlackIce.Photon`) — extend existing GpBinary/message decoding to recognize:
+- **Codec decoders** (`OpenPak.Photon`) — extend existing GpBinary/message decoding to recognize:
   RPC method shortcuts (key 5) so RPC events are classifiable by method; the `DamagePacket` custom
   type (code 68, 41-byte layout, damage at offset 0); instantiation events (202, prefab/viewID/pos);
   and the position-serialize stream (201, absolute Vector3/Quaternion per viewID). Each is a small,

@@ -4,7 +4,7 @@
 
 **Goal:** Replace the single hardcoded test room with many DB-backed realms, each with its own native-knob ruleset, seeded from config, advertised in the in-game browser, and joins routed with the realm's rules applied.
 
-**Architecture:** A `Realm` EF Core entity + `RealmService` (in `BlackIce.Server.Data`) own realm definitions; the in-memory `RoomRegistry` owns live occupancy. The Master builds the lobby GameList from enabled/visible realms (live player counts from the registry); the Game applies a realm's ruleset when a player enters its room and rejects unknown/disabled realms and password mismatches.
+**Architecture:** A `Realm` EF Core entity + `RealmService` (in `OpenPak.Server.Data`) own realm definitions; the in-memory `RoomRegistry` owns live occupancy. The Master builds the lobby GameList from enabled/visible realms (live player counts from the registry); the Game applies a realm's ruleset when a player enters its room and rejects unknown/disabled realms and password mismatches.
 
 **Tech Stack:** .NET 8, EF Core 8 (SQLite/MySQL), xUnit with in-memory SQLite (existing `TestDb`).
 
@@ -15,16 +15,16 @@
 ## File Structure
 
 ```
-server/BlackIce.Server.Data/
+server/OpenPak.Server.Data/
   Realm.cs                 # Realm entity
   RealmService.cs          # seed-if-empty, list, get, upsert, delete
-  BlackIceDbContext.cs     # + DbSet<Realm>
+  OpenPakDbContext.cs     # + DbSet<Realm>
   RealmServiceTests.cs     # (in Data.Tests)
-server/BlackIce.Server.LoadBalancing/
+server/OpenPak.Server.LoadBalancing/
   RoomRegistry.cs          # + Find(name)
   MasterServerHandler.cs   # GameList from realms
   GameServerHandler.cs     # apply realm ruleset on join
-server/BlackIce.Server.Host/
+server/OpenPak.Server.Host/
   ServerConfig.cs          # + List<Realm> Realms (defaults); drop TestRoomName
   Program.cs               # build+seed RealmService, pass to handlers
 ```
@@ -33,15 +33,15 @@ server/BlackIce.Server.Host/
 
 ## Task 1: Realm entity + DbContext
 
-**Files:** Create `BlackIce.Server.Data/Realm.cs`; Modify `BlackIceDbContext.cs`.
+**Files:** Create `OpenPak.Server.Data/Realm.cs`; Modify `OpenPakDbContext.cs`.
 
 - [ ] **Step 1: Write the entity**
 
-`BlackIce.Server.Data/Realm.cs`:
+`OpenPak.Server.Data/Realm.cs`:
 ```csharp
 using System.ComponentModel.DataAnnotations;
 
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>A persistent realm definition: a named room plus its native-knob ruleset.</summary>
 public class Realm
@@ -60,7 +60,7 @@ public class Realm
 
 - [ ] **Step 2: Add the DbSet**
 
-In `BlackIceDbContext.cs`, add:
+In `OpenPakDbContext.cs`, add:
 ```csharp
     public DbSet<Realm> Realms => Set<Realm>();
 ```
@@ -68,7 +68,7 @@ In `BlackIceDbContext.cs`, add:
 - [ ] **Step 3: Build**
 
 ```bash
-cd "$REPO/server" && dotnet build BlackIce.Server.Data 2>&1 | tail -3
+cd "$REPO/server" && dotnet build OpenPak.Server.Data 2>&1 | tail -3
 ```
 Expected: `Build succeeded.`
 
@@ -86,12 +86,12 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): Realm entity + DbSet
 
 - [ ] **Step 1: Failing tests**
 
-`BlackIce.Server.Data.Tests/RealmServiceTests.cs`:
+`OpenPak.Server.Data.Tests/RealmServiceTests.cs`:
 ```csharp
-using BlackIce.Server.Data;
+using OpenPak.Server.Data;
 using Xunit;
 
-namespace BlackIce.Server.Data.Tests;
+namespace OpenPak.Server.Data.Tests;
 
 public class RealmServiceTests
 {
@@ -136,21 +136,21 @@ public class RealmServiceTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter RealmService 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter RealmService 2>&1 | tail -5
 ```
 Expected: FAIL — `RealmService` not defined.
 
 - [ ] **Step 3: Implement**
 
-`BlackIce.Server.Data/RealmService.cs`:
+`OpenPak.Server.Data/RealmService.cs`:
 ```csharp
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>Owns realm definitions: seeding, listing, and CRUD.</summary>
 public sealed class RealmService
 {
-    private readonly BlackIceDbContext _db;
-    public RealmService(BlackIceDbContext db) => _db = db;
+    private readonly OpenPakDbContext _db;
+    public RealmService(OpenPakDbContext db) => _db = db;
 
     /// <summary>Inserts the given realms only if no realms exist yet (first-run seeding).</summary>
     public void SeedDefaults(IEnumerable<Realm> defaults)
@@ -197,7 +197,7 @@ public sealed class RealmService
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(data): RealmService (seed/list/get/upsert/delete)"
 ```
 
@@ -205,7 +205,7 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): RealmService (seed/l
 
 ## Task 3: RoomRegistry.Find (live occupancy lookup)
 
-**Files:** Modify `BlackIce.Server.LoadBalancing/RoomRegistry.cs`.
+**Files:** Modify `OpenPak.Server.LoadBalancing/RoomRegistry.cs`.
 
 - [ ] **Step 1: Add a non-creating lookup**
 
@@ -218,7 +218,7 @@ In `RoomRegistry`, add (next to `GetOrCreate`):
 - [ ] **Step 2: Build + commit**
 
 ```bash
-cd "$REPO/server" && dotnet build BlackIce.Server.LoadBalancing 2>&1 | tail -3
+cd "$REPO/server" && dotnet build OpenPak.Server.LoadBalancing 2>&1 | tail -3
 cd "$REPO" && git add server/ && git commit -m "feat(lb): RoomRegistry.Find for live player counts"
 ```
 
@@ -226,20 +226,20 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): RoomRegistry.Find for 
 
 ## Task 4: Master advertises realms
 
-**Files:** Modify `MasterServerHandler.cs`; Test `BlackIce.Server.Tests/RealmGameListTests.cs`.
+**Files:** Modify `MasterServerHandler.cs`; Test `OpenPak.Server.Tests/RealmGameListTests.cs`.
 
 > Replaces the single `_testRoomName` GameList logic with one entry per visible realm.
 
 - [ ] **Step 1: Failing test**
 
-`BlackIce.Server.Tests/RealmGameListTests.cs`:
+`OpenPak.Server.Tests/RealmGameListTests.cs`:
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Data;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.Data;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class RealmGameListTests
 {
@@ -267,14 +267,14 @@ public class RealmGameListTests
 
 - [ ] **Step 2: Add the test realm helper**
 
-Append to `BlackIce.Server.Tests/TestAccounts.cs`:
+Append to `OpenPak.Server.Tests/TestAccounts.cs`:
 ```csharp
     public static RealmService CreateRealms()
     {
         var conn = new SqliteConnection("DataSource=:memory:");
         conn.Open();
-        var options = new DbContextOptionsBuilder<BlackIceDbContext>().UseSqlite(conn).Options;
-        var ctx = new BlackIceDbContext(options);
+        var options = new DbContextOptionsBuilder<OpenPakDbContext>().UseSqlite(conn).Options;
+        var ctx = new OpenPakDbContext(options);
         ctx.Database.EnsureCreated();
         return new RealmService(ctx);
     }
@@ -283,7 +283,7 @@ Append to `BlackIce.Server.Tests/TestAccounts.cs`:
 - [ ] **Step 3: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter GameList_lists_each_visible_realm 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter GameList_lists_each_visible_realm 2>&1 | tail -5
 ```
 Expected: FAIL — `MasterServerHandler` has no `realms` parameter.
 
@@ -329,7 +329,7 @@ Remove the old `_testRoomName` references. Keep the `RoomIs*`/`RoomMaxPlayers` c
 - [ ] **Step 5: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter GameList_lists_each_visible_realm 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter GameList_lists_each_visible_realm 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(lb): Master advertises all visible realms in the GameList"
 ```
 
@@ -337,18 +337,18 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): Master advertises all 
 
 ## Task 5: Game applies the realm ruleset on join
 
-**Files:** Modify `GameServerHandler.cs`; Test `BlackIce.Server.Tests/RealmJoinTests.cs`.
+**Files:** Modify `GameServerHandler.cs`; Test `OpenPak.Server.Tests/RealmJoinTests.cs`.
 
 - [ ] **Step 1: Failing tests**
 
-`BlackIce.Server.Tests/RealmJoinTests.cs`:
+`OpenPak.Server.Tests/RealmJoinTests.cs`:
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Data;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.Data;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class RealmJoinTests
 {
@@ -391,7 +391,7 @@ public class RealmJoinTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter RealmJoin 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter RealmJoin 2>&1 | tail -5
 ```
 Expected: FAIL — `GameServerHandler` has no `realms` param and `EnterRoom` signature differs.
 
@@ -454,7 +454,7 @@ Add a helper (password param key confirmed in the live smoke; default null = no 
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter RealmJoin 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter RealmJoin 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(lb): Game applies realm ruleset, rejects unknown realm + bad password"
 ```
 
@@ -475,7 +475,7 @@ In `ServerConfig.cs`: remove `TestRoomName`; add:
         new Realm { Name = "Black Ice — Hardcore", DisplayName = "Hardcore", HackDifficultyIncrease = 5, MaxPlayers = 4 },
     };
 ```
-(Add `using BlackIce.Server.Data;` if not present.)
+(Add `using OpenPak.Server.Data;` if not present.)
 
 - [ ] **Step 2: Wire RealmService in Program.cs**
 
@@ -494,14 +494,14 @@ Update the handler constructions:
 - [ ] **Step 3: Build whole solution**
 
 ```bash
-cd "$REPO" && dotnet build BlackIce.sln 2>&1 | tail -4
+cd "$REPO" && dotnet build OpenPak.sln 2>&1 | tail -4
 ```
 Expected: `Build succeeded.` Fix any leftover `testRoomName` references.
 
 - [ ] **Step 4: Full test suite**
 
 ```bash
-cd "$REPO/server" && dotnet test "$REPO/BlackIce.sln" 2>&1 | grep -E "Passed!|Failed!" | head
+cd "$REPO/server" && dotnet test "$REPO/OpenPak.sln" 2>&1 | grep -E "Passed!|Failed!" | head
 ```
 Expected: all PASS. (The Phase-1 `Master_advertises_test_room_in_gamelist` test is now obsolete — replace/remove it in favor of the realm GameList test.)
 
@@ -518,11 +518,11 @@ cd "$REPO" && git add server/ && git commit -m "feat(host): seed realms from con
 - [ ] **Step 1: Run server (fresh DB) and connect**
 
 ```bash
-cd "$REPO/server/BlackIce.Server.Host/bin/Release/net8.0"
+cd "$REPO/server/OpenPak.Server.Host/bin/Release/net8.0"
 powershell.exe -NoProfile -Command "(Get-NetUDPEndpoint -LocalPort 5058 -ErrorAction SilentlyContinue).OwningProcess | %{ Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
-rm -f blackice.db
-dotnet build "$REPO/server/BlackIce.Server.Host" -c Release 2>&1 | grep -E "Build succeeded|error" | head -1
-nohup ./BlackIce.Server.Host.exe 127.0.0.1 > /tmp/bi-sp2.log 2>&1 &
+rm -f openpak.db
+dotnet build "$REPO/server/OpenPak.Server.Host" -c Release 2>&1 | grep -E "Build succeeded|error" | head -1
+nohup ./OpenPak.Server.Host.exe 127.0.0.1 > /tmp/bi-sp2.log 2>&1 &
 sleep 5
 powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Program Files (x86)\Steam\steamapps\common\Black Ice\Black Ice.exe'"
 sleep 45

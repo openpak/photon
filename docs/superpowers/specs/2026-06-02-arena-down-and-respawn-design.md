@@ -61,7 +61,7 @@ client → KilledPlayerRemote(victim)        (relayed RPC, event 200)
 
 ## Components
 
-### 1. `RpcShortcuts` — new, `server/BlackIce.Photon/RpcShortcuts.cs`
+### 1. `RpcShortcuts` — new, `server/OpenPak.Photon/RpcShortcuts.cs`
 
 The 88-entry shortcut **index → method name** table (source of truth in code, mirroring
 `docs/protocol/generated/rpc-shortcuts.csv`). PUN sends frequently-used RPCs as a byte index into this
@@ -69,11 +69,11 @@ list (Photon RPC key 5) rather than by name; the client sends `KilledPlayerRemot
 
 - `static IReadOnlyList<string> Methods` — the ordered list (index = position).
 - `static string? Name(int index)` — index → method name, or null if out of range.
-- Lives in `BlackIce.Photon` next to `PhotonCodes` (protocol data).
+- Lives in `OpenPak.Photon` next to `PhotonCodes` (protocol data).
 - **Caveat (documented):** if a game update reorders the list, regenerate from a fresh
-  `BlackIce.OpLogger` `rpclist` capture. Indices are not stable across game versions.
+  `OpenPak.OpLogger` `rpclist` capture. Indices are not stable across game versions.
 
-### 2. `PunRpcInfo` — extend, `server/BlackIce.Photon/PunRpcInfo.cs`
+### 2. `PunRpcInfo` — extend, `server/OpenPak.Photon/PunRpcInfo.cs`
 
 Today `Method` is null when the RPC is sent as a shortcut index — which is exactly how the death RPC
 arrives, so detection is impossible without this change.
@@ -85,7 +85,7 @@ arrives, so detection is impossible without this change.
 - The existing `ViewId`/`DamageValue`/`DamagePacket` fields are unchanged (damage stays available for the
   future kill-credit path).
 
-### 3. `KillBus` — extend, `server/BlackIce.Server.LoadBalancing/KillBus.cs`
+### 3. `KillBus` — extend, `server/OpenPak.Server.LoadBalancing/KillBus.cs`
 
 Add a death channel alongside the existing kill channel:
 
@@ -133,11 +133,11 @@ Add server-authored respawn builders (by method name, targeting `actor*1000+1`, 
 
 **Reuse the existing Vector3 encoder, don't duplicate it.** `GameActions.Vec3(x,y,z)` already builds a
 `PhotonCustomData(CustomType.Vector3, …)` (12 bytes, big-endian). Promote it to a single shared factory —
-`PhotonCustomData.Vector3(x, y, z)` in `BlackIce.Photon` — and have **both** `GameActions` and
+`PhotonCustomData.Vector3(x, y, z)` in `OpenPak.Photon` — and have **both** `GameActions` and
 `ServerRpc.Teleport` call it. This is a small DRY refactor folded into this work (anti-bloat: the encoder
 exists; we centralize rather than re-write it).
 
-### 7. `ArenaOptions` — extend, `server/BlackIce.Server.Core/ArenaOptions.cs`
+### 7. `ArenaOptions` — extend, `server/OpenPak.Server.Core/ArenaOptions.cs`
 
 - `bool RespawnAtReset { get; set; } = true;`
 - `float SpawnX/SpawnY/SpawnZ` defaulting to the captured spawn point `520, 3, 469.5`.

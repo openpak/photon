@@ -6,7 +6,7 @@ equip/upgrade and get stronger, with collision so they don't clip through the wo
 
 ## The hard architectural constraint (read first)
 
-BlackIce.Server is a **clean-room relay**. It does **not** own the level mesh, navmesh, enemy AI, loot
+OpenPak.Server is a **clean-room relay**. It does **not** own the level mesh, navmesh, enemy AI, loot
 tables, item effects, or progression rules — and it must not (extracting them would violate clean-room).
 It only sees what the master client **relays**. Therefore:
 

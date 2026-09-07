@@ -2,7 +2,7 @@
 
 - **Date:** 2026-05-30
 - **Status:** Approved (brainstorming) → ready for implementation planning
-- **Sub-project of:** BlackIce.Server. First of the next batch (MOTD → remote hosting + Steam
+- **Sub-project of:** OpenPak.Server. First of the next batch (MOTD → remote hosting + Steam
   registration → SP3 ticket validation → Phase 2 relay).
 
 ## Context & goal
@@ -45,11 +45,11 @@ This feature also intentionally bootstraps the **inbound chat-command channel** 
 
 Each unit has one clear purpose, a defined interface, and is independently testable.
 
-### Data model (`BlackIce.Server.Data`)
-- Add `string? Motd` to `ServerState` (global; seeded from `blackice.server.json`).
+### Data model (`OpenPak.Server.Data`)
+- Add `string? Motd` to `ServerState` (global; seeded from `openpak.server.json`).
 - Add `string? Motd` to `Realm` (per-realm override; `null` ⇒ inherit global).
 - **Schema migration note:** the data layer uses `EnsureCreated`, which does **not** add columns
-  to an existing `blackice.db`. For this sub-project, delete the dev DB so it's recreated with the
+  to an existing `openpak.db`. For this sub-project, delete the dev DB so it's recreated with the
   new columns. (Adopting EF migrations via the `/ef-migration` skill is deferred until MySQL ships.)
 
 ### `MotdService` (server)
@@ -58,13 +58,13 @@ Each unit has one clear purpose, a defined interface, and is independently testa
   treated as null/no-MOTD).
 - **Depends on:** the EF data layer (ServerState + the realm record).
 
-### On-join property injection (`BlackIce.Server.LoadBalancing`, Game server)
+### On-join property injection (`OpenPak.Server.LoadBalancing`, Game server)
 - **Purpose:** publish the MOTD to the joining client.
 - **Behavior:** where the Game server already stamps room custom properties on join (the SP2
   realm-ruleset path), add `"motd"` = `MotdService.Resolve(realm)` when non-null.
 - **Depends on:** `MotdService`, the existing room-property/Join path.
 
-### `BlackIce.Motd` plugin (client, new BepInEx plugin, `netstandard2.0`)
+### `OpenPak.Motd` plugin (client, new BepInEx plugin, `netstandard2.0`)
 - **Purpose:** render server messages natively in chat.
 - **Behavior:**
   - On joining a room, read `PhotonNetwork.CurrentRoom.CustomProperties["motd"]`; if present,
@@ -73,9 +73,9 @@ Each unit has one clear purpose, a defined interface, and is independently testa
   - Register an `OnEvent` handler for the `ServerMessage` event code; render its text the same way.
 - **Depends on:** the game's `ChatGUI`/`ComposeMessage` (confirmed: `public static ChatGUI`
   instance; `ChatMessage(string sender, string message, Color color)` ctor; `ComposeMessage`),
-  Photon PUN/Realtime, BepInEx/Harmony. Separate from `BlackIce.Redirect` (different concern).
+  Photon PUN/Realtime, BepInEx/Harmony. Separate from `OpenPak.Redirect` (different concern).
 
-### Inbound chat-command handler (`BlackIce.Server.LoadBalancing`)
+### Inbound chat-command handler (`OpenPak.Server.LoadBalancing`)
 - **Purpose:** turn `/`-prefixed chat into server commands instead of relayed chat.
 - **Behavior:** when a chat RaiseEvent (PUN event code 200) arrives, decode it enough to extract
   the RPC method (`ReceiveChatMessage`) and the `string text` argument. If `text` begins with `/`:
@@ -90,7 +90,7 @@ Each unit has one clear purpose, a defined interface, and is independently testa
   the string `"ReceiveChatMessage"` or a hashed shortcut must be pinned by an interop test against
   the real Photon DLL. This is shared Phase-2/SP3 work.
 
-### `ServerMessage` event sender (`BlackIce.Server.LoadBalancing`)
+### `ServerMessage` event sender (`OpenPak.Server.LoadBalancing`)
 - **Purpose:** a server→client channel for transient server text, decoupled from PUN RPCs (no
   viewID/actor-impersonation needed).
 - **Interface:** `SendServerMessage(actor, text)` → RaiseEvent of our chosen `ServerMessage` code,
@@ -105,11 +105,11 @@ Each unit has one clear purpose, a defined interface, and is independently testa
 ## Data flow
 
 **On join:** client joins → Game server resolves realm → `MotdService.Resolve` → set room prop
-`"motd"` → client receives room props → `BlackIce.Motd` renders an Info chat line.
+`"motd"` → client receives room props → `OpenPak.Motd` renders an Info chat line.
 
 **`/motd`:** player types `/motd` → game sends `ReceiveChatMessage` RPC (event 200) → server decodes,
 sees leading `/`, suppresses relay → command handler resolves MOTD → `SendServerMessage(player, motd)`
-→ `BlackIce.Motd` `OnEvent` renders the Info line. Other players see nothing.
+→ `OpenPak.Motd` `OnEvent` renders the Info line. Other players see nothing.
 
 ## Error handling & edge cases
 - No MOTD set (both null/empty): no room prop, nothing rendered; `/motd` replies "No MOTD set."
@@ -138,7 +138,7 @@ sees leading `/`, suppresses relay → command handler resolves MOTD → `SendSe
   clients don't see the command); console `motd <text>` → rejoin → updated text shows.
 
 ## Incremental delivery
-- **Increment A — MOTD on join:** data model + `MotdService` + room-prop injection + `BlackIce.Motd`
+- **Increment A — MOTD on join:** data model + `MotdService` + room-prop injection + `OpenPak.Motd`
   display + console commands. No event-200 decode needed. Independently shippable and live-verifiable.
 - **Increment B — `/motd` command:** inbound chat-command handler (event-200 decode + suppression) +
   `ServerMessage` event + plugin `OnEvent` rendering. Builds the reusable SP3 command channel.

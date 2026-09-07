@@ -7,7 +7,7 @@
 networked identity exists, and gate admin/anti-cheat (the fly/speed exemption) on it.
 
 **Architecture:** A swappable `ISteamTicketValidator` (default `NullSteamTicketValidator`; real
-`SteamGameServerValidator` in an optional, conditionally-built `BlackIce.Server.Steam` project using
+`SteamGameServerValidator` in an optional, conditionally-built `OpenPak.Server.Steam` project using
 Facepunch.Steamworks). Ticket validation runs at the **NameServer** auth step (first identity assertion).
 Validation is async; the response is marshalled back to the listener thread via a listener action queue
 (the existing `OnMaintenance` pattern) — no op-router signature change. The verified SteamID is signed into the
@@ -29,33 +29,33 @@ validation goes there (not Master). The async response is sent via a NameServer 
 ## File structure
 
 **Server (core, Steam-free):**
-- Create `server/BlackIce.Server.LoadBalancing/Auth/ISteamTicketValidator.cs` — abstraction + result types.
-- Create `server/BlackIce.Server.LoadBalancing/Auth/NullSteamTicketValidator.cs` — default (Unavailable).
-- Modify `server/BlackIce.Server.LoadBalancing/AuthToken.cs` — add a signed `verified` claim.
-- Modify `server/BlackIce.Server.*/PeerConnection.cs` — add `SteamId` + `IsVerified`.
-- Modify `server/BlackIce.Server.LoadBalancing/NameServerHandler.cs` — async ticket validation, fail-closed for
+- Create `server/OpenPak.Server.LoadBalancing/Auth/ISteamTicketValidator.cs` — abstraction + result types.
+- Create `server/OpenPak.Server.LoadBalancing/Auth/NullSteamTicketValidator.cs` — default (Unavailable).
+- Modify `server/OpenPak.Server.LoadBalancing/AuthToken.cs` — add a signed `verified` claim.
+- Modify `server/OpenPak.Server.*/PeerConnection.cs` — add `SteamId` + `IsVerified`.
+- Modify `server/OpenPak.Server.LoadBalancing/NameServerHandler.cs` — async ticket validation, fail-closed for
   public, LAN bypass; mint verified token; respond via the action queue.
-- Modify `server/BlackIce.Server.LoadBalancing/MasterServerHandler.cs` + `GameServerHandler.cs` — set
+- Modify `server/OpenPak.Server.LoadBalancing/MasterServerHandler.cs` + `GameServerHandler.cs` — set
   `peer.IsVerified`/`peer.SteamId` from the validated token's `verified` claim.
-- Modify `server/BlackIce.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs` — exemption predicate.
-- Modify `server/BlackIce.Photon/PhotonCodes.cs` — ticket param code.
-- Modify `server/BlackIce.Server.Host/ListenersHostedService.cs` + `Program.cs` — wire validator (DI), the
+- Modify `server/OpenPak.Server.LoadBalancing/Authority/MovementValidationInterceptor.cs` — exemption predicate.
+- Modify `server/OpenPak.Photon/PhotonCodes.cs` — ticket param code.
+- Modify `server/OpenPak.Server.Host/ListenersHostedService.cs` + `Program.cs` — wire validator (DI), the
   NameServer action queue drain, the movement exemption, config.
-- Modify `server/BlackIce.Server.Core/AnticheatOptions.cs` — `AdminExemptLevel` + (already) `Enforce`.
+- Modify `server/OpenPak.Server.Core/AnticheatOptions.cs` — `AdminExemptLevel` + (already) `Enforce`.
 
 **Server (optional Steam project):**
-- Create `server/BlackIce.Server.Steam/BlackIce.Server.Steam.csproj` — references Facepunch.Steamworks; built
+- Create `server/OpenPak.Server.Steam/OpenPak.Server.Steam.csproj` — references Facepunch.Steamworks; built
   only when `-p:SteamEnabled=true` (or the package restores), like `PhotonOracleDll`.
-- Create `server/BlackIce.Server.Steam/SteamGameServerValidator.cs` — real `BeginAuthSession`.
+- Create `server/OpenPak.Server.Steam/SteamGameServerValidator.cs` — real `BeginAuthSession`.
 
 **Client:**
-- Create `plugins/BlackIce.SteamAuth/BlackIce.SteamAuth.csproj` + `SteamAuthPlugin.cs` — mint + send the ticket.
+- Create `plugins/OpenPak.SteamAuth/OpenPak.SteamAuth.csproj` + `SteamAuthPlugin.cs` — mint + send the ticket.
 
 **Tests:**
-- Create `server/BlackIce.Server.Tests/Auth/SteamTicketAuthTests.cs` — FakeValidator: verified/rejected/timeout,
+- Create `server/OpenPak.Server.Tests/Auth/SteamTicketAuthTests.cs` — FakeValidator: verified/rejected/timeout,
   LAN bypass, verified-token round-trip.
-- Create `server/BlackIce.Server.Tests/Auth/AuthTokenVerifiedClaimTests.cs` — claim round-trip + tamper.
-- Modify `server/BlackIce.Server.Tests/Authority/...` — movement exemption test.
+- Create `server/OpenPak.Server.Tests/Auth/AuthTokenVerifiedClaimTests.cs` — claim round-trip + tamper.
+- Modify `server/OpenPak.Server.Tests/Authority/...` — movement exemption test.
 
 ---
 
@@ -99,14 +99,14 @@ non-admin enforced; unverified enforced.
 movement exemption predicate (accounts + room registry). Boot still green, Steam-free. *Verify:* full suite +
 boot.
 
-**Task 9 — optional `BlackIce.Server.Steam` real validator (Facepunch.Steamworks).** New csproj referencing
+**Task 9 — optional `OpenPak.Server.Steam` real validator (Facepunch.Steamworks).** New csproj referencing
 Facepunch.Steamworks, conditionally built (`Condition` on `SteamEnabled==true`, like `PhotonOracleDll`).
 `SteamGameServerValidator : ISteamTicketValidator`: `SteamServer.Init(311800, anonymous)`, pump callbacks,
 `BeginAuthSession` → `OnValidateAuthTicketResponse` completes a TCS keyed by SteamId → `EndAuthSession`
 (try/finally). Host selects it when present. *Validation:* manual/integration (needs Steam) — cannot run in
 the Steam-free CI suite.
 
-**Task 10 — client `plugins/BlackIce.SteamAuth`.** Extends the proven spike: on PUN auth, mint
+**Task 10 — client `plugins/OpenPak.SteamAuth`.** Extends the proven spike: on PUN auth, mint
 `GetAuthSessionTicket`, await the OK callback, inject bytes into `AuthenticationValues` (Harmony patch the
 auth-values build / connect). Auto-deploys to `BepInEx/plugins`. *Validation:* manual in-game.
 

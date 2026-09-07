@@ -1,6 +1,6 @@
 # Photon Serialization Oracle API (Phase 1)
 
-The real `Photon3Unity3D.dll` is referenced **test-only** in `BlackIce.Photon.Tests` to
+The real `Photon3Unity3D.dll` is referenced **test-only** in `OpenPak.Photon.Tests` to
 produce reference bytes. Never shipped (GPL).
 
 Namespace: `ExitGames.Client.Photon`. Protocol: **GpBinaryV18** (`Protocol18 : IProtocol`,
@@ -55,7 +55,7 @@ spike.
 Live: client mod reads SteamID from registry (HKCU\Software\Valve\Steam\ActiveProcess\ActiveUser
 -> SteamID64 = 0x0110000100000000 + accountId) and sends it as the Photon UserId; the server
 auto-creates a persistent Account (+Profile) at level Player keyed by that SteamID (SQLite
-blackice.db). Bootstrap code printed on first start; console promote/ban/list working.
+openpak.db). Bootstrap code printed on first start; console promote/ban/list working.
 Note: Steamworks.SteamUser.GetSteamID() throws "not initialized" inside the BepInEx plugin
 context — registry read is the reliable path.
 

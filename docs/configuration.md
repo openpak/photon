@@ -1,6 +1,6 @@
 # Configuration
 
-The server reads **`blackice.server.json`** from the executable directory. If the file is missing it
+The server reads **`openpak.server.json`** from the executable directory. If the file is missing it
 is written with defaults on first run, so the simplest setup is: start the server once, then edit the
 generated file. Every value can also be overridden by an environment variable (see
 [Environment overrides](#environment-overrides)) — handy for containers and CI where you don't want to
@@ -16,7 +16,7 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
 {
   // IP/host advertised to clients in the Name->Master->Game handoff. Set this to the address
   // other machines reach this server on (LAN IP, or public IP). Also overridable as the first
-  // command-line argument: `BlackIce.Server.Host 192.168.1.10`.
+  // command-line argument: `OpenPak.Server.Host 192.168.1.10`.
   "AdvertisedHost": "127.0.0.1",
 
   // When true, tokenless LAN-mode auth is accepted from loopback/private-range peers only.
@@ -85,7 +85,7 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
 
     // SQLite: a relative Data Source is anchored next to the executable. MySQL: a standard
     // Pomelo/MySqlConnector connection string.
-    "ConnectionString": "Data Source=blackice.db",
+    "ConnectionString": "Data Source=openpak.db",
 
     // When true (default), the schema is brought up to date on startup: SQLite applies the
     // committed EF Core migrations; MySQL uses EnsureCreated. Set false to manage the schema out
@@ -114,27 +114,27 @@ player-anchored fallback. Put the map name in the realm's `ExtraJson` under a `"
 ```
 
 At startup the server loads `maps/level13.navmesh` (resolved next to the server binary, overridable with
-`BLACKICE_MAPS_DIR`). When that artifact exists the realm's smart bots snap every move onto the surface and
+`OPENPAK_MAPS_DIR`). When that artifact exists the realm's smart bots snap every move onto the surface and
 route around walls via the navmesh; **when it is absent — or a realm declares no `navmesh` — bots behave
 exactly as before** (player-anchor, straight steps), so this is purely additive. The `.navmesh` artifacts
-are game-derived and are produced offline by `tools/MapExtractor`; they are **gitignored** and never
+are game-derived and were produced offline by the map extractor (frozen `earlier-photon` copy); they are **gitignored** and never
 committed (clean-room — see `docs/superpowers/specs/2026-06-01-map-navmesh-design.md`).
 
 ## Environment overrides
 
-Any value can be overridden by a `BLACKICE_`-prefixed environment variable, using `__` (double
+Any value can be overridden by a `OPENPAK_`-prefixed environment variable, using `__` (double
 underscore) to descend into nested objects. The override layer wins over the JSON file, so a
 container can set secrets and connection strings without baking them into an image:
 
 | Setting | Environment variable | Example |
 |---|---|---|
-| Advertised host | `BLACKICE_AdvertisedHost` | `203.0.113.7` |
-| Token secret | `BLACKICE_Server__Secret` | `a-real-deployment-secret` |
-| Game Server port | `BLACKICE_Server__Ports__GameServer` | `6056` |
-| Database provider | `BLACKICE_Database__Provider` | `MySql` |
-| Connection string | `BLACKICE_Database__ConnectionString` | `Server=db;Database=blackice;User=...` |
-| Log level | `BLACKICE_LOG` | `Debug` |
-| Navmesh maps directory | `BLACKICE_MAPS_DIR` | `/srv/blackice/maps` |
+| Advertised host | `OPENPAK_AdvertisedHost` | `203.0.113.7` |
+| Token secret | `OPENPAK_Server__Secret` | `a-real-deployment-secret` |
+| Game Server port | `OPENPAK_Server__Ports__GameServer` | `6056` |
+| Database provider | `OPENPAK_Database__Provider` | `MySql` |
+| Connection string | `OPENPAK_Database__ConnectionString` | `Server=db;Database=openpak;User=...` |
+| Log level | `OPENPAK_LOG` | `Debug` |
+| Navmesh maps directory | `OPENPAK_MAPS_DIR` | `/srv/openpak/maps` |
 
 Quick launch overrides also exist: the first command-line argument sets `AdvertisedHost`,
 `--require-token` forces `AllowAnonymousLan=false`, and `--trace` / `--debug` set the log level.
@@ -142,9 +142,9 @@ Quick launch overrides also exist: the first command-line argument sets `Adverti
 ## Schema migrations
 
 The SQLite schema is managed with EF Core migrations (committed under
-`server/BlackIce.Server.Data/Migrations`). To evolve it:
+`server/OpenPak.Server.Data/Migrations`). To evolve it:
 
 ```bash
-dotnet ef migrations add <Name> --project server/BlackIce.Server.Data
-dotnet ef database update      --project server/BlackIce.Server.Data   # or let AutoMigrate apply on startup
+dotnet ef migrations add <Name> --project server/OpenPak.Server.Data
+dotnet ef database update      --project server/OpenPak.Server.Data   # or let AutoMigrate apply on startup
 ```

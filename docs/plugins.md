@@ -20,7 +20,7 @@ mod. They ship **inert/off**, so the server stays vanilla until an admin tunes t
 mutator commands* below). They demonstrate the three relay levers a plugin has — `mutators` **rewrites**,
 `spawnguard` **drops**, `thorns`/`killfeed` **originate** — and compose safely with the validators above.
 
-A plugin is either **built-in** (compiled into `BlackIce.Server.LoadBalancing`, always present, can be
+A plugin is either **built-in** (compiled into `OpenPak.Server.LoadBalancing`, always present, can be
 disabled but not removed) or **external** (a standalone DLL dropped into the `server-plugins` directory,
 loaded into its own collectible load context so it can be hot-loaded and hot-unloaded at runtime).
 
@@ -29,8 +29,8 @@ loaded into its own collectible load context so it can be hot-loaded and hot-unl
 Four ways to control plugins, all without recompiling the server:
 
 1. **Config** — list a plugin name under `Server.Plugins.Disabled` to start it disabled (it's still loaded,
-   so it can be toggled later). Example: `BLACKICE_Server__Plugins__Disabled__0=anticheat`, or in
-   `blackice.server.json`:
+   so it can be toggled later). Example: `OPENPAK_Server__Plugins__Disabled__0=anticheat`, or in
+   `openpak.server.json`:
    ```jsonc
    "Plugins": { "Directory": "server-plugins", "Disabled": ["anticheat"] }
    ```
@@ -132,9 +132,9 @@ from `PluginBuilder.Services`.
 
 ### Built-in vs external
 
-- **Built-in:** add the class to `BlackIce.Server.LoadBalancing` (the loader discovers every
+- **Built-in:** add the class to `OpenPak.Server.LoadBalancing` (the loader discovers every
   `IServerPlugin` in that assembly). It ships in the server and can only be disabled, not removed.
-- **External:** a separate project that references `BlackIce.Server.LoadBalancing` and builds to a DLL you
+- **External:** a separate project that references `OpenPak.Server.LoadBalancing` and builds to a DLL you
   drop into `server-plugins`. Reference the contract assemblies with `<Private>false</Private>` so the
   plugin compiles against them but **does not** copy them into its output — the running server already
   provides them, and the collectible load context resolves shared assemblies from the host's default
@@ -152,7 +152,7 @@ of the server solution; build and deploy it with:
 ```bash
 dotnet build samples/SampleServerPlugin/SampleServerPlugin.csproj
 cp samples/SampleServerPlugin/bin/Debug/net8.0/SampleServerPlugin.dll \
-   server/BlackIce.Server.Host/bin/Debug/net8.0/server-plugins/
+   server/OpenPak.Server.Host/bin/Debug/net8.0/server-plugins/
 ```
 
 ## Verified live

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # release.sh — Mark an area complete, push the session branch, optionally merge.
 #
-# Part of the BlackIce.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
+# Part of the OpenPak.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
 #
 # Usage:   tools/parallel/release.sh <area> [--merge]
 # Example: tools/parallel/release.sh authority

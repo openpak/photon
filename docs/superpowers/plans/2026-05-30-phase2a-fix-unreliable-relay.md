@@ -15,10 +15,10 @@
 ## Task 1: NCommand parses & serializes type 7 (and 11) correctly
 
 **Files:**
-- Modify: `server/BlackIce.Photon/Transport/NCommand.cs`
-- Test: `server/BlackIce.Photon.Tests/TransportTests.cs` (add)
+- Modify: `server/OpenPak.Photon/Transport/NCommand.cs`
+- Test: `server/OpenPak.Photon.Tests/TransportTests.cs` (add)
 
-- [ ] **Step 1 — failing tests** (append inside the existing `TransportTests` class in `server/BlackIce.Photon.Tests/TransportTests.cs`):
+- [ ] **Step 1 — failing tests** (append inside the existing `TransportTests` class in `server/OpenPak.Photon.Tests/TransportTests.cs`):
 
 ```csharp
     [Fact]
@@ -60,14 +60,14 @@
 ```
 
 - [ ] **Step 2 — run, expect FAIL** (UnreliableSequenceNumber missing; type-7 parse wrong):
-`dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter TransportTests`
+`dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter TransportTests`
 
-- [ ] **Step 3 — implement.** Replace the body of `server/BlackIce.Photon/Transport/NCommand.cs` with:
+- [ ] **Step 3 — implement.** Replace the body of `server/OpenPak.Photon/Transport/NCommand.cs` with:
 
 ```csharp
 using System.Buffers.Binary;
 
-namespace BlackIce.Photon.Transport;
+namespace OpenPak.Photon.Transport;
 
 /// <summary>
 /// One eNet command. The common header is 12 bytes (type, channel, flags, reserved, length int32,
@@ -123,13 +123,13 @@ public sealed record NCommand(byte CommandType, byte ChannelId, byte Flags, byte
 ```
 
 - [ ] **Step 4 — run, expect PASS** (the 3 new + the existing transport tests):
-`dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter TransportTests`
+`dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter TransportTests`
 
-- [ ] **Step 5 — verify the UdpListener parse loop still advances correctly.** It uses `offset + NCommand.HeaderSize <= datagram.Length` as a guard (12 is fine as a minimum-size guard since 12 < 16; the per-command `consumed` from Parse drives the real advance). No change needed. Build the solution to confirm: `dotnet build server/BlackIce.Server.sln`.
+- [ ] **Step 5 — verify the UdpListener parse loop still advances correctly.** It uses `offset + NCommand.HeaderSize <= datagram.Length` as a guard (12 is fine as a minimum-size guard since 12 < 16; the per-command `consumed` from Parse drives the real advance). No change needed. Build the solution to confirm: `dotnet build server/OpenPak.Server.sln`.
 
 - [ ] **Step 6 — commit:**
 ```bash
-git add server/BlackIce.Photon/Transport/NCommand.cs server/BlackIce.Photon.Tests/TransportTests.cs
+git add server/OpenPak.Photon/Transport/NCommand.cs server/OpenPak.Photon.Tests/TransportTests.cs
 git commit -m "fix(transport): parse/serialize CT_SENDUNRELIABLE (type 7) 16-byte header"
 ```
 
@@ -138,8 +138,8 @@ git commit -m "fix(transport): parse/serialize CT_SENDUNRELIABLE (type 7) 16-byt
 ## Task 2: EnetPeer surfaces inbound unreliable + builds outbound unreliable with a per-channel seq
 
 **Files:**
-- Modify: `server/BlackIce.Photon/Transport/EnetPeer.cs`
-- Test: `server/BlackIce.Photon.Tests/TransportTests.cs` (add)
+- Modify: `server/OpenPak.Photon/Transport/EnetPeer.cs`
+- Test: `server/OpenPak.Photon.Tests/TransportTests.cs` (add)
 
 **Context:** `HandleCommand(NCommand cmd, int incomingSentTime, out byte[]? appPayload)` returns control commands and surfaces an app payload. Today only `SendReliable` sets `appPayload`. Unreliable must also set it (no ack — only reliable commands are acked, and the existing reliable-ack guard `(cmd.Flags & FlagReliable) != 0` already excludes type 7 since its flags=0, so the ack logic needs no change). `WrapReliable(payload, channel)` exists. Add `WrapUnreliable(payload, channel)` that stamps `++_outgoingUnreliableSeq[channel]` and the channel's current reliable seq (the last value handed out by `NextSeq`, i.e. the current `_outgoingSeq[channel]`, NOT incremented).
 
@@ -168,9 +168,9 @@ git commit -m "fix(transport): parse/serialize CT_SENDUNRELIABLE (type 7) 16-byt
     }
 ```
 
-- [ ] **Step 2 — run, expect FAIL:** `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter TransportTests`
+- [ ] **Step 2 — run, expect FAIL:** `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter TransportTests`
 
-- [ ] **Step 3 — implement.** In `server/BlackIce.Photon/Transport/EnetPeer.cs`:
+- [ ] **Step 3 — implement.** In `server/OpenPak.Photon/Transport/EnetPeer.cs`:
 
 (a) Add a field next to `_outgoingSeq`:
 ```csharp
@@ -202,11 +202,11 @@ git commit -m "fix(transport): parse/serialize CT_SENDUNRELIABLE (type 7) 16-byt
     }
 ```
 
-- [ ] **Step 4 — run, expect PASS:** `dotnet test server/BlackIce.Photon.Tests/BlackIce.Photon.Tests.csproj --filter TransportTests`
+- [ ] **Step 4 — run, expect PASS:** `dotnet test server/OpenPak.Photon.Tests/OpenPak.Photon.Tests.csproj --filter TransportTests`
 
 - [ ] **Step 5 — commit:**
 ```bash
-git add server/BlackIce.Photon/Transport/EnetPeer.cs server/BlackIce.Photon.Tests/TransportTests.cs
+git add server/OpenPak.Photon/Transport/EnetPeer.cs server/OpenPak.Photon.Tests/TransportTests.cs
 git commit -m "feat(transport): surface inbound unreliable payloads + WrapUnreliable with per-channel seq"
 ```
 
@@ -215,11 +215,11 @@ git commit -m "feat(transport): surface inbound unreliable payloads + WrapUnreli
 ## Task 3: Carry delivery class through decode → relay → send
 
 **Files:**
-- Modify: `server/BlackIce.Server.Core/PeerConnection.cs`
-- Modify: `server/BlackIce.Server.LoadBalancing/EventContext.cs`
-- Modify: `server/BlackIce.Server.LoadBalancing/RoomSession.cs`
-- Modify: `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/UnreliableRelayTests.cs` (create)
+- Modify: `server/OpenPak.Server.Core/PeerConnection.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/EventContext.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/RoomSession.cs`
+- Modify: `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/UnreliableRelayTests.cs` (create)
 
 **Context:** The relay must forward a movement event UNRELIABLY (the client discards reliably-delivered position spam out of order and it floods the reliable buffer). We thread a `bool unreliable` from the inbound command class to the outbound send.
 
@@ -227,18 +227,18 @@ git commit -m "feat(transport): surface inbound unreliable payloads + WrapUnreli
 
 Concretely:
 
-- [ ] **Step 1 — failing test** `server/BlackIce.Server.Tests/UnreliableRelayTests.cs`:
+- [ ] **Step 1 — failing test** `server/OpenPak.Server.Tests/UnreliableRelayTests.cs`:
 
 ```csharp
 using System.Collections.Generic;
 using System.Net;
-using BlackIce.Photon;
-using BlackIce.Photon.Transport;
-using BlackIce.Server.Core;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Photon.Transport;
+using OpenPak.Server.Core;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class UnreliableRelayTests
 {
@@ -288,7 +288,7 @@ public class UnreliableRelayTests
 
 - [ ] **Step 2 — run, expect FAIL** (`OnRaisedClassified`, `RaiseEvent(ev, unreliable)`, `RelayFrom(..., unreliable)` missing).
 
-- [ ] **Step 3 — PeerConnection: add classified raise + send-unreliable path.** In `server/BlackIce.Server.Core/PeerConnection.cs`:
+- [ ] **Step 3 — PeerConnection: add classified raise + send-unreliable path.** In `server/OpenPak.Server.Core/PeerConnection.cs`:
 
 Add near `OnRaised`:
 ```csharp
@@ -312,7 +312,7 @@ Replace `RaiseEvent` with a reliable default that delegates to a classified over
 ```
 (Leave `SendRaw` as the reliable wrapper used by responses/handshake.)
 
-- [ ] **Step 4 — EventContext: remember the delivery class.** In `server/BlackIce.Server.LoadBalancing/EventContext.cs`, add an `Unreliable` flag:
+- [ ] **Step 4 — EventContext: remember the delivery class.** In `server/OpenPak.Server.LoadBalancing/EventContext.cs`, add an `Unreliable` flag:
 ```csharp
     public bool Unreliable { get; }
 
@@ -323,7 +323,7 @@ Replace `RaiseEvent` with a reliable default that delegates to a classified over
 ```
 (Keep the existing 3-arg usage working via the default.)
 
-- [ ] **Step 5 — RoomSession: relay preserving class.** In `server/BlackIce.Server.LoadBalancing/RoomSession.cs`, change `RelayFrom` to take the flag and pass it to the classified raise:
+- [ ] **Step 5 — RoomSession: relay preserving class.** In `server/OpenPak.Server.LoadBalancing/RoomSession.cs`, change `RelayFrom` to take the flag and pass it to the classified raise:
 ```csharp
     public void RelayFrom(int senderActor, EventData ev, bool unreliable = false)
     {
@@ -346,11 +346,11 @@ Replace `RaiseEvent` with a reliable default that delegates to a classified over
     }
 ```
 
-- [ ] **Step 6 — run the new test, expect PASS:** `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter UnreliableRelayTests`
+- [ ] **Step 6 — run the new test, expect PASS:** `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter UnreliableRelayTests`
 
 - [ ] **Step 7 — commit:**
 ```bash
-git add server/BlackIce.Server.Core/PeerConnection.cs server/BlackIce.Server.LoadBalancing/EventContext.cs server/BlackIce.Server.LoadBalancing/RoomSession.cs server/BlackIce.Server.Tests/UnreliableRelayTests.cs
+git add server/OpenPak.Server.Core/PeerConnection.cs server/OpenPak.Server.LoadBalancing/EventContext.cs server/OpenPak.Server.LoadBalancing/RoomSession.cs server/OpenPak.Server.Tests/UnreliableRelayTests.cs
 git commit -m "feat(lb): relay events preserving their reliable/unreliable delivery class"
 ```
 
@@ -359,9 +359,9 @@ git commit -m "feat(lb): relay events preserving their reliable/unreliable deliv
 ## Task 4: GameServerHandler tells the relay the inbound delivery class
 
 **Files:**
-- Modify: `server/BlackIce.Server.Core/PeerConnection.cs` (expose inbound class to handler)
-- Modify: `server/BlackIce.Server.LoadBalancing/GameServerHandler.cs`
-- Test: `server/BlackIce.Server.Tests/GameServerRelayTests.cs` (add)
+- Modify: `server/OpenPak.Server.Core/PeerConnection.cs` (expose inbound class to handler)
+- Modify: `server/OpenPak.Server.LoadBalancing/GameServerHandler.cs`
+- Test: `server/OpenPak.Server.Tests/GameServerRelayTests.cs` (add)
 
 **Context:** The handler's `OnOperationRequest` relays gameplay events but doesn't know if the op arrived unreliable. `PeerConnection` knows (it parsed the command). Expose the current inbound delivery class on the peer so the handler reads it when relaying.
 
@@ -433,13 +433,13 @@ Replace with:
                     _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
 ```
 
-- [ ] **Step 5 — run the test, expect PASS:** `dotnet test server/BlackIce.Server.Tests/BlackIce.Server.Tests.csproj --filter GameServerRelayTests`
+- [ ] **Step 5 — run the test, expect PASS:** `dotnet test server/OpenPak.Server.Tests/OpenPak.Server.Tests.csproj --filter GameServerRelayTests`
 
-- [ ] **Step 6 — full solution, expect green:** `dotnet test server/BlackIce.Server.sln`
+- [ ] **Step 6 — full solution, expect green:** `dotnet test server/OpenPak.Server.sln`
 
 - [ ] **Step 7 — commit:**
 ```bash
-git add server/BlackIce.Server.Core/PeerConnection.cs server/BlackIce.Server.LoadBalancing/GameServerHandler.cs server/BlackIce.Server.Tests/GameServerRelayTests.cs
+git add server/OpenPak.Server.Core/PeerConnection.cs server/OpenPak.Server.LoadBalancing/GameServerHandler.cs server/OpenPak.Server.Tests/GameServerRelayTests.cs
 git commit -m "feat(lb): relay gameplay events with the delivery class they arrived on (movement = unreliable)"
 ```
 
@@ -449,7 +449,7 @@ git commit -m "feat(lb): relay gameplay events with the delivery class they arri
 
 - [ ] **Step 1 — dispatch photon-interop-reviewer** on the NCommand type-7 framing and WrapUnreliable, to confirm against the real DLL that (a) our type-7 serialization is byte-accurate (16-byte header, BE seq at offset 12, length includes it) and (b) the unreliable-seq/reliable-seq stamping matches what the client's receive path accepts (not discarded as stale). Fix any findings, re-review.
 
-- [ ] **Step 2 — full suite + clean build:** `dotnet test server/BlackIce.Server.sln` ; `dotnet build server/BlackIce.Server.sln`.
+- [ ] **Step 2 — full suite + clean build:** `dotnet test server/OpenPak.Server.sln` ; `dotnet build server/OpenPak.Server.sln`.
 
 - [ ] **Step 3 — LIVE re-test (manual):** restart server, connect two clients. Expected now: the remote player's avatar **moves** as they move, and shows its **weapon model**. The `--trace` log should show `raise EvPunRpc`/position events going out as `(unreliable)` and inbound type-7 commands surfacing payloads. Update `.remember/remember.md` with the result.
 

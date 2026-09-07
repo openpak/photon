@@ -37,14 +37,14 @@ in-game `/claim <code>` redemption (SP3); gameplay/profile data beyond placehold
 
 ## 3. Architecture
 
-New project **`BlackIce.Server.Data`** (EF Core), referenced by `Server.Core` /
+New project **`OpenPak.Server.Data`** (EF Core), referenced by `Server.Core` /
 `Server.LoadBalancing` / `Server.Host`.
 
 - ORM: **EF Core 8**. Providers: `Microsoft.EntityFrameworkCore.Sqlite` (default) and
   `Pomelo.EntityFrameworkCore.MySql` (optional). Selected at startup by config:
   `Database:Provider` = `Sqlite` | `MySql`, `Database:ConnectionString`
-  (default `Data Source=blackice.db`).
-- `BlackIceDbContext` with `DbSet<Account>`, `DbSet<Profile>`, `DbSet<ServerState>`.
+  (default `Data Source=openpak.db`).
+- `OpenPakDbContext` with `DbSet<Account>`, `DbSet<Profile>`, `DbSet<ServerState>`.
 - EF Core **migrations** committed in-repo; `DbContext.Database.Migrate()` on startup creates/
   upgrades the schema.
 - `AccountService` (the single entry point used by handlers) wraps the context with the
@@ -66,7 +66,7 @@ public enum PlayerLevel { Player = 0, Mod = 1, Admin = 2, Console = 3 }
 
 ## 5. Identity resolution
 
-- **Client mod** (extend `BlackIce.Redirect`): before `ConnectUsingSettings`, set
+- **Client mod** (extend `OpenPak.Redirect`): before `ConnectUsingSettings`, set
   `PhotonNetwork.AuthValues = new AuthenticationValues(steamId)` where
   `steamId = SteamUser.GetSteamID().m_SteamID.ToString()` (Steamworks.NET is referenced by the
   game). This sends the SteamID as the Photon **UserId** in the Authenticate operation.
@@ -103,7 +103,7 @@ public enum PlayerLevel { Player = 0, Mod = 1, Admin = 2, Console = 3 }
 
 - `NameServerHandler` / `MasterServerHandler` / `GameServerHandler` `Authenticate` resolve the
   account via `AccountService` and reject banned accounts.
-- The Host constructs the `BlackIceDbContext`/`AccountService` from config, runs migrations,
+- The Host constructs the `OpenPakDbContext`/`AccountService` from config, runs migrations,
   performs the bootstrap-code step, and starts the console loop alongside the UDP listeners.
 - Existing Phase 1 behavior (connect → room) is preserved; identity resolution is additive.
 

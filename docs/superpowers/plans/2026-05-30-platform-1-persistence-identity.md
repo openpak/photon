@@ -4,13 +4,13 @@
 
 **Goal:** Add a pluggable EF Core data layer (SQLite default, MySQL-swappable) with SteamID-keyed accounts auto-created on first connect, a 4-level permission model, a one-time bootstrap code, and a server console command loop — so the server has persistent identity to build realms and admin commands on.
 
-**Architecture:** A new `BlackIce.Server.Data` project owns the `DbContext`, entities, and an `AccountService` (resolve-or-create, level/ban management, bootstrap). The Name/Master/Game handlers resolve the player's account on Authenticate (identity = SteamID sent by the client mod as the Photon UserId) and reject bans. The Host loads config, creates the schema, prints the bootstrap code, and runs a console command loop alongside the UDP listeners.
+**Architecture:** A new `OpenPak.Server.Data` project owns the `DbContext`, entities, and an `AccountService` (resolve-or-create, level/ban management, bootstrap). The Name/Master/Game handlers resolve the player's account on Authenticate (identity = SteamID sent by the client mod as the Photon UserId) and reject bans. The Host loads config, creates the schema, prints the bootstrap code, and runs a console command loop alongside the UDP listeners.
 
 **Tech Stack:** .NET 8, EF Core 8 (`Microsoft.EntityFrameworkCore.Sqlite` + `Pomelo.EntityFrameworkCore.MySql`), xUnit with EF Core SQLite in-memory, System.Text.Json config, BepInEx/Steamworks (client mod).
 
 **Deviation from spec (deliberate):** SP1 uses `Database.EnsureCreated()` rather than EF migrations. Multi-provider migrations (SQLite + MySQL) need per-provider migration assemblies — unjustified complexity while SQLite is the only live backend. `EnsureCreated` builds the schema from the model under either provider. Migrations become the upgrade path when MySQL/schema-evolution is actually used.
 
-**Environment:** `$REPO` = `C:\Users\natew\OneDrive\Documentos\blackice-re`; `$GAME` = the Steam install; `$MANAGED` = `$GAME\Black Ice_Data\Managed`. Work on branch `platform-sp1` (created in Task 1). Run Bash-tool commands from `$REPO/server` unless noted. **Stop any running BlackIce.Server.Host before building** (it locks DLLs): `powershell.exe -NoProfile -Command "(Get-NetUDPEndpoint -LocalPort 5058 -ErrorAction SilentlyContinue).OwningProcess | %{ Stop-Process -Id $_ -Force }"`.
+**Environment:** `$REPO` = `C:\Users\natew\OneDrive\Documentos\openpak-re`; `$GAME` = the Steam install; `$MANAGED` = `$GAME\Black Ice_Data\Managed`. Work on branch `platform-sp1` (created in Task 1). Run Bash-tool commands from `$REPO/server` unless noted. **Stop any running OpenPak.Server.Host before building** (it locks DLLs): `powershell.exe -NoProfile -Command "(Get-NetUDPEndpoint -LocalPort 5058 -ErrorAction SilentlyContinue).OwningProcess | %{ Stop-Process -Id $_ -Force }"`.
 
 ---
 
@@ -18,24 +18,24 @@
 
 ```
 server/
-  BlackIce.Server.Data/
-    BlackIce.Server.Data.csproj
+  OpenPak.Server.Data/
+    OpenPak.Server.Data.csproj
     PlayerLevel.cs            # enum Player/Mod/Admin/Console
     Entities.cs               # Account, Profile, ServerState
-    BlackIceDbContext.cs      # DbSets + model config
+    OpenPakDbContext.cs      # DbSets + model config
     DatabaseOptions.cs        # provider + connection string; context factory
     AccountService.cs         # resolve-or-create, level/ban, bootstrap
     ConsoleCommandProcessor.cs# parse+execute a console admin line
-  BlackIce.Server.Data.Tests/
-    BlackIce.Server.Data.Tests.csproj
+  OpenPak.Server.Data.Tests/
+    OpenPak.Server.Data.Tests.csproj
     TestDb.cs                 # SQLite in-memory context helper
     AccountServiceTests.cs
     ConsoleCommandProcessorTests.cs
-  BlackIce.Server.LoadBalancing/   # modified: handlers resolve account + reject bans
-  BlackIce.Server.Host/            # modified: config, schema create, bootstrap print, console loop
+  OpenPak.Server.LoadBalancing/   # modified: handlers resolve account + reject bans
+  OpenPak.Server.Host/            # modified: config, schema create, bootstrap print, console loop
     ServerConfig.cs
 plugins/
-  BlackIce.Redirect/               # modified: send SteamID as AuthValues.UserId
+  OpenPak.Redirect/               # modified: send SteamID as AuthValues.UserId
 ```
 
 ---
@@ -47,59 +47,59 @@ plugins/
 ```bash
 cd "$REPO" && git checkout -b platform-sp1 && git branch --show-current
 cd "$REPO/server"
-dotnet new classlib -n BlackIce.Server.Data -o BlackIce.Server.Data --framework net8.0 && rm -f BlackIce.Server.Data/Class1.cs
-dotnet new xunit -n BlackIce.Server.Data.Tests -o BlackIce.Server.Data.Tests --framework net8.0 && rm -f BlackIce.Server.Data.Tests/UnitTest1.cs
+dotnet new classlib -n OpenPak.Server.Data -o OpenPak.Server.Data --framework net8.0 && rm -f OpenPak.Server.Data/Class1.cs
+dotnet new xunit -n OpenPak.Server.Data.Tests -o OpenPak.Server.Data.Tests --framework net8.0 && rm -f OpenPak.Server.Data.Tests/UnitTest1.cs
 ```
 
 - [ ] **Step 2: Add EF Core packages**
 
 ```bash
 cd "$REPO/server"
-dotnet add BlackIce.Server.Data package Microsoft.EntityFrameworkCore.Sqlite --version 8.0.8
-dotnet add BlackIce.Server.Data package Pomelo.EntityFrameworkCore.MySql --version 8.0.2
-dotnet add BlackIce.Server.Data.Tests package Microsoft.EntityFrameworkCore.Sqlite --version 8.0.8
+dotnet add OpenPak.Server.Data package Microsoft.EntityFrameworkCore.Sqlite --version 8.0.8
+dotnet add OpenPak.Server.Data package Pomelo.EntityFrameworkCore.MySql --version 8.0.2
+dotnet add OpenPak.Server.Data.Tests package Microsoft.EntityFrameworkCore.Sqlite --version 8.0.8
 ```
 
 - [ ] **Step 3: Wire references + solution**
 
 ```bash
 cd "$REPO/server"
-dotnet add BlackIce.Server.Data.Tests reference BlackIce.Server.Data
-dotnet add BlackIce.Server.Core reference BlackIce.Server.Data
-dotnet sln BlackIce.Server.sln add BlackIce.Server.Data BlackIce.Server.Data.Tests
-cd "$REPO" && dotnet sln BlackIce.sln add server/BlackIce.Server.Data/BlackIce.Server.Data.csproj server/BlackIce.Server.Data.Tests/BlackIce.Server.Data.Tests.csproj
-dotnet build BlackIce.sln 2>&1 | tail -3
+dotnet add OpenPak.Server.Data.Tests reference OpenPak.Server.Data
+dotnet add OpenPak.Server.Core reference OpenPak.Server.Data
+dotnet sln OpenPak.Server.sln add OpenPak.Server.Data OpenPak.Server.Data.Tests
+cd "$REPO" && dotnet sln OpenPak.sln add server/OpenPak.Server.Data/OpenPak.Server.Data.csproj server/OpenPak.Server.Data.Tests/OpenPak.Server.Data.Tests.csproj
+dotnet build OpenPak.sln 2>&1 | tail -3
 ```
 Expected: `Build succeeded.`
 
 - [ ] **Step 4: Commit**
 
 ```bash
-cd "$REPO" && git add server/ BlackIce.sln && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
-git commit -m "chore(data): scaffold BlackIce.Server.Data + EF Core packages"
+cd "$REPO" && git add server/ OpenPak.sln && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
+git commit -m "chore(data): scaffold OpenPak.Server.Data + EF Core packages"
 ```
 
 ---
 
 ## Task 2: Permission enum, entities, and DbContext
 
-**Files:** Create `PlayerLevel.cs`, `Entities.cs`, `BlackIceDbContext.cs`; Test `TestDb.cs`, `AccountServiceTests.cs` (first test).
+**Files:** Create `PlayerLevel.cs`, `Entities.cs`, `OpenPakDbContext.cs`; Test `TestDb.cs`, `AccountServiceTests.cs` (first test).
 
 - [ ] **Step 1: Write the enum and entities**
 
-`BlackIce.Server.Data/PlayerLevel.cs`:
+`OpenPak.Server.Data/PlayerLevel.cs`:
 ```csharp
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>Account permission tiers. Higher value = more authority.</summary>
 public enum PlayerLevel { Player = 0, Mod = 1, Admin = 2, Console = 3 }
 ```
 
-`BlackIce.Server.Data/Entities.cs`:
+`OpenPak.Server.Data/Entities.cs`:
 ```csharp
 using System.ComponentModel.DataAnnotations;
 
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>A persistent player identity, keyed by SteamID, auto-created on first connect.</summary>
 public class Account
@@ -132,15 +132,15 @@ public class ServerState
 
 - [ ] **Step 2: Write the DbContext**
 
-`BlackIce.Server.Data/BlackIceDbContext.cs`:
+`OpenPak.Server.Data/OpenPakDbContext.cs`:
 ```csharp
 using Microsoft.EntityFrameworkCore;
 
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
-public class BlackIceDbContext : DbContext
+public class OpenPakDbContext : DbContext
 {
-    public BlackIceDbContext(DbContextOptions<BlackIceDbContext> options) : base(options) { }
+    public OpenPakDbContext(DbContextOptions<OpenPakDbContext> options) : base(options) { }
 
     public DbSet<Account> Accounts => Set<Account>();
     public DbSet<Profile> Profiles => Set<Profile>();
@@ -157,45 +157,45 @@ public class BlackIceDbContext : DbContext
 
 - [ ] **Step 3: Write the in-memory test helper + first failing test**
 
-`BlackIce.Server.Data.Tests/TestDb.cs`:
+`OpenPak.Server.Data.Tests/TestDb.cs`:
 ```csharp
-using BlackIce.Server.Data;
+using OpenPak.Server.Data;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 
-namespace BlackIce.Server.Data.Tests;
+namespace OpenPak.Server.Data.Tests;
 
-/// <summary>Creates an isolated SQLite in-memory BlackIceDbContext (connection kept open per instance).</summary>
+/// <summary>Creates an isolated SQLite in-memory OpenPakDbContext (connection kept open per instance).</summary>
 public sealed class TestDb : IDisposable
 {
     private readonly SqliteConnection _conn;
-    public BlackIceDbContext Context { get; }
+    public OpenPakDbContext Context { get; }
 
     public TestDb()
     {
         _conn = new SqliteConnection("DataSource=:memory:");
         _conn.Open();
-        var options = new DbContextOptionsBuilder<BlackIceDbContext>().UseSqlite(_conn).Options;
-        Context = new BlackIceDbContext(options);
+        var options = new DbContextOptionsBuilder<OpenPakDbContext>().UseSqlite(_conn).Options;
+        Context = new OpenPakDbContext(options);
         Context.Database.EnsureCreated();
     }
 
-    public BlackIceDbContext NewContext()   // a fresh context over the same DB (simulates a new request)
+    public OpenPakDbContext NewContext()   // a fresh context over the same DB (simulates a new request)
     {
-        var options = new DbContextOptionsBuilder<BlackIceDbContext>().UseSqlite(_conn).Options;
-        return new BlackIceDbContext(options);
+        var options = new DbContextOptionsBuilder<OpenPakDbContext>().UseSqlite(_conn).Options;
+        return new OpenPakDbContext(options);
     }
 
     public void Dispose() { Context.Dispose(); _conn.Dispose(); }
 }
 ```
 
-`BlackIce.Server.Data.Tests/AccountServiceTests.cs`:
+`OpenPak.Server.Data.Tests/AccountServiceTests.cs`:
 ```csharp
-using BlackIce.Server.Data;
+using OpenPak.Server.Data;
 using Xunit;
 
-namespace BlackIce.Server.Data.Tests;
+namespace OpenPak.Server.Data.Tests;
 
 public class AccountServiceTests
 {
@@ -218,7 +218,7 @@ public class AccountServiceTests
 - [ ] **Step 4: Run — should pass (schema round-trips)**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter Schema_supports_account_with_profile 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter Schema_supports_account_with_profile 2>&1 | tail -4
 ```
 Expected: PASS.
 
@@ -236,21 +236,21 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): PlayerLevel, Account
 
 - [ ] **Step 1: Implement the provider factory**
 
-`BlackIce.Server.Data/DatabaseOptions.cs`:
+`OpenPak.Server.Data/DatabaseOptions.cs`:
 ```csharp
 using Microsoft.EntityFrameworkCore;
 
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 public sealed class DatabaseOptions
 {
     public string Provider { get; set; } = "Sqlite";              // "Sqlite" | "MySql"
-    public string ConnectionString { get; set; } = "Data Source=blackice.db";
+    public string ConnectionString { get; set; } = "Data Source=openpak.db";
 
     /// <summary>Builds a context configured for the selected provider and ensures the schema exists.</summary>
-    public BlackIceDbContext CreateContext()
+    public OpenPakDbContext CreateContext()
     {
-        var builder = new DbContextOptionsBuilder<BlackIceDbContext>();
+        var builder = new DbContextOptionsBuilder<OpenPakDbContext>();
         switch (Provider.ToLowerInvariant())
         {
             case "mysql":
@@ -261,7 +261,7 @@ public sealed class DatabaseOptions
                 builder.UseSqlite(ConnectionString);
                 break;
         }
-        var ctx = new BlackIceDbContext(builder.Options);
+        var ctx = new OpenPakDbContext(builder.Options);
         ctx.Database.EnsureCreated();
         return ctx;
     }
@@ -271,7 +271,7 @@ public sealed class DatabaseOptions
 - [ ] **Step 2: Build to verify both providers compile**
 
 ```bash
-cd "$REPO/server" && dotnet build BlackIce.Server.Data 2>&1 | tail -3
+cd "$REPO/server" && dotnet build OpenPak.Server.Data 2>&1 | tail -3
 ```
 Expected: `Build succeeded.`
 
@@ -322,23 +322,23 @@ Append to `AccountServiceTests.cs`:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter First_connect_creates_player_account 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter First_connect_creates_player_account 2>&1 | tail -5
 ```
 Expected: FAIL — `AccountService` not defined.
 
 - [ ] **Step 3: Implement**
 
-`BlackIce.Server.Data/AccountService.cs`:
+`OpenPak.Server.Data/AccountService.cs`:
 ```csharp
 using Microsoft.EntityFrameworkCore;
 
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>The single entry point for account identity, permissions, and bootstrap state.</summary>
 public sealed class AccountService
 {
-    private readonly BlackIceDbContext _db;
-    public AccountService(BlackIceDbContext db) => _db = db;
+    private readonly OpenPakDbContext _db;
+    public AccountService(OpenPakDbContext db) => _db = db;
 
     /// <summary>Finds the account for a SteamID, creating it (+ profile) at level Player on first contact.</summary>
     public Account ResolveOrCreate(string steamId, string displayName)
@@ -370,7 +370,7 @@ public sealed class AccountService
 - [ ] **Step 4: Run to verify pass**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests 2>&1 | tail -4
 ```
 Expected: PASS.
 
@@ -417,7 +417,7 @@ Append to `AccountServiceTests.cs`:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter "SetLevel_changes_permission_tier|Ban_and_unban" 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter "SetLevel_changes_permission_tier|Ban_and_unban" 2>&1 | tail -5
 ```
 Expected: FAIL.
 
@@ -451,7 +451,7 @@ Add to `AccountService`:
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(data): account level + ban management"
 ```
 
@@ -493,7 +493,7 @@ Append to `AccountServiceTests.cs`:
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter "Bootstrap" 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter "Bootstrap" 2>&1 | tail -5
 ```
 Expected: FAIL.
 
@@ -530,7 +530,7 @@ Add to `AccountService` (before the final `}`):
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(data): one-time bootstrap code + claim"
 ```
 
@@ -542,12 +542,12 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): one-time bootstrap c
 
 - [ ] **Step 1: Failing tests**
 
-`BlackIce.Server.Data.Tests/ConsoleCommandProcessorTests.cs`:
+`OpenPak.Server.Data.Tests/ConsoleCommandProcessorTests.cs`:
 ```csharp
-using BlackIce.Server.Data;
+using OpenPak.Server.Data;
 using Xunit;
 
-namespace BlackIce.Server.Data.Tests;
+namespace OpenPak.Server.Data.Tests;
 
 public class ConsoleCommandProcessorTests
 {
@@ -588,15 +588,15 @@ public class ConsoleCommandProcessorTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests --filter ConsoleCommandProcessor 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests --filter ConsoleCommandProcessor 2>&1 | tail -5
 ```
 Expected: FAIL.
 
 - [ ] **Step 3: Implement**
 
-`BlackIce.Server.Data/ConsoleCommandProcessor.cs`:
+`OpenPak.Server.Data/ConsoleCommandProcessor.cs`:
 ```csharp
-namespace BlackIce.Server.Data;
+namespace OpenPak.Server.Data;
 
 /// <summary>Parses and executes a single server-console admin line, returning text output.</summary>
 public sealed class ConsoleCommandProcessor
@@ -636,7 +636,7 @@ public sealed class ConsoleCommandProcessor
 - [ ] **Step 4: Run + commit**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Data.Tests 2>&1 | tail -4
+cd "$REPO/server" && dotnet test OpenPak.Server.Data.Tests 2>&1 | tail -4
 cd "$REPO" && git add server/ && git commit -m "feat(data): console command processor (promote/ban/list/code)"
 ```
 
@@ -644,7 +644,7 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): console command proc
 
 ## Task 8: Identity in the auth handlers + token carries SteamID
 
-**Files:** Modify `BlackIce.Server.LoadBalancing/AuthToken.cs`, `NameServerHandler.cs`, `MasterServerHandler.cs`, `GameServerHandler.cs`; Test `BlackIce.Server.Tests/IdentityTests.cs`.
+**Files:** Modify `OpenPak.Server.LoadBalancing/AuthToken.cs`, `NameServerHandler.cs`, `MasterServerHandler.cs`, `GameServerHandler.cs`; Test `OpenPak.Server.Tests/IdentityTests.cs`.
 
 > The client mod sends the SteamID as the Photon UserId → it arrives in the Authenticate
 > request as parameter 225 (`ParameterCode.UserId`). The Name Server resolves the account and
@@ -653,15 +653,15 @@ cd "$REPO" && git add server/ && git commit -m "feat(data): console command proc
 
 - [ ] **Step 1: Failing test — banned account is refused**
 
-`BlackIce.Server.Tests/IdentityTests.cs`:
+`OpenPak.Server.Tests/IdentityTests.cs`:
 ```csharp
-using BlackIce.Photon;
-using BlackIce.Server.Data;
-using BlackIce.Server.Data.Tests;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Photon;
+using OpenPak.Server.Data;
+using OpenPak.Server.Data.Tests;
+using OpenPak.Server.LoadBalancing;
 using Xunit;
 
-namespace BlackIce.Server.Tests;
+namespace OpenPak.Server.Tests;
 
 public class IdentityTests
 {
@@ -698,7 +698,7 @@ public class IdentityTests
 - [ ] **Step 2: Run to verify failure**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter IdentityTests 2>&1 | tail -5
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter IdentityTests 2>&1 | tail -5
 ```
 Expected: FAIL — `NameServerHandler` ctor has no `AccountService` parameter.
 
@@ -737,7 +737,7 @@ Modify `NameServerHandler.cs`:
         });
     }
 ```
-(Add `using BlackIce.Server.Data;` and reference the project: `dotnet add BlackIce.Server.LoadBalancing reference BlackIce.Server.Data` from `$REPO/server`.)
+(Add `using OpenPak.Server.Data;` and reference the project: `dotnet add OpenPak.Server.LoadBalancing reference OpenPak.Server.Data` from `$REPO/server`.)
 
 - [ ] **Step 5: Add ban re-check to Master & Game Authenticate**
 
@@ -755,8 +755,8 @@ Add the `AccountService accounts` parameter to both constructors (after the exis
 - [ ] **Step 6: Run identity tests + full suite**
 
 ```bash
-cd "$REPO/server" && dotnet test BlackIce.Server.Tests --filter IdentityTests 2>&1 | tail -4
-dotnet test "$REPO/BlackIce.sln" 2>&1 | grep -E "Passed!|Failed!" | head
+cd "$REPO/server" && dotnet test OpenPak.Server.Tests --filter IdentityTests 2>&1 | tail -4
+dotnet test "$REPO/OpenPak.sln" 2>&1 | grep -E "Passed!|Failed!" | head
 ```
 Expected: identity tests PASS; fix any constructor call sites in other tests (they now need an `AccountService`; construct one over a `TestDb`).
 
@@ -770,16 +770,16 @@ cd "$REPO" && git add server/ && git commit -m "feat(lb): resolve accounts on au
 
 ## Task 9: Host — config, schema, bootstrap, console loop
 
-**Files:** Create `BlackIce.Server.Host/ServerConfig.cs`; Modify `Program.cs`.
+**Files:** Create `OpenPak.Server.Host/ServerConfig.cs`; Modify `Program.cs`.
 
 - [ ] **Step 1: Config record + loader**
 
-`BlackIce.Server.Host/ServerConfig.cs`:
+`OpenPak.Server.Host/ServerConfig.cs`:
 ```csharp
 using System.Text.Json;
-using BlackIce.Server.Data;
+using OpenPak.Server.Data;
 
-namespace BlackIce.Server.Host;
+namespace OpenPak.Server.Host;
 
 public sealed class ServerConfig
 {
@@ -803,14 +803,14 @@ public sealed class ServerConfig
 
 - [ ] **Step 2: Rewrite Program.cs to wire config, DB, bootstrap, console loop**
 
-`BlackIce.Server.Host/Program.cs`:
+`OpenPak.Server.Host/Program.cs`:
 ```csharp
-using BlackIce.Server.Core;
-using BlackIce.Server.Data;
-using BlackIce.Server.Host;
-using BlackIce.Server.LoadBalancing;
+using OpenPak.Server.Core;
+using OpenPak.Server.Data;
+using OpenPak.Server.Host;
+using OpenPak.Server.LoadBalancing;
 
-var config = ServerConfig.Load("blackice.server.json");
+var config = ServerConfig.Load("openpak.server.json");
 if (args.Length > 0) config.AdvertisedHost = args[0];
 if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
 const string secret = "change-me-platform-sp1";
@@ -818,7 +818,7 @@ const string secret = "change-me-platform-sp1";
 using var db = config.Database.CreateContext();      // EnsureCreated runs here
 var accounts = new AccountService(db);
 
-Console.WriteLine($"BlackIce.Server — DB {config.Database.Provider}, advertising {config.AdvertisedHost}");
+Console.WriteLine($"OpenPak.Server — DB {config.Database.Provider}, advertising {config.AdvertisedHost}");
 Console.WriteLine($"*** One-time bootstrap code (redeem in-game once available): {accounts.EnsureBootstrapCode()} ***");
 
 var registry = new RoomRegistry();
@@ -851,7 +851,7 @@ consoleThread.Start();
 Console.WriteLine("NS 5058 / Master 5055 / Game 5056");
 try { await Task.WhenAll(listeners.Select(l => l.RunAsync(cts.Token))); }
 catch (OperationCanceledException) { }
-Console.WriteLine("BlackIce.Server stopped.");
+Console.WriteLine("OpenPak.Server stopped.");
 ```
 
 > The Master/Game handler constructors gain a trailing `AccountService accounts` parameter
@@ -861,7 +861,7 @@ Console.WriteLine("BlackIce.Server stopped.");
 - [ ] **Step 3: Build the whole solution**
 
 ```bash
-cd "$REPO" && dotnet build BlackIce.sln 2>&1 | tail -4
+cd "$REPO" && dotnet build OpenPak.sln 2>&1 | tail -4
 ```
 Expected: `Build succeeded.` Fix any handler-constructor call sites flagged.
 
@@ -869,11 +869,11 @@ Expected: `Build succeeded.` Fix any handler-constructor call sites flagged.
 
 ```bash
 cd "$REPO/server"
-rm -f blackice.db BlackIce.Server.Host/bin/Release/net8.0/blackice.db
-dotnet build BlackIce.Server.Host -c Release 2>&1 | grep -E "Build succeeded|error" | head -1
-( echo "help"; echo "list"; sleep 2 ) | dotnet BlackIce.Server.Host/bin/Release/net8.0/BlackIce.Server.Host.dll 127.0.0.1 &
-sleep 6; pkill -f BlackIce.Server.Host
-ls BlackIce.Server.Host/bin/Release/net8.0/blackice.db && echo "DB created"
+rm -f openpak.db OpenPak.Server.Host/bin/Release/net8.0/openpak.db
+dotnet build OpenPak.Server.Host -c Release 2>&1 | grep -E "Build succeeded|error" | head -1
+( echo "help"; echo "list"; sleep 2 ) | dotnet OpenPak.Server.Host/bin/Release/net8.0/OpenPak.Server.Host.dll 127.0.0.1 &
+sleep 6; pkill -f OpenPak.Server.Host
+ls OpenPak.Server.Host/bin/Release/net8.0/openpak.db && echo "DB created"
 ```
 Expected: prints the bootstrap code + `console ready`, `help` lists commands, the SQLite file is created.
 
@@ -881,7 +881,7 @@ Expected: prints the bootstrap code + `console ready`, `help` lists commands, th
 
 ```bash
 cd "$REPO" && git add server/ && git status -s | grep -iE '\.db$' && echo "WARN db staged" || true
-echo "blackice.db" >> .gitignore; echo "*.db" >> .gitignore
+echo "openpak.db" >> .gitignore; echo "*.db" >> .gitignore
 git add server/ .gitignore && git commit -m "feat(host): config, DB bootstrap, one-time code, console command loop"
 ```
 
@@ -889,7 +889,7 @@ git add server/ .gitignore && git commit -m "feat(host): config, DB bootstrap, o
 
 ## Task 10: Client mod sends the SteamID
 
-**Files:** Modify `plugins/BlackIce.Redirect/RedirectPlugin.cs`.
+**Files:** Modify `plugins/OpenPak.Redirect/RedirectPlugin.cs`.
 
 - [ ] **Step 1: Set AuthValues.UserId to the SteamID before connect**
 
@@ -906,7 +906,7 @@ In `ConnectRedirectPatch.Prefix` (runs just before `ConnectUsingSettings`), add:
         }
         catch (System.Exception ex) { RedirectPlugin.Log.LogWarning($"SteamID unavailable: {ex.Message}"); }
 ```
-Add a reference to the game's Steamworks assembly in `BlackIce.Redirect.csproj`:
+Add a reference to the game's Steamworks assembly in `OpenPak.Redirect.csproj`:
 ```xml
     <Reference Include="com.rlabrecque.steamworks.net"><HintPath>$(GameManaged)\com.rlabrecque.steamworks.net.dll</HintPath><Private>false</Private></Reference>
 ```
@@ -915,14 +915,14 @@ Add a reference to the game's Steamworks assembly in `BlackIce.Redirect.csproj`:
 - [ ] **Step 2: Build (auto-deploys to BepInEx/plugins)**
 
 ```bash
-cd "$REPO/plugins/BlackIce.Redirect" && dotnet build -c Release 2>&1 | grep -E "Build succeeded|error" | head
+cd "$REPO/plugins/OpenPak.Redirect" && dotnet build -c Release 2>&1 | grep -E "Build succeeded|error" | head
 ```
 Expected: `Build succeeded.` and the DLL copied into the game's `BepInEx/plugins`.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-cd "$REPO" && git add plugins/BlackIce.Redirect/ && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
+cd "$REPO" && git add plugins/OpenPak.Redirect/ && git status -s | grep -iE '/bin/|/obj/|\.dll$' || echo clean
 git commit -m "feat(redirect): send SteamID as Photon UserId for server-side accounts"
 ```
 
@@ -937,8 +937,8 @@ git commit -m "feat(redirect): send SteamID as Photon UserId for server-side acc
 ```bash
 cd "$REPO/server"
 powershell.exe -NoProfile -Command "(Get-NetUDPEndpoint -LocalPort 5058 -ErrorAction SilentlyContinue).OwningProcess | %{ Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
-rm -f BlackIce.Server.Host/bin/Release/net8.0/blackice.db
-nohup dotnet BlackIce.Server.Host/bin/Release/net8.0/BlackIce.Server.Host.dll 127.0.0.1 > /tmp/bi-server.log 2>&1 &
+rm -f OpenPak.Server.Host/bin/Release/net8.0/openpak.db
+nohup dotnet OpenPak.Server.Host/bin/Release/net8.0/OpenPak.Server.Host.dll 127.0.0.1 > /tmp/bi-server.log 2>&1 &
 sleep 5
 powershell.exe -NoProfile -Command "Start-Process -FilePath 'C:\Program Files (x86)\Steam\steamapps\common\Black Ice\Black Ice.exe'"
 sleep 60
@@ -949,7 +949,7 @@ powershell.exe -NoProfile -Command "Get-Process 'Black Ice' -ErrorAction Silentl
 
 ```bash
 cd "$REPO/server"
-( echo "list"; sleep 1 ) | dotnet BlackIce.Server.Host/bin/Release/net8.0/BlackIce.Server.Host.dll 127.0.0.1 2>&1 | grep -E "7656|Player|Console" | head
+( echo "list"; sleep 1 ) | dotnet OpenPak.Server.Host/bin/Release/net8.0/OpenPak.Server.Host.dll 127.0.0.1 2>&1 | grep -E "7656|Player|Console" | head
 grep -iE "Sending SteamID|new peer|op 230" /tmp/bi-server.log | head
 ```
 Expected: the `list` output shows a real `7656…` SteamID account at level Player; the BepInEx log shows "Sending SteamID …". (If it shows a GUID instead of a 7656… id, the mod's SteamID send didn't apply — check the Steamworks DLL name from Task 10 Step 1.)
@@ -957,7 +957,7 @@ Expected: the `list` output shows a real `7656…` SteamID account at level Play
 - [ ] **Step 3: Stop server and record the result**
 
 ```bash
-pkill -f BlackIce.Server.Host
+pkill -f OpenPak.Server.Host
 ```
 Append a short "SP1 verified" note (account auto-created from live SteamID) to `docs/protocol/01-connection-flow.md` or `server/ORACLE.md`.
 

@@ -2,7 +2,7 @@
 
   <!--
     A standalone EXTERNAL server plugin, built outside the server solution to prove the external-DLL
-    loading path end-to-end: it is not referenced by BlackIce.Server.sln and ships as a single DLL you
+    loading path end-to-end: it is not referenced by OpenPak.Server.sln and ships as a single DLL you
     drop into the host's `server-plugins/` directory.
 
     The references below are <Private>false</Private> on purpose: the plugin compiles against the host's
@@ -18,7 +18,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\server\BlackIce.Server.LoadBalancing\BlackIce.Server.LoadBalancing.csproj" Private="false" />
+    <ProjectReference Include="..\..\server\OpenPak.Server.LoadBalancing\OpenPak.Server.LoadBalancing.csproj" Private="false" />
   </ItemGroup>
 
 </Project>

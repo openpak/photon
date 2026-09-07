@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # status.sh — Show the current parallel-session state.
 #
-# Part of the BlackIce.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
+# Part of the OpenPak.Server parallel-session protocol (see CLAUDE_PARALLEL.md).
 #
 # Usage: tools/parallel/status.sh
 

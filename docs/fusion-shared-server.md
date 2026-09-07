@@ -17,10 +17,10 @@ Fusion's shipped `Fusion.Runtime.dll` already contains the server: the internal
 `Fusion.Simulation.Server` class (Shared topology) is exactly what the cloud plugin hosts. It needs no
 Unity runtime to *simulate* — only the `UnityEngine` facade for math, unsafe memory, and JSON. So:
 
-- **`BlackIce.Server.Fusion.UnityStub`** — a hand-written `UnityEngine.dll` covering the exact surface
+- **`OpenPak.Server.Fusion.UnityStub`** — a hand-written `UnityEngine.dll` covering the exact surface
   Fusion references (Vector/Quaternion/Matrix/Mathf are real; profiler/scene/physics are inert). No
   Unity code; original.
-- **`BlackIce.Server.Fusion`** — links Fusion's assemblies and hosts one `Simulation.Server` per room
+- **`OpenPak.Server.Fusion`** — links Fusion's assemblies and hosts one `Simulation.Server` per room
   (`FusionSharedServer`). Each room's simulation talks to its clients through `RelaySocket`, an
   in-process `INetSocket` whose datagrams are the payloads of Photon **event code 101** messages:
   inbound = what a client raised, outbound = RaiseEvent'd back to the addressed actor.
