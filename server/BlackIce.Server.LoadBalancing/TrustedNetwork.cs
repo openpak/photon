@@ -10,6 +10,10 @@ namespace BlackIce.Server.LoadBalancing;
 /// </summary>
 public static class TrustedNetwork
 {
+    /// <summary>Only the local machine. A LAN peer (a real console) must be handed the advertised
+    /// host, not 127.0.0.1, or it tries to connect to itself.</summary>
+    public static bool IsLoopback(IPEndPoint? endpoint) => endpoint is not null && IPAddress.IsLoopback(endpoint.Address);
+
     public static bool IsLanOrLoopback(IPEndPoint? endpoint)
     {
         if (endpoint is null) return false;

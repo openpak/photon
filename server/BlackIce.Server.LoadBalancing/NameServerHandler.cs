@@ -79,7 +79,7 @@ public sealed class NameServerHandler : IOperationHandler
         // matches real Photon Cloud, which always names a genuinely different server/port here,
         // never the NameServer's own address. For LOOPBACK peers (local test clients) hand back
         // the loopback master so the client doesn't get routed to the real public Cloud.
-        var master = TrustedNetwork.IsLanOrLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
+        var master = TrustedNetwork.IsLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
         peer.SendResponse(new OperationResponse(OpGetRegions, 0, null, new()
         {
             { PRegion, new[] { RegionToken } },
@@ -184,7 +184,7 @@ public sealed class NameServerHandler : IOperationHandler
     /// response (token carries the <paramref name="verified"/> flag).</summary>
     private void Respond(PeerConnection peer, string steamId, bool verified)
     {
-        var master = TrustedNetwork.IsLanOrLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
+        var master = TrustedNetwork.IsLoopback(peer.Remote) ? "127.0.0.1:27001" : _masterAddress;
         var resp = BuildSuccess(steamId, verified, master);
         if (resp.ReturnCode == 0)
         {
