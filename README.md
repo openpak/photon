@@ -13,6 +13,35 @@ Titles it currently serves:
   moving authority to the server also kills client-side cheating. The PC-side client mods
   and asset tooling are not in this repo; they live in the frozen `earlier-photon` copy.
 
+
+## Health and player counts
+
+Every listener here speaks UDP, and a UDP port cannot be probed: nothing distinguishes a bound
+socket from a dead one to anything outside the process. So the server also opens one TCP port
+(`Server.HealthPort`, default **8080**, `0` disables it):
+
+| Path | Answers |
+| --- | --- |
+| `/health` | `{"status":"ok"}` — it is running |
+| `/players` | `{"players":N,"rooms":N,"detail":[…]}` — counted from live room membership, so it cannot drift from what is actually being relayed |
+
+An idle server answers `players: 0` rather than failing: "nobody is playing" and "not running"
+are exactly what this endpoint exists to tell apart. The website's status page reads it.
+
+## Building the image
+
+**By hand, on purpose.** The Fusion Shared-mode host links Photon Fusion's own assemblies,
+which are not redistributable and are therefore not in this repository — so there is no release
+workflow, and `server/fusion-libs/` must exist in the build context:
+
+```sh
+podman build --platform linux/arm64 -t ghcr.io/openpak/photon:latest .
+podman push ghcr.io/openpak/photon:latest
+ssh <deploy host> 'podman auto-update'     # then it restarts, dropping live games
+```
+
+Without the libs the build still succeeds — you get the solo-host path and no Fusion relay.
+
 ## Status
 
 **Phase 1 — Photon transport + connect flow** (in progress, branch `phase1-connect`). The
