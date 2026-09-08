@@ -88,6 +88,9 @@ builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Navigation.NavMeshReg
 builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator>(
     _ => OpenPak.Server.Host.SteamValidatorFactory.Create());
 builder.Services.AddSingleton<AdminActionQueue>();
+// Health/players over TCP: the only thing outside this process that can tell a
+// running server from a silent one, since everything else here speaks UDP.
+builder.Services.AddHostedService<OpenPak.Server.Host.HealthHostedService>();
 builder.Services.AddSingleton<BotManager>();
 builder.Services.AddSingleton<BotIdentityGenerator>();
 builder.Services.AddHostedService<ListenersHostedService>();

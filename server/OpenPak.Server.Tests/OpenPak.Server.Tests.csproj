@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\OpenPak.Server.LoadBalancing\OpenPak.Server.LoadBalancing.csproj" />
+    <!-- The host, for the health endpoint's payload: it is the one piece of
+         that project with logic worth testing away from a socket. -->
+    <ProjectReference Include="..\OpenPak.Server.Host\OpenPak.Server.Host.csproj" />
     <ProjectReference Include="..\OpenPak.Server.Data\OpenPak.Server.Data.csproj" />
   </ItemGroup>
 

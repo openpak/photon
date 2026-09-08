@@ -73,6 +73,13 @@ public sealed class ServerOptions
     public string Secret { get; set; } = DefaultSecret;
 
     public ServerPorts Ports { get; set; } = new();
+
+    /// <summary>
+    /// TCP port for the health endpoint (<c>/health</c>, <c>/players</c>). The game listeners are
+    /// UDP and cannot be probed from outside, so this is the only way anything else can tell a
+    /// running server from a silent one. 0 disables it.
+    /// </summary>
+    public int HealthPort { get; set; } = 8080;
     public ListenerTimings Listener { get; set; } = new();
 
     /// <summary>Server-authority / anti-cheat validator tunables (detection-only by default).</summary>
