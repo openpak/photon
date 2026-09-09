@@ -46,6 +46,7 @@ public sealed class NameServerHandler : IOperationHandler
     private readonly Func<IPEndPoint, bool> _isLan;
     private readonly Action<Action> _post;
     private readonly AccountIdentityRegistry? _accountIdentities;
+    private readonly NodeDirectory? _nodes;
     private readonly OperationRouter _router;
 
     /// <param name="validator">Steam ticket validator. Defaults to <see cref="NullSteamTicketValidator"/>
@@ -59,7 +60,7 @@ public sealed class NameServerHandler : IOperationHandler
     public NameServerHandler(string masterAddress, string secret, AccountService accounts,
                              ISteamTicketValidator? validator = null, bool allowAnonymousLan = true,
                              Func<IPEndPoint, bool>? isLan = null, Action<Action>? post = null,
-                             AccountIdentityRegistry? accountIdentities = null,
+                             AccountIdentityRegistry? accountIdentities = null, NodeDirectory? nodes = null,
                              string? loopbackMasterAddress = null)
     {
         _masterAddress = masterAddress;
@@ -73,6 +74,7 @@ public sealed class NameServerHandler : IOperationHandler
         _isLan = isLan ?? TrustedNetwork.IsLanOrLoopback;
         _post = post ?? (a => a());
         _accountIdentities = accountIdentities;
+        _nodes = nodes;
         _router = new OperationRouter("NameServer", "Unsupported on Name Server")
             .On(OpAuthenticate, HandleAuthenticate)
             .On(OpGetRegions, HandleGetRegions);
@@ -112,7 +114,10 @@ public sealed class NameServerHandler : IOperationHandler
                 && rawParams is string authenticationParams
                 && AccountIdentityRegistry.ExtractToken(authenticationParams) is { } bsDid)
             {
-                Respond(peer, _accountIdentities.Register(bsDid), verified: false);
+                var userId = _accountIdentities.Register(bsDid);
+                // The Master needs the country by the time this peer creates a room; ask now.
+                if (_nodes is not null) _ = _nodes.PrefetchCountryAsync(userId, bsDid);
+                Respond(peer, userId, verified: false);
                 return;
             }
             Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false);

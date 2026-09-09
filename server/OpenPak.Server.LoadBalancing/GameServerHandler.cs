@@ -64,6 +64,9 @@ public sealed class GameServerHandler : IOperationHandler
     private readonly IRoomLifecycleListener? _lifecycle;
     private readonly bool _trustLanAdmin;
     private readonly Action<PeerConnection, string>? _roomCreated;
+    /// <summary>Region node: a room's membership changed, report it home. The peer is the creator on
+    /// the first join (so home can publish presence), null on a leave.</summary>
+    private readonly Action<Room, PeerConnection?>? _roomChanged;
     private readonly IFusionSessionHost? _fusion;
 
     /// <param name="allowAnonymousLan">
@@ -80,8 +83,9 @@ public sealed class GameServerHandler : IOperationHandler
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
                              IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
                              bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null,
-                             IFusionSessionHost? fusion = null)
+                             IFusionSessionHost? fusion = null, Action<Room, PeerConnection?>? roomChanged = null)
     {
+        _roomChanged = roomChanged;
         _fusion = fusion;
         _secret = secret;
         _registry = registry;
@@ -127,7 +131,9 @@ public sealed class GameServerHandler : IOperationHandler
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
         session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
         session.Leave(state.Actor);
-        _registry.Find(state.RoomName)?.RemoveActor(state.Actor);
+        var left = _registry.Find(state.RoomName);
+        left?.RemoveActor(state.Actor);
+        if (left is not null) _roomChanged?.Invoke(left, null);
         _fusion?.PlayerLeft(state.RoomName, state.Actor);
         _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
@@ -189,6 +195,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Fusion hosts enter through JoinGame with create-if-missing rather than Photon CreateGame.
         // Actor 1 is the room creator in either flow; later joiners must not overwrite its presence.
         if (actor == 1) _roomCreated?.Invoke(peer, roomName);
+        if (_registry.Find(roomName) is { } changed) _roomChanged?.Invoke(changed, actor == 1 ? peer : null);
     }
 
     private void HandleSetProperties(PeerConnection peer, OperationRequest request)

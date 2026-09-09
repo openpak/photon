@@ -88,6 +88,16 @@ builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Navigation.NavMeshReg
 builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator>(
     _ => OpenPak.Server.Host.SteamValidatorFactory.Create());
 builder.Services.AddSingleton<AdminActionQueue>();
+// Region nodes: home reads the approved list from openpak.org and asks the Switch adapter which
+// country a player is from, so a new room lands on the node for its creator's country.
+builder.Services.AddSingleton(sp =>
+{
+    var c = sp.GetRequiredService<ServerConfig>();
+    string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
+    return new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.RegionsUrl,
+                             env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"));
+});
+builder.Services.AddHostedService<OpenPak.Server.Host.RegionsRefreshService>();
 // Health/players over TCP: the only thing outside this process that can tell a
 // running server from a silent one, since everything else here speaks UDP.
 builder.Services.AddHostedService<OpenPak.Server.Host.HealthHostedService>();

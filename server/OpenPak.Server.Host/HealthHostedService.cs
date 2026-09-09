@@ -25,10 +25,18 @@ public sealed class HealthHostedService : BackgroundService
 {
     private readonly RoomRegistry _rooms;
     private readonly int _port;
+    private readonly NodeDirectory _nodes;
+    private readonly string _secret;
+    private readonly AccountRoomPublisher? _publisher;
 
-    public HealthHostedService(RoomRegistry rooms, ServerConfig config)
+    public HealthHostedService(RoomRegistry rooms, ServerConfig config, NodeDirectory nodes)
     {
         _rooms = rooms;
+        _nodes = nodes;
+        _secret = config.Server.Secret;
+        string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
+        _publisher = config.Federation.IsNode ? null
+            : new AccountRoomPublisher(new HttpClient(), env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"), env("OPENPAK_TITLE_ID"));
         // Port 0 disables it. The default matches the container's published
         // health port; a LAN server that wants nothing listening sets 0.
         _port = config.Server.HealthPort;
@@ -86,13 +94,56 @@ public sealed class HealthHostedService : BackgroundService
 
     private void Respond(HttpListenerContext ctx)
     {
-        var json = Payload(ctx.Request.Url?.AbsolutePath ?? "/", _rooms, out var status);
+        var path = ctx.Request.Url?.AbsolutePath ?? "/";
+        string json;
+        int status;
+        if (ctx.Request.HttpMethod == "POST" && path == "/internal/node-room")
+            json = AcceptRoomReport(ctx.Request, out status);
+        else
+            json = Payload(path, _rooms, out status);
         var body = Encoding.UTF8.GetBytes(json);
         ctx.Response.StatusCode = status;
         ctx.Response.ContentType = "application/json";
         ctx.Response.ContentLength64 = body.Length;
         ctx.Response.OutputStream.Write(body, 0, body.Length);
         ctx.Response.Close();
+    }
+
+    /// <summary>
+    /// A region node reporting one of its rooms. Authenticated with the shared token secret, which
+    /// the node holds anyway to validate the tokens home minted. Applied to the same registry the
+    /// Master's lobby reads, so a room in Sydney is listed and joinable from anywhere.
+    /// </summary>
+    private string AcceptRoomReport(HttpListenerRequest req, out int status)
+    {
+        var presented = req.Headers["X-Photon-Secret"] ?? "";
+        if (presented.Length != _secret.Length ||
+            !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(_secret)))
+        {
+            status = 401;
+            return JsonSerializer.Serialize(new { error = "secret" });
+        }
+        RoomReport? report;
+        try
+        {
+            using var body = new StreamReader(req.InputStream, Encoding.UTF8);
+            report = JsonSerializer.Deserialize<RoomReport>(body.ReadToEnd());
+        }
+        catch (JsonException)
+        {
+            report = null;
+        }
+        if (report is null || string.IsNullOrEmpty(report.Room) || string.IsNullOrEmpty(report.Node) || report.Room.Length > 64)
+        {
+            status = 400;
+            return JsonSerializer.Serialize(new { error = "bad report" });
+        }
+        report.ApplyTo(_rooms, _nodes);
+        if (report.Identity is { Length: > 0 } identity && _publisher is not null)
+            _ = _publisher.PublishAsync(identity, report.Room);
+        status = 200;
+        return JsonSerializer.Serialize(new { ok = true });
     }
 
     /// <summary>

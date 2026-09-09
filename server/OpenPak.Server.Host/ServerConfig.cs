@@ -30,6 +30,10 @@ public sealed class ServerConfig
 
     public DatabaseOptions Database { get; set; } = new();
 
+    /// <summary>Region nodes: home reads them from openpak.org; a node runs the Game role only and
+    /// reports rooms home. See docs/federation.md.</summary>
+    public OpenPak.Server.LoadBalancing.FederationOptions Federation { get; set; } = new();
+
     /// <summary>Realms seeded into the DB on first run (only when the Realms table is empty).</summary>
     public List<Realm> Realms { get; set; } = DefaultRealms();
 

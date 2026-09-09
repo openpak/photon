@@ -29,6 +29,7 @@ public sealed class MasterServerHandler : IOperationHandler
     private readonly AccountService? _accounts;
     private readonly RealmService? _realms;
     private readonly Func<string, int>? _lobbyBotCount;
+    private readonly NodeDirectory? _nodes;
     private readonly OperationRouter _router;
 
     /// <param name="allowAnonymousLan">
@@ -42,8 +43,10 @@ public sealed class MasterServerHandler : IOperationHandler
     /// when <c>Server.Bots.CountInLobby</c> is set, so operators choose whether bots look like players.</param>
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
                                bool allowAnonymousLan = false, AccountService? accounts = null,
-                               RealmService? realms = null, Func<string, int>? lobbyBotCount = null)
+                               RealmService? realms = null, Func<string, int>? lobbyBotCount = null,
+                               NodeDirectory? nodes = null)
     {
+        _nodes = nodes;
         _gameAddress = gameAddress;
         _secret = secret;
         _registry = registry;
@@ -71,8 +74,8 @@ public sealed class MasterServerHandler : IOperationHandler
                 bool isDefaultLobby = !req.Parameters.ContainsKey(PLobbyName);
                 peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent() : BuildFusionSessionLobbyEvent(req));
             }, SessionStatus.Authenticated)
-            .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated)
-            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req)), SessionStatus.Authenticated);
+            .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated)
+            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated);
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -206,15 +209,36 @@ public sealed class MasterServerHandler : IOperationHandler
     /// above the client's representable maximum shows as a full "255" rather than wrapping to garbage.</summary>
     private static byte ClampToByte(int value) => (byte)Math.Clamp(value, 0, byte.MaxValue);
 
-    public OperationResponse CreateGame(OperationRequest r)
+    public OperationResponse CreateGame(OperationRequest r, PeerConnection? peer = null)
     {
         // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
         var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : $"Room-{Guid.NewGuid():N}";
+        var existed = _registry.Find(name) is { ActorNumbers.Count: > 0 };
         _registry.GetOrCreate(name);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {
-            { PAddress, _gameAddress },
+            { PAddress, GameAddressFor(name, existed, peer?.SteamId) },
             { PRoomName, name },
         });
+    }
+
+    /// <summary>
+    /// Where a room is served from. A room that already has people in it is wherever it is: a joiner
+    /// goes there whatever their own country. A new room goes to the node for the creator's country,
+    /// or home when there is none. Home's own address is the only one ever handed out without regions.
+    /// </summary>
+    public string GameAddressFor(string room, bool existed, string? userId)
+    {
+        if (_nodes is null) return _gameAddress;
+        if (existed) return _nodes.AddressForRoom(room) ?? _gameAddress;
+        var region = _nodes.ForCountry(_nodes.CountryOf(userId));
+        if (region?.PhotonAddress is null)
+        {
+            _nodes.UnpinRoom(room);
+            return _gameAddress;
+        }
+        _nodes.PinRoom(room, region.Id);
+        Log.Info("Federation", $"room \"{room}\" placed on {region.Id} ({region.Country})");
+        return region.PhotonAddress;
     }
 }

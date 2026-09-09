@@ -66,6 +66,7 @@ dotnet run --project server/OpenPak.Server.Host 127.0.0.1   # run, advertising 1
 
 On first run the server writes a documented `openpak.server.json` next to the binary, applies the
 database schema, prints a one-time admin bootstrap code, and starts the Name/Master/Game listeners.
+Rooms can be served from region nodes in other countries; see [docs/federation.md](docs/federation.md).
 Configure it via that file or `OPENPAK_*` environment variables — see
 [`docs/configuration.md`](docs/configuration.md). Stop with Ctrl-C (graceful shutdown).
 

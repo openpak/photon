@@ -27,6 +27,7 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly OpenPak.Server.LoadBalancing.Authority.RoomWorldStateRegistry _worlds;
     private readonly OpenPak.Server.LoadBalancing.Navigation.NavMeshRegistry _navs;
     private readonly OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator _steam;
+    private readonly NodeDirectory _nodes;
 
     // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<OpenPakDbContext> dbf,
@@ -34,9 +35,11 @@ public sealed class ListenersHostedService : BackgroundService
                                   BotIdentityGenerator botIds, PluginManager plugins,
                                   OpenPak.Server.LoadBalancing.Authority.RoomWorldStateRegistry worlds,
                                   OpenPak.Server.LoadBalancing.Navigation.NavMeshRegistry navs,
-                                  OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator steam)
+                                  OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator steam,
+                                  NodeDirectory nodes)
     {
         _steam = steam;
+        _nodes = nodes;
         _config = config;
         _dbf = dbf;
         _registry = registry;
@@ -70,7 +73,7 @@ public sealed class ListenersHostedService : BackgroundService
         var nameHandler = new NameServerHandler($"{_config.AdvertisedHost}:{s.Ports.MasterServer}", s.Secret, accounts,
                                   _steam, _config.AllowAnonymousLan,
                                   isLan: null, post: nameQueue.Enqueue,
-                                  accountIdentities: accountIdentities,
+                                  accountIdentities: accountIdentities, nodes: _nodes,
                                   loopbackMasterAddress: $"127.0.0.1:{s.Ports.MasterServerAlt ?? s.Ports.MasterServer}");
         var name = new UdpListener("NameServer", s.Ports.NameServer, nameHandler, s.Listener);
         name.OnMaintenance = () => { while (nameQueue.TryDequeue(out var a)) a(); };
@@ -82,7 +85,7 @@ public sealed class ListenersHostedService : BackgroundService
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var masterHandler = new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
-                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount);
+                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount, _nodes);
         var master = new UdpListener("MasterServer", s.Ports.MasterServer, masterHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/GameServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -111,12 +114,22 @@ public sealed class ListenersHostedService : BackgroundService
                 _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } })));
 #endif
 
+        // A region node has no adapter to publish presence to; home does that from the room report.
+        var fed = _config.Federation;
+        RoomReporter? reporter = fed.IsNode ? new RoomReporter(new HttpClient(), fed.HomeUrl, s.Secret, fed.NodeId) : null;
         var gameHandler = new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
                                   chatCommands, _config.TrustLanAdmin, (peer, room) =>
                                   {
-                                      if (peer.SteamId is { } userId && accountIdentities.Find(userId) is { } bsDid)
+                                      if (reporter is null && peer.SteamId is { } userId && accountIdentities.Find(userId) is { } bsDid)
                                           _ = accountPublisher.PublishAsync(bsDid, room);
-                                  }, fusion);
+                                  }, fusion,
+                                  roomChanged: reporter is null ? null : (room, creator) =>
+                                  {
+                                      // The creator's identity travels with the first report so home can
+                                      // turn the room into that player's friend presence.
+                                      string? identity = creator?.SteamId is { } uid ? accountIdentities.Find(uid) : null;
+                                      _ = reporter.ReportAsync(room, identity);
+                                  });
         var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -166,6 +179,21 @@ public sealed class ListenersHostedService : BackgroundService
             Log.Info("HOST", $"bot soak: {s.Bots.AutoSpawnPerRealm}/realm, gameActions={s.Bots.EmitGameActions}, " +
                              $"map auto-detect from {_bots.Maps.CandidateCount} candidate map(s) (maps dir {_navs.MapsDirectory})" +
                              (withMesh > 0 ? $", pinned realms={withMesh}" : ""));
+        }
+
+        if (fed.IsNode)
+        {
+            // Game role only: matchmaking is home's. Name/Master listeners never open here.
+            Log.Info("HOST", $"Region node {fed.NodeId}: Game {s.Ports.GameServer}{(gameAlt != null ? $"/{s.Ports.GameServerAlt}" : "")}, reporting to {fed.HomeUrl}");
+            try
+            {
+                var nodeTasks = new List<Task> { game.RunAsync(stoppingToken) };
+                if (gameAlt != null) nodeTasks.Add(gameAlt.RunAsync(stoppingToken));
+                await Task.WhenAll(nodeTasks);
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex) { Log.Exception("FATAL", "listener task faulted", ex); }
+            return;
         }
 
         Log.Info("HOST", $"Listening — NS {s.Ports.NameServer}{(nameAlt != null ? $"/{s.Ports.NameServerAlt}" : "")} / " +
