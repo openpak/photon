@@ -61,3 +61,6 @@ tools/MapExtractor/.classdata/
 
 # Runtime-learned walkable maps (derived from live play; not committed)
 *.bwlk
+
+# Symlink to the workspace-wide docs; only meaningful in the Openpak checkout.
+shared-docs
