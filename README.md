@@ -35,8 +35,7 @@ which are not redistributable and are therefore not in this repository — so th
 workflow, and `server/fusion-libs/` must exist in the build context:
 
 ```sh
-podman build --platform linux/arm64 -t ghcr.io/openpak/photon:latest .
-podman push ghcr.io/openpak/photon:latest
+git tag v0.x.y && git push --tags      # GitHub Actions builds and pushes ghcr.io/openpak/photon (amd64+arm64)
 ssh <deploy host> 'podman auto-update'     # then it restarts, dropping live games
 ```
 
