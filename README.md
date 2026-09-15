@@ -103,7 +103,7 @@ once it reaches our Name Server the server drives Name Server → Master → Gam
 
 "Plugins" means **two different things** in this repo, and they don't mix:
 
-- [`plugins/`](plugins/README.md) — **client-side** BepInEx mods that run *in the game* (redirect,
+- `plugins/` — **client-side** BepInEx mods that run *in the game* (redirect,
   op-logger, MOTD, ticket spike). Building them copies their DLLs into the game's `BepInEx/plugins`.
 - [`docs/plugins.md`](docs/plugins.md) — the **server-side** plugin system (anti-cheat, game modes,
   mutators, arena, killfeed, …) that runs in the server process.
