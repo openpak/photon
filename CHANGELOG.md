@@ -5,6 +5,8 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- docs(protocol): knownPlayers is SHA-1 of the player's nickname [3b2206d]
+- fix(lb): a player's Photon UserId must survive a re-login [458fadc]
 - README: a tag is the deploy [31b8434]
 - Release workflow like every other OpenPak service: tag → ghcr, amd64 and arm64 [53fa261]
 - Stop tracking the shared-docs symlink: it dangles outside the Openpak workspace [a875248]
