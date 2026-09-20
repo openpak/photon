@@ -148,3 +148,48 @@ necessary but insufficient on its own.
 > transport (PRUDP-Lite P2P freeze + two-peer 101 relay addressing). See the
 > Outbound `HANDOFF.md` "NEXT SESSION" plan. Do not cite `actor=2` as a working
 > join.
+
+## Decoded 2026-09-20: `knownPlayers` is SHA-1 of the player *nickname*
+
+`knownPlayers` is one of the host's custom string props (above). Its value is a
+**comma-separated list of base64 SHA-1 digests, one per player the host's world
+already has a character for**, and the digest's preimage is the player's
+**Nintendo account nickname** — not the Photon UserId, not the BAAS account id.
+
+Recovered from a live prod trace (room `QL4M9E`, `openpak-photon` at
+`--trace`), where the property grew by one entry as each player first entered:
+
+```
+knownPlayers = "wbxJU9VY0Px27eeRu4v+bY3Z3Ts=,5xtgI35B95UsuQd//qIa7J7UJ3w="
+               └ SHA1("<user-a>")             └ SHA1("<user-b>")
+```
+
+Both preimages were confirmed by direct digest comparison, not guessed. The
+property is written by the host and reaches the joiner twice: once in the
+lobby `GameList` (before it decides to send `OpJoinGame`) and again in the
+`EnterRoom` game properties.
+
+### Why the server must care
+
+We only pass this through — but it is the game's own **returning-player
+switch**, so it must agree with the identity we mint. A player whose nickname
+is listed is one the host's world expects to already have a character for; a
+player who is not listed gets the character-creation path.
+
+That makes the Photon UserId a **persistent** identifier, not a per-session
+one. Until 2026-09-20 `AccountIdentityRegistry.Register` hashed the whole
+`nex:` credential, which embeds a per-mint expiry
+(`<pid>.<username>.<expiry>`), so the same account received a different UserId
+on every login — four in one day for one account, observed. A host could then
+say "I know this nickname" while holding no character under the id the joiner
+now presents. `Register` hashes `StableKey(identity)` instead: the pid for
+`nex:`, the device id for `bsdid:`. The full credential still goes to nx-baas
+verbatim — only that service can verify its HMAC.
+
+> **Not yet pinned:** that the game *crashes* (rather than degrading) on that
+> disagreement is inference from the timing of three failed joins on
+> 2026-09-20, not from the decompile. The sessions that failed 16 s and 30 s
+> after `players=2` were both joiners already listed in `knownPlayers` and both
+> arriving with a freshly rotated UserId; the one that survived was a first
+> visit. Worth confirming against `NetworkManager` in the decomp map before
+> citing it as established.
