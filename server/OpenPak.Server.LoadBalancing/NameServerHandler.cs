@@ -115,9 +115,14 @@ public sealed class NameServerHandler : IOperationHandler
                 && AccountIdentityRegistry.ExtractToken(authenticationParams) is { } bsDid)
             {
                 var userId = _accountIdentities.Register(bsDid);
+                if (_nodes is null)
+                {
+                    Respond(peer, userId, verified: false);
+                    return;
+                }
                 // The Master needs the country by the time this peer creates a room; ask now.
-                if (_nodes is not null) _ = _nodes.PrefetchCountryAsync(userId, bsDid);
-                Respond(peer, userId, verified: false);
+                _ = _nodes.PrefetchCountryAsync(userId, bsDid);
+                _ = RespondUnlessBanned(peer, userId, bsDid, _nodes);
                 return;
             }
             Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false);
@@ -174,6 +179,24 @@ public sealed class NameServerHandler : IOperationHandler
                 Log.Warn("NameServer", $"{peer.Remote} Steam validation {result.Outcome} ({result.Reason}) -> rc=-1");
                 peer.SendResponse(Fail("Steam ticket validation failed"));
             }
+        });
+    }
+
+    /// <summary>An OpenPak account banned in the admin is refused with the same rc=-3 "Account banned"
+    /// as a locally banned one (website/docs/ban-lookup.md). The Switch adapter is the one that
+    /// knows the account behind the identity.</summary>
+    private async Task RespondUnlessBanned(PeerConnection peer, string userId, string identity, NodeDirectory nodes)
+    {
+        var banned = await nodes.IsBannedAsync(identity).ConfigureAwait(false);
+        _post(() =>
+        {
+            if (banned)
+            {
+                Log.Warn("NameServer", $"{peer.Remote} OpenPak account BANNED -> rc=-3");
+                peer.SendResponse(new OperationResponse(OpAuthenticate, -3, "Account banned", new()));
+                return;
+            }
+            Respond(peer, userId, verified: false);
         });
     }
 

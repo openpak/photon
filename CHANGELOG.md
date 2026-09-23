@@ -5,6 +5,11 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+- feat(lb): an OpenPak account banned in the admin is refused at the Name Server with the
+  existing rc=-3 "Account banned". An account-identity login (`nex:` / `bsdid:`) waits for the
+  Switch adapter's `/internal/photon-identity`, which answers 403 `account_banned` for it
+  (website/docs/ban-lookup.md). No adapter configured, or an adapter outage, is not a ban. Live
+  rooms are not re-checked; the refusal lands at the next Name Server login. No new settings.
 - docs(protocol): knownPlayers is SHA-1 of the player's nickname [3b2206d]
 - fix(lb): a player's Photon UserId must survive a re-login [458fadc]
 - README: a tag is the deploy [31b8434]

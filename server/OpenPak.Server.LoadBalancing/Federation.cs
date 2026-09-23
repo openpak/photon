@@ -138,6 +138,28 @@ public sealed class NodeDirectory
         }
     }
 
+    /// <summary>Asks the Switch adapter whether the OpenPak account behind an identity is banned
+    /// (website/docs/ban-lookup.md): nx-baas answers /internal/photon-identity with 403
+    /// {"error":"account_banned"} (or "account_deleted") for a locked-out account. True only on that
+    /// answer; no adapter, an unknown identity or an adapter outage is not a ban.</summary>
+    public async Task<bool> IsBannedAsync(string identity)
+    {
+        if (string.IsNullOrEmpty(_adapterUrl)) return false;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, $"{_adapterUrl}/internal/photon-identity");
+            if (!string.IsNullOrEmpty(_internalKey)) req.Headers.Add("X-Internal-Key", _internalKey);
+            req.Content = JsonContent.Create(new { identity });
+            using var resp = await _http.SendAsync(req).ConfigureAwait(false);
+            return resp.StatusCode == System.Net.HttpStatusCode.Forbidden;
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Federation", $"ban lookup failed: {ex.GetType().Name}");
+            return false;
+        }
+    }
+
     public void SetCountry(string userId, string country) => _countryByUser[userId] = country.ToUpperInvariant();
 }
 
