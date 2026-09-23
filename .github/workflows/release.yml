@@ -5,7 +5,7 @@ name: release
 # is the deploy. The Dockerfile cross-compiles with dotnet publish -r linux-$TARGETARCH, so no QEMU build step.
 on:
   push:
-    tags: ['v*']
+    tags: ['v*.*.*']
   workflow_dispatch:
 
 permissions:
