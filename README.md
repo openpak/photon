@@ -30,18 +30,15 @@ are exactly what this endpoint exists to tell apart. The website's status page r
 
 ## Building the image
 
-**By hand, on purpose.** The Fusion Shared-mode host links Photon Fusion's own assemblies,
-which are not redistributable and are therefore not in this repository: `server/fusion-libs/`
-must exist in the build context. Without the libs the build still **succeeds** — it just
-silently yields the solo-host path and no Fusion relay.
+**By the release workflow, with the libs from the runner.** The Fusion Shared-mode host links
+Photon Fusion's own assemblies, which are not redistributable and are therefore not in this
+repository: `server/fusion-libs/` must exist in the build context. The self-hosted runner keeps a
+copy outside the repo (`~/.local/share/openpak/fusion-libs`, or `FUSION_LIBS_DIR`), and
+`release.yml` copies it in before building — and **fails** if it is missing, because without the
+libs the build still succeeds and silently yields the solo-host path with no Fusion relay. So a
+`v*.*.*` tag is the deploy, like every other OpenPak service.
 
-> ⚠️ **Do not deploy this service by pushing a git tag.** `release.yml` checks the tag out
-> clean, and `server/fusion-libs/` is gitignored — so the image it publishes to `:latest` has
-> no Fusion relay, and any host running `AutoUpdate=registry` will pull it and lose Outbound's
-> shared simulation. Until the libs reach the runner, tagging is for the other OpenPak
-> services, not this one.
-
-Build and push it from a workstation that has the libs:
+A hand build from a workstation that has the libs in `server/fusion-libs/` still works:
 
 ```sh
 podman build --platform linux/amd64,linux/arm64 --manifest ghcr.io/openpak/photon:build .
