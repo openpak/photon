@@ -19,12 +19,12 @@ jobs:
     runs-on: [self-hosted, linux, podman]
     steps:
       - uses: actions/checkout@v4
-      - name: Scratch in the workspace, not the runner's shared /tmp
+      - name: Scratch in the runner's temp, not the machine's shared /tmp
         # /tmp is a RAM disk every build on the machine shares; when it filled on
         # 2026-09-24 a compiler died and a job hung for hours instead of failing.
         run: |
-          mkdir -p "$GITHUB_WORKSPACE/.tmp"
-          echo "TMPDIR=$GITHUB_WORKSPACE/.tmp" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/scratch"
+          echo "TMPDIR=$RUNNER_TEMP/scratch" >> "$GITHUB_ENV"
       # REGISTRY_AUTH_FILE lives on the steps: the runner context does not exist in
       # job-level env, and a workflow that cannot parse dispatches nothing.
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -44,4 +44,4 @@ jobs:
           REGISTRY_AUTH_FILE: ${{ runner.temp }}/auth.json
       - name: Clear scratch
         if: always()
-        run: rm -rf "$GITHUB_WORKSPACE/.tmp"
+        run: rm -rf "$RUNNER_TEMP/scratch"
