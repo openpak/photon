@@ -3,7 +3,13 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased
+## v0.3.1 — 2026-09-24
+
+- ci: release builds carry the Fusion relay: the workflow stages the libs from the self-hosted
+  runner's own copy and fails when any is missing, so a tag deploys again. First release that
+  reaches prod since the hand-built `sha-3b2206d`; it brings the v0.3.0 ban refusal below.
+
+## v0.3.0 (never deployed: built without the Fusion libs)
 
 - feat(lb): an OpenPak account banned in the admin is refused at the Name Server with the
   existing rc=-3 "Account banned". An account-identity login (`nex:` / `bsdid:`) waits for the
