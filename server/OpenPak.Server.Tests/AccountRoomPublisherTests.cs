@@ -44,4 +44,26 @@ public class AccountRoomPublisherTests
         await new AccountRoomPublisher(new HttpClient(capture), baseUrl, "key", titleId).PublishAsync("bsdid:x", "Q35V9E");
         Assert.Null(capture.Request);
     }
+
+    // One server, several games: a room is filed under the title whose Photon AppId the peer
+    // authenticated with, and only falls back to the default when the AppId is unknown.
+    [Theory]
+    [InlineData("a956fef2-5ccf-4c52-9df1-adb2b1b6953b", "0100C4C00E73E000")] // Moving Out
+    [InlineData("A956FEF2-5CCF-4C52-9DF1-ADB2B1B6953B", "0100C4C00E73E000")] // clients send either case
+    [InlineData("cffbe809-5036-43d8-84a1-7bf16c924721", "0100ED9024EB8000")] // Outbound
+    [InlineData("00000000-0000-0000-0000-000000000000", "0100ED9024EB8000")] // unmapped -> default
+    [InlineData(null, "0100ED9024EB8000")]                                   // no AppId  -> default
+    public async Task Files_a_room_under_the_title_its_app_id_names(string? appId, string expected)
+    {
+        var capture = new Capture();
+        var titles = PhotonTitles.Parse("cffbe809-5036-43d8-84a1-7bf16c924721=0100ED9024EB8000," +
+                                        "a956fef2-5ccf-4c52-9df1-adb2b1b6953b=0100C4C00E73E000");
+        var publisher = new AccountRoomPublisher(new HttpClient(capture), "http://nx-baas:20070", "key",
+                                                 "0100ED9024EB8000", titles);
+
+        await publisher.PublishAsync("bsdid:x", "Q35V9E", appId);
+
+        var body = JsonDocument.Parse(capture.Body).RootElement;
+        Assert.Equal(expected, body.GetProperty("app_id").GetString());
+    }
 }

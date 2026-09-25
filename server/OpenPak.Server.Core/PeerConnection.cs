@@ -27,6 +27,11 @@ public sealed class PeerConnection
     /// client-asserted or anonymous id. Null before authentication.</summary>
     public string? SteamId { get; set; }
 
+    /// <summary>The Photon AppId this connection authenticated with (param 224). One server hosts
+    /// several titles, so this is what says which one a room belongs to. Null when the client
+    /// omits it.</summary>
+    public string? AppId { get; set; }
+
     /// <summary>True once a Steam game-server ticket proved this identity (see the auth flow). Admin/anti-cheat
     /// gating trusts the SteamID/level ONLY when this is true; an asserted or anonymous-LAN identity is not.</summary>
     public bool IsVerified { get; set; }

@@ -360,6 +360,9 @@ public sealed class GameServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
+        if (peer is not null && r.Parameters.TryGetValue(PhotonCodes.Param.ApplicationId, out var app) && app is string appId)
+            peer.AppId = appId;
+
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
             if (!AuthToken.Validate(token, _secret).TryGet(out var ident))

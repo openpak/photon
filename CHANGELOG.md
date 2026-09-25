@@ -3,6 +3,16 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.4.0 — 2026-09-25
+
+- feat(lb): a room is filed under the title whose Photon **AppId** its peer authenticated with
+  (param 224, `OPENPAK_PHOTON_TITLES=<appid>=<titleid>,…`), not under one hardcoded
+  `OPENPAK_TITLE_ID`. One server already hosts more than one game, and Moving Out's rooms would
+  otherwise have been published as Outbound's. `OPENPAK_TITLE_ID` stays as the fallback for a
+  client that sends no AppId or an unmapped one.
+- docs: Moving Out (Switch, PUN 2, AppId `a956fef2-…`, name server `ns.exitgames.com`) is a title
+  this server can serve. Moving Out 2 is not: it is gated behind Team17's own backend.
+
 ## v0.3.1 — 2026-09-24
 
 - ci: release builds carry the Fusion relay: the workflow stages the libs from the self-hosted

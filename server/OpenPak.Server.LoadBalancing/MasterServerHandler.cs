@@ -85,6 +85,9 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
+        if (peer is not null && r.Parameters.TryGetValue(PhotonCodes.Param.ApplicationId, out var app) && app is string appId)
+            peer.AppId = appId;
+
         // Full Name Server flow: a token is present and must validate. Recover the identity (SteamID + whether
         // a Steam ticket proved it) and reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)

@@ -65,7 +65,8 @@ public sealed class ListenersHostedService : BackgroundService
         var accountPublisher = new AccountRoomPublisher(new HttpClient(),
                                                           Env("OPENPAK_BAAS_URL"),
                                                           Env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"),
-                                                          Env("OPENPAK_TITLE_ID"));
+                                                          Env("OPENPAK_TITLE_ID"),
+                                                          PhotonTitles.Parse(Env("OPENPAK_PHOTON_TITLES")));
         // Steam ticket validation completes asynchronously on a Steam callback thread; its auth response must
         // be sent on the NameServer listener's single thread. Marshal it via this queue, drained in the
         // listener's OnMaintenance (the same thread-affinity pattern as the Game listener's admin queue).
@@ -121,7 +122,7 @@ public sealed class ListenersHostedService : BackgroundService
                                   chatCommands, _config.TrustLanAdmin, (peer, room) =>
                                   {
                                       if (reporter is null && peer.SteamId is { } userId && accountIdentities.Find(userId) is { } bsDid)
-                                          _ = accountPublisher.PublishAsync(bsDid, room);
+                                          _ = accountPublisher.PublishAsync(bsDid, room, peer.AppId);
                                   }, fusion,
                                   roomChanged: reporter is null ? null : (room, creator) =>
                                   {
