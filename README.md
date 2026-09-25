@@ -11,6 +11,8 @@ Titles it currently serves:
 - **Moving Out** (Nintendo Switch, Photon PUN 2) — AppId `a956fef2-5ccf-4c52-9df1-adb2b1b6953b`,
   name server `ns.exitgames.com`. Its sequel does *not* belong here yet: Moving Out 2 is gated
   behind Team17's own backend before it ever reaches Photon (`nx-baas/docs/t17-backend.md`).
+- **We Were Here** (Nintendo Switch, Photon Fusion) — AppId `6f95ce9e-3a91-40ce-b11e-49c0864676a9`.
+  Its Vivox voice and PlayFab backend are separate services this repo does not answer.
 - **Black Ice** (PC, Photon PUN) — the codebase's origin. Its multiplayer runs a
   *master-client authority* model where one player simulates the world for everyone, so
   moving authority to the server also kills client-side cheating. The PC-side client mods
