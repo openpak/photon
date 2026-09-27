@@ -3,6 +3,29 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.9.0 — 2026-09-27
+
+Moving Out 2 entered its room and was dropped a second later, with the client resending its 2,814-byte
+`NetworkConfigSync` six times. Both causes are now measured, reproduced locally against Photon's own
+client library, and fixed.
+
+- fix(fusion): **build a room's Fusion simulation off the listener thread.** Allocating its heap takes
+  ~300 ms locally and ~850 ms on the production box, and it ran inside `PlayerJoined` — on the single
+  Game listener loop. For that whole window the server read no datagrams and acknowledged nothing, so the
+  client (whose retransmit timer is ~100 ms) resent its fragmented config sync until it gave up. The
+  trace made it unambiguous: nine datagrams the client stamped 200 ms apart were all received inside
+  3 ms, once the thread came back. The simulation is now built on a task and published when ready, with
+  the joins that arrived meanwhile applied to it; the owning listener loop is still captured on that loop,
+  so ticking is unchanged. Measured after: **0 retransmits and one copy of the config sync** instead of
+  six, with the real client library.
+- fix(fusion): **never send a peer a PlayerRefMapping for itself, and hold back the others until its
+  runner exists.** The client's `HandleStartMessage` awaits `NetworkRunner.Initialize` — which is what
+  creates its simulation — while `HandlePlayerRefMapping` calls
+  `_runner._simulation.RegisterUniqueIdPlayerMapping(...)` with no null guard. Ours arrived 1 ms after
+  Start, inside that window, on a null simulation. A peer never needs its own mapping anyway (the Join
+  Confirmation already carries its PlayerRef and UniqueId), and another player's is now released on the
+  first Fusion packet the peer sends after its Start, which proves the runner is up.
+
 ## v0.8.0 — 2026-09-27
 
 - fix(transport): **fragment outgoing messages over the MTU.** Photon's client reads every datagram

@@ -33,11 +33,65 @@ public sealed class FusionSharedServer : IFusionSessionHost
         FusionServerFactory.EnsureLogInitialized();
     }
 
+    /// <summary>
+    /// Rooms whose simulation is still being built, with the joins to apply once it is.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, Building> _building = new(StringComparer.Ordinal);
+
+    private sealed class Building
+    {
+        public readonly List<(int Actor, byte[] UniqueId)> Joins = new();
+        public bool Published;
+    }
+
     public void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false)
-        => _rooms.GetOrAdd(room, r => new RoomSim(r, _playerCount, _send101, clientServer)).AddPlayer(actor, uniqueId);
+    {
+        if (_rooms.TryGetValue(room, out var live)) { live.AddPlayer(actor, uniqueId, UdpListener.Current); return; }
+
+        // Building a room's simulation allocates its Fusion heap: ~300 ms here, ~850 ms on the
+        // production box. The listener thread cannot afford that — it has to acknowledge a client's
+        // reliable commands inside their retransmit window (~100 ms) or the client resends them and
+        // then abandons the session, which is exactly how Moving Out 2 was dying a second after
+        // entering its room. So build off the listener thread and publish the finished simulation.
+        // The owner listener must still be captured HERE, on the listener loop, since that is what
+        // Tick checks before driving the simulation.
+        var owner = UdpListener.Current;
+        var building = _building.GetOrAdd(room, _ => new Building());
+        bool mine;
+        lock (building)
+        {
+            building.Joins.Add((actor, uniqueId));
+            mine = !building.Published;
+            building.Published = true;
+        }
+        if (!mine) return;   // another join is already building this room; its task applies ours too
+
+        Task.Run(() =>
+        {
+            try
+            {
+                var sim = new RoomSim(room, _playerCount, _send101, clientServer);
+                lock (building)
+                {
+                    foreach (var (a, id) in building.Joins) sim.AddPlayer(a, id, owner);
+                    building.Joins.Clear();
+                    _rooms[room] = sim;          // published inside the lock: later joins take the live path
+                }
+            }
+            catch (Exception ex)
+            {
+                // Nothing to fall back to: the room simply has no hosted simulation, which is how this
+                // server behaved before one existed. Never let it take the process down.
+                OpenPak.Server.Core.Log.Exception("FusionHost", $"room \"{room}\" simulation failed to start", ex);
+            }
+            finally { _building.TryRemove(room, out _); }
+        });
+    }
 
     public void PlayerLeft(string room, int actor)
     {
+        if (_building.TryGetValue(room, out var building))
+            lock (building) building.Joins.RemoveAll(j => j.Actor == actor);   // left before its sim existed
         if (_rooms.TryGetValue(room, out var sim) && sim.RemovePlayer(actor) && _rooms.TryRemove(room, out _))
             sim.Dispose();
     }
@@ -75,9 +129,9 @@ public sealed class FusionSharedServer : IFusionSessionHost
             _sim = FusionServerFactory.CreateServer(playerCount, _socket, clientServer);
         }
 
-        public void AddPlayer(int actor, byte[] uniqueId)
+        public void AddPlayer(int actor, byte[] uniqueId, UdpListener? owner)
         {
-            _owner = UdpListener.Current;
+            _owner ??= owner;
             if (_actors.Add(actor))
                 FusionServerFactory.RegisterPlayer(_sim, actor, uniqueId, actor);
             ElectMaster();

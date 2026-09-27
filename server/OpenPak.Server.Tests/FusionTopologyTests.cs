@@ -120,6 +120,80 @@ public class FusionTopologyTests
 
     }
 
+    /// The client's HandleStartMessage awaits NetworkRunner.Initialize — which is what creates its
+    /// simulation — while HandlePlayerRefMapping dereferences that simulation with no null guard. A
+    /// mapping sent right after Start therefore kills the session (measured on Moving Out 2: the runner
+    /// took ~850 ms and our mapping landed 1 ms after Start). Nobody needs a mapping for themselves
+    /// anyway: the Join Confirmation already carried their PlayerRef and UniqueId.
+    [Fact]
+    public void ASoloHostIsNotSentAPlayerRefMappingForItself()
+    {
+        var (h, _) = NewHandler();
+        var host = Joined(h, "solo", out var raised);
+
+        Fusion(h, host, RealJoinRequest);                                                  // Join -> Confirmation
+        raised.Clear();
+        Fusion(h, host, new byte[] { FusionProtocol.MsgIdNetworkConfigSync, 1 });          // config sync -> Start
+
+        var messages = raised.Where(e => e.Code == FusionProtocol.ProtocolPackageEventCode)
+                             .Select(e => ((byte[])e.Parameters[245])[0]).ToArray();
+        Assert.Contains((byte)5, messages);       // Start
+        Assert.DoesNotContain((byte)8, messages); // PlayerRefMapping
+    }
+
+    /// And a mapping for a REAL other player is held back until the peer proves its runner exists, by
+    /// sending us any Fusion packet after its own Start.
+    [Fact]
+    public void AnotherPlayersMappingWaitsForTheFirstPacketAfterStart()
+    {
+        var (h, _) = NewHandler();
+        var host = Joined(h, "co-op", out var hostRaised);
+        var joiner = Joined(h, "co-op", out var joinerRaised);
+
+        foreach (var peer in new[] { host, joiner })
+        {
+            Fusion(h, peer, RealJoinRequest);
+            Fusion(h, peer, new byte[] { FusionProtocol.MsgIdNetworkConfigSync, 1 });
+        }
+        joinerRaised.Clear();
+        Assert.DoesNotContain(joinerRaised, e => IsFusionMessage(e, 8));
+
+        // any further Fusion packet from the joiner releases what was held back
+        Fusion(h, joiner, new byte[] { 6, 1 });   // a Snapshot: the runner is up
+        Assert.Contains(joinerRaised, e => IsFusionMessage(e, 8));
+    }
+
+    /// A real console's Join Request, byte for byte (Moving Out 2, 2026-09-27): protocol version 6,
+    /// serialization version 1.1.8, Request / ClientServer / PeerMode.Server, no JoinRequests.
+    private static readonly byte[] RealJoinRequest =
+        Convert.FromHexString("010601000000010000000800000001010100000000000000");
+
+    private static bool IsFusionMessage(EventData e, byte messageId) =>
+        e.Code == FusionProtocol.ProtocolPackageEventCode
+        && e.Parameters.TryGetValue((byte)245, out var d) && d is byte[] { Length: > 0 } b && b[0] == messageId;
+
+    private static PeerConnection Joined(GameServerHandler h, string room, out List<EventData> raised)
+    {
+        var peer = new PeerConnection("GameServer", new IPEndPoint(IPAddress.Loopback, Random.Shared.Next(2, 60000)),
+                                      new Null(), (_, _) => { });
+        var seen = new List<EventData>();
+        peer.OnRaised = seen.Add;
+        peer.Status = SessionStatus.Authenticated;
+        h.OnOperationRequest(peer, new OperationRequest(226, new Dictionary<byte, object>
+        {
+            { 255, room }, { 213, "ClientServer" },
+        }));
+        raised = seen;
+        return peer;
+    }
+
+    private static void Fusion(GameServerHandler h, PeerConnection peer, byte[] payload) =>
+        h.OnOperationRequest(peer, new OperationRequest(253, new Dictionary<byte, object>
+        {
+            { 244, FusionProtocol.ProtocolPackageEventCode },
+            { 245, payload },
+        }));
+
     /// eNet retransmits an unacknowledged reliable command on a timer, so the acknowledgement has to
     /// leave before any application work for that packet — a Fusion Join creates a whole simulation,
     /// and an ACK measured 830 ms behind its command had Moving Out 2 retransmitting until the peer

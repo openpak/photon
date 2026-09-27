@@ -41,6 +41,17 @@ public sealed record PeerRoomState(string RoomName, int Actor)
     /// <summary>Set once this peer's Fusion Start has been sent (it is now fully in the shared session and
     /// can receive PlayerRefMapping for the other players).</summary>
     public bool FusionStarted { get; set; }
+
+    /// <summary>
+    /// Actors this peer still has to be told about, held back until its Fusion runner exists.
+    /// The client's <c>HandleStartMessage</c> awaits <c>NetworkRunner.Initialize</c> — which is what
+    /// creates the simulation — and its <c>HandlePlayerRefMapping</c> calls
+    /// <c>_runner._simulation.RegisterUniqueIdPlayerMapping(...)</c> with no null guard. A mapping that
+    /// arrives inside that window (measured on Moving Out 2: 850 ms, and our mapping landed 1 ms after
+    /// Start) dereferences a null simulation and the client tears the session down. Flushed on the first
+    /// Fusion packet the peer sends after its Start, which proves the runner is up.
+    /// </summary>
+    public List<int> PendingFusionMappings { get; } = new();
 }
 
 /// <summary>
@@ -276,6 +287,12 @@ public sealed class GameServerHandler : IOperationHandler
             // in Fusion, ClientServer means a *dedicated server* session, which on Photon Cloud the
             // plugin hosts. Hosting one in ClientServer topology (rather than Shared) is the next piece
             // of work; PeerRoomState.FusionTopology is recorded and logged for it.
+            // Any Fusion packet from a started peer proves its runner (and so its simulation) exists —
+            // release the player mappings held back for it.
+            if (state.FusionStarted && state.PendingFusionMappings.Count > 0
+                && ec is FusionProtocol.ProtocolPackageEventCode or FusionRelayProtocol.DataEventCode)
+                FlushFusionPlayerRefMappings(peer, state);
+
             if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
             {
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
@@ -365,14 +382,27 @@ public sealed class GameServerHandler : IOperationHandler
         foreach (var actor in session.Actors())
         {
             if (session.PeerOf(actor) is not { } otherPeer || otherPeer.Tag is not PeerRoomState os) continue;
+            if (actor == joined.Actor) continue;   // nobody needs to be told who they are: the Join
+                                                   // Confirmation already carried its PlayerRef + UniqueId,
+                                                   // and this self-mapping is what killed a solo host.
 
-            // the just-joined peer learns about `actor` (including itself)
-            SendFusionPlayerRefMapping(session.PeerOf(joined.Actor), joined.FusionVersion, actor);
+            // the just-joined peer learns about `actor` — but not yet: its runner is still initialising
+            joined.PendingFusionMappings.Add(actor);
 
-            // every OTHER already-started actor learns about the just-joined peer
-            if (actor != joined.Actor && os.FusionStarted)
+            // every OTHER already-started actor learns about the just-joined peer. Those have been
+            // running for a while, so they take it immediately.
+            if (os.FusionStarted)
                 SendFusionPlayerRefMapping(otherPeer, os.FusionVersion, joined.Actor);
         }
+    }
+
+    /// <summary>Sends the mappings held back in <see cref="PeerRoomState.PendingFusionMappings"/>.</summary>
+    private void FlushFusionPlayerRefMappings(PeerConnection peer, PeerRoomState state)
+    {
+        var pending = state.PendingFusionMappings.ToArray();
+        state.PendingFusionMappings.Clear();
+        foreach (var actor in pending)
+            SendFusionPlayerRefMapping(peer, state.FusionVersion, actor);
     }
 
     private static void SendFusionPlayerRefMapping(PeerConnection? recipient, FusionProtocol.JoinMessage? ver, int actor)
