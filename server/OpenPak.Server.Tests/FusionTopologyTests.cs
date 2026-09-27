@@ -76,4 +76,49 @@ public class FusionTopologyTests
         Assert.Null(state.FusionTopology);
         Assert.False(state.IsClientServerTopology);
     }
+
+    /// A ClientServer peer's protocol-package traffic (event 100) is what the peers say to each other,
+    /// so it must be relayed on and not answered by the server: the host client is the server, and a
+    /// Join Confirmation arriving from us made it drop the room within a second.
+    [Fact]
+    public void ClientServerProtocolPackagesAreRelayedNotAnswered()
+    {
+        var (h, reg) = NewHandler();
+
+        var host = new PeerConnection("GameServer", new IPEndPoint(IPAddress.Loopback, 1), new Null(), (_, _) => { });
+        var hostRaised = new List<EventData>();
+        host.OnRaised = hostRaised.Add;
+        host.Status = SessionStatus.Authenticated;
+        h.OnOperationRequest(host, new OperationRequest(226, new Dictionary<byte, object>
+        {
+            { 255, "co-op" }, { 213, "ClientServer" },
+        }));
+
+        var other = new PeerConnection("GameServer", new IPEndPoint(IPAddress.Loopback, 2), new Null(), (_, _) => { });
+        var otherRaised = new List<EventData>();
+        other.OnRaised = otherRaised.Add;
+        other.Status = SessionStatus.Authenticated;
+        h.OnOperationRequest(other, new OperationRequest(226, new Dictionary<byte, object>
+        {
+            { 255, "co-op" }, { 213, "ClientServer" },
+        }));
+
+        hostRaised.Clear();
+        otherRaised.Clear();
+
+        var payload = new byte[] { 1, 1, FusionProtocol.JoinTypeRequest };  // msg id 1 = Join
+        h.OnOperationRequest(host, new OperationRequest(253, new Dictionary<byte, object>
+        {
+            { 244, FusionProtocol.ProtocolPackageEventCode },
+            { 245, payload },
+            { 250, true },
+        }));
+
+        // the other peer sees it...
+        Assert.Contains(otherRaised, e => e.Code == FusionProtocol.ProtocolPackageEventCode);
+        // ...and the server did not answer the sender with one of its own
+        Assert.DoesNotContain(hostRaised, e => e.Code == FusionProtocol.ProtocolPackageEventCode
+                                               && (!e.Parameters.TryGetValue(245, out var echoed)
+                                                   || !ReferenceEquals(echoed, payload)));
+    }
 }

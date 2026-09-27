@@ -268,7 +268,13 @@ public sealed class GameServerHandler : IOperationHandler
             // with), so without an answer the client waits ~30s and gives up. Answer its own Join
             // directly so a solo-host session can complete; still also relay below in case a second
             // real peer is present to negotiate with. Best-effort/reverse-engineered — see HANDOFF.md.
-            if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
+            // ...but only in Shared topology. A ClientServer client IS the server: there is no cloud
+            // plugin at actor 0 for it to negotiate with, so a Join Confirmation and Start arriving
+            // from the server are messages it never asked for. Sending them made Moving Out 2 drop the
+            // room one second after entering it — faster than the five seconds it lasted when we only
+            // had the flags wrong. For that topology this server does what plain Photon does: relay
+            // the event to the other actors and inject nothing.
+            if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload && !state.IsClientServerTopology)
             {
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
                 {
@@ -340,8 +346,9 @@ public sealed class GameServerHandler : IOperationHandler
                 peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
             // When a Fusion server hosts the room, its protocol-package (100) traffic is client<->server
-            // too — don't relay it peer-to-peer either.
-            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode) return;
+            // too — don't relay it peer-to-peer either. A ClientServer room has no hosted server, so
+            // its 100s are exactly what the peers say to each other and must be relayed.
+            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode && !state.IsClientServerTopology) return;
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }

@@ -3,6 +3,15 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.5.1 — 2026-09-27
+
+- fix(lb): a **ClientServer** peer is not answered with Fusion server protocol at all. The Join
+  Confirmation and Start this server sends exist to stand in for Photon Cloud's plugin at actor 0,
+  which only exists in Shared topology; a ClientServer client *is* the server and never asked for
+  them. Sending them made Moving Out 2 drop the room one second after entering it — faster than the
+  five it lasted with only the flags wrong. Its event-100 traffic is now relayed to the other actors,
+  which is what plain Photon does, and nothing is injected.
+
 ## v0.5.0 — 2026-09-27
 
 - feat(lb): **honour the Fusion topology the client asks for** (JoinGame parameter 213). Outbound
