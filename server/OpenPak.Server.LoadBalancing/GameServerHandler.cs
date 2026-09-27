@@ -268,10 +268,14 @@ public sealed class GameServerHandler : IOperationHandler
             // with), so without an answer the client waits ~30s and gives up. Answer its own Join
             // directly so a solo-host session can complete; still also relay below in case a second
             // real peer is present to negotiate with. Best-effort/reverse-engineered — see HANDOFF.md.
-            // Every topology gets an answer: measured, a ClientServer client that is answered with
-            // nothing sends its single Join Request, waits, and gives up on its own timeout (15 s of
-            // silence with one OpRaiseEvent in it). What differs by topology is the flag below and
-            // whether a simulation is hosted for the room at all.
+            // Every topology gets an answer, and a hosted simulation. Measured on Moving Out 2, which
+            // asks for ClientServer: answered with nothing it sends one Join Request and times out
+            // after 15 s; answered without a hosted simulation it drops the room in ~1 s, whether the
+            // flag is StartRequestsNone or ConnectToShared; answered with a hosted Shared simulation it
+            // lasts ~5 s and exchanges real traffic. It wants a server simulation talking to it — and
+            // in Fusion, ClientServer means a *dedicated server* session, which on Photon Cloud the
+            // plugin hosts. Hosting one in ClientServer topology (rather than Shared) is the next piece
+            // of work; PeerRoomState.FusionTopology is recorded and logged for it.
             if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
             {
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
@@ -280,10 +284,7 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
-                    if (!state.IsClientServerTopology)
-                    {
-                        _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
-                    }
+                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -319,8 +320,7 @@ public sealed class GameServerHandler : IOperationHandler
             // representing itself); without an Accepted reply it times out and disconnects, same
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
-            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null
-                     && !state.IsClientServerTopology)
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null)
             {
                 // A real Fusion Shared-mode server hosts this room: hand it the raw relay packet. It runs
                 // the NetPeerGroup transport (Connect/Accepted/NotifyData) and replicates state between
@@ -343,9 +343,8 @@ public sealed class GameServerHandler : IOperationHandler
                 peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
             // When a Fusion server hosts the room, its protocol-package (100) traffic is client<->server
-            // too — don't relay it peer-to-peer either. A ClientServer room has no hosted server, so
-            // its 100s are exactly what the peers say to each other and must be relayed.
-            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode && !state.IsClientServerTopology) return;
+            // too — don't relay it peer-to-peer either.
+            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode) return;
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }

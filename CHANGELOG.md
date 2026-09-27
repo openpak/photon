@@ -3,6 +3,17 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.5.3 — 2026-09-27
+
+- fix(lb): host the Fusion simulation for a ClientServer room too — back to the behaviour that
+  measured furthest. The full matrix on Moving Out 2: answered with nothing, it sends one Join Request
+  and times out after 15 s; answered without a hosted simulation it drops the room in ~1 s (either
+  Start flag); answered with a hosted simulation it lasts ~5 s and exchanges real traffic. It wants a
+  server simulation talking to it, which fits what ClientServer means in Fusion — a **dedicated
+  server** session, hosted on Photon Cloud by the plugin. Hosting one in ClientServer topology rather
+  than Shared is the next piece of work; the topology is recorded and logged
+  (`PeerRoomState.FusionTopology`) for it.
+
 ## v0.5.2 — 2026-09-27
 
 - fix(lb): a ClientServer peer is answered again, with the flag that measured best. Three
