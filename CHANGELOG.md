@@ -3,6 +3,18 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.5.0 — 2026-09-27
+
+- feat(lb): **honour the Fusion topology the client asks for** (JoinGame parameter 213). Outbound
+  joins in `Shared`, where the authoritative simulation belongs to Photon Cloud's plugin and
+  `OpenPak.Server.Fusion` hosts it in its place. Moving Out 2 joins in `ClientServer`, where the host
+  *client* owns the simulation and the server is only a relay — it was being told `ConnectToShared`,
+  fed into a hosted Shared simulation and answered as actor 0, and dropped the session about five
+  seconds after joining (`fed=0 emitted=0` on the room, then `eNet DISCONNECT`). A `ClientServer`
+  peer now gets `StartRequestsNone`, is not announced to the hosted simulation, and its event-101
+  relay traffic is not swallowed. A client that names no topology keeps the Shared behaviour, so
+  nothing else changes.
+
 ## v0.4.0 — 2026-09-25
 
 - feat(lb): a room is filed under the title whose Photon **AppId** its peer authenticated with

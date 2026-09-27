@@ -17,6 +17,18 @@ public sealed record PeerRoomState(string RoomName, int Actor)
     /// local server. See GameServerHandler.HandleRaiseEvent.</summary>
     public FusionProtocol.JoinMessage? PendingFusionJoin { get; set; }
 
+    /// <summary>The Fusion topology the client asked for in its JoinGame (parameter 213): "Shared"
+    /// or "ClientServer". Outbound asks for Shared, where the authoritative simulation belongs to the
+    /// cloud plugin and we host it (see OpenPak.Server.Fusion). Moving Out 2 asks for
+    /// **ClientServer**, where the host *client* owns the simulation and the server is a plain relay —
+    /// hosting a Shared simulation for one of those, and answering it as actor 0, makes the client
+    /// drop the session after a few seconds. Null means the client did not say, and everything then
+    /// keeps the Shared behaviour this server was built around.</summary>
+    public string? FusionTopology { get; set; }
+
+    /// <summary>True when this peer explicitly asked for ClientServer.</summary>
+    public bool IsClientServerTopology => string.Equals(FusionTopology, "ClientServer", StringComparison.Ordinal);
+
     /// <summary>Fusion sends its relay Connect more than once over distinct unsequenced ENet groups.
     /// Accept each logical UniqueId once; the reliable Accepted event itself handles packet loss.</summary>
     public HashSet<string> AcceptedFusionRelayIds { get; } = new(StringComparer.Ordinal);
@@ -51,6 +63,7 @@ public sealed class GameServerHandler : IOperationHandler
                        PProperties = PhotonCodes.Param.Properties;
     private const byte PBroadcast = PhotonCodes.Param.Broadcast;
     private const byte PTargetActorNr = PhotonCodes.Param.TargetActorNr;  // EvPropertiesChanged: whose properties changed
+    private const byte PFusionTopology = 213;  // JoinGame: "Shared" or "ClientServer", Fusion's own key
     private const byte RoomMasterClientId = PhotonCodes.RoomProperty.MasterClientId;
 
     private readonly string _secret;
@@ -184,7 +197,12 @@ public sealed class GameServerHandler : IOperationHandler
         // Room name is client-supplied: take it only if it's actually a string (never coerce/NRE a null).
         var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) && rn is string rns ? rns : "room";
         var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
-        peer.Tag = new PeerRoomState(roomName, actor);
+        var topology = request.Parameters.TryGetValue(PFusionTopology, out var topo) && topo is string topoText ? topoText : null;
+        peer.Tag = new PeerRoomState(roomName, actor) { FusionTopology = topology };
+        if (topology is not null)
+        {
+            Log.Info("GameServer", $"\"{roomName}\" actor={actor} Fusion topology \"{topology}\"");
+        }
         peer.Status = SessionStatus.InRoom;
         var session = _registry.Session(roomName);
         session.Join(actor, peer);
@@ -258,7 +276,10 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
-                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
+                    if (!state.IsClientServerTopology)
+                    {
+                        _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
+                    }
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -271,8 +292,14 @@ public sealed class GameServerHandler : IOperationHandler
                     // StartGameOperation) when told to via the ConnectToShared flag; matches the
                     // user's own observation that a hosted session has no single fixed host and
                     // survives them leaving the screen.
+                    // A ClientServer client owns its own simulation: ConnectToShared would send it
+                    // down Fusion's Shared relay path, which is not what it asked for and not what
+                    // this server does for it.
+                    var startRequests = state.IsClientServerTopology
+                        ? FusionProtocol.StartRequestsNone
+                        : FusionProtocol.StartRequestsConnectToShared;
                     var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
-                                                           remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
+                                                           remoteServerId: 0, startRequests);
                     peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
                     state.FusionStarted = true;
@@ -289,7 +316,8 @@ public sealed class GameServerHandler : IOperationHandler
             // representing itself); without an Accepted reply it times out and disconnects, same
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
-            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null)
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null
+                     && !state.IsClientServerTopology)
             {
                 // A real Fusion Shared-mode server hosts this room: hand it the raw relay packet. It runs
                 // the NetPeerGroup transport (Connect/Accepted/NotifyData) and replicates state between
