@@ -126,7 +126,10 @@ public static class FusionProtocol
         if (request.ProtocolVersion >= 2) { w.WriteIntN(request.Major, 32); w.WriteIntN(request.Minor, 32); w.WriteIntN(request.Build, 32); }
         w.WriteBits(JoinTypeConfirmation, 8);
         w.WriteBits(request.GameMode, 8);
-        w.WriteBits(PeerModeClient, 8);
+        // Echo the peer's own mode rather than asserting Client: a ClientServer host announces itself
+        // as PeerMode.Server (see docs/fusion-protocol-map.md), and inventing a value here is the only
+        // field of the Confirmation we do not take from the request.
+        w.WriteBits(request.PeerMode == PeerModeNone ? PeerModeClient : request.PeerMode, 8);
         w.WriteUIntN(JoinRequestsNetworkConfig, 32);
         if (request.ProtocolVersion >= 6) w.WriteByteArrayLP(UniqueIdForActor(playerRef));
         if (request.ProtocolVersion >= 7) w.WriteIntN(playerRef, 32);

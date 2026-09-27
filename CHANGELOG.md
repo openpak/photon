@@ -3,6 +3,19 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.6.1 — 2026-09-27
+
+- docs: **`docs/fusion-protocol-map.md`** — Fusion's session protocol transcribed from the SDK
+  (`Fusion.Sockets.dll` + `Fusion.Runtime.dll`, decompiled): the message registry and every body in
+  serialization order, the version header and its major-version gate, all the enums
+  (`PluginGameMode`, `PeerMode`, `JoinRequests`, `StartRequests`, `ProtocolMessageVersion`,
+  `Topologies`), and the client's own join/start state machine with the exact shutdown strings.
+  Two things it settles: a **ClientServer peer never connects to actor 0**, so `fed=0`/`emitted=0` on
+  such a room is correct rather than a symptom; and `ConnectToShared` is read only in the Shared
+  branch, so it means nothing to a ClientServer client.
+- fix(fusion): the Join Confirmation echoes the peer's own `PeerMode` instead of asserting `Client`.
+  A ClientServer host announces itself as `PeerMode.Server`.
+
 ## v0.6.0 — 2026-09-27
 
 - feat(fusion): **host the room's simulation in the topology the client asked for.** `Topologies` in
