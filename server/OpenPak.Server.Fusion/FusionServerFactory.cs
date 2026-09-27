@@ -26,10 +26,15 @@ internal static class FusionServerFactory
         catch (Exception e) { Console.WriteLine($"[FusionHost] Fusion log init failed: {e}"); }
     }
 
-    public static Simulation CreateServer(int playerCount, INetSocket socket)
+    /// <param name="clientServer">Build the simulation in <see cref="Topologies.ClientServer"/> rather
+    /// than <see cref="Topologies.Shared"/>. They are different sessions: Shared has no authoritative
+    /// owner and every peer is a client of the plugin, while ClientServer is a dedicated-server session
+    /// with the server holding state authority. Moving Out 2 asks for ClientServer (JoinGame parameter
+    /// 213) and Outbound for Shared.</param>
+    public static Simulation CreateServer(int playerCount, INetSocket socket, bool clientServer = false)
     {
         var cfg = new NetworkProjectConfig();
-        cfg.Simulation.Topology = Topologies.Shared;
+        cfg.Simulation.Topology = clientServer ? Topologies.ClientServer : Topologies.Shared;
         cfg.Simulation.PlayerCount = playerCount;
         cfg.Simulation.TickRateSelection = TickRate.Default;
         cfg.Simulation.ObjectDataConsistency = SimulationConfig.DataConsistency.Full;

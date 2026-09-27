@@ -33,8 +33,8 @@ public sealed class FusionSharedServer : IFusionSessionHost
         FusionServerFactory.EnsureLogInitialized();
     }
 
-    public void PlayerJoined(string room, int actor, byte[] uniqueId)
-        => _rooms.GetOrAdd(room, r => new RoomSim(r, _playerCount, _send101)).AddPlayer(actor, uniqueId);
+    public void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false)
+        => _rooms.GetOrAdd(room, r => new RoomSim(r, _playerCount, _send101, clientServer)).AddPlayer(actor, uniqueId);
 
     public void PlayerLeft(string room, int actor)
     {
@@ -67,12 +67,12 @@ public sealed class FusionSharedServer : IFusionSessionHost
         private int _dumpEvery;
         private UdpListener? _owner;   // the listener loop that owns this sim; ticks run only from it
 
-        public RoomSim(string room, int playerCount, Action<string, int, byte[]> send101)
+        public RoomSim(string room, int playerCount, Action<string, int, byte[]> send101, bool clientServer)
         {
             _room = room;
             _send101 = send101;
             _socket = new RelaySocket((actor, data) => { _emitted++; _send101(_room, actor, data); });
-            _sim = FusionServerFactory.CreateServer(playerCount, _socket);
+            _sim = FusionServerFactory.CreateServer(playerCount, _socket, clientServer);
         }
 
         public void AddPlayer(int actor, byte[] uniqueId)

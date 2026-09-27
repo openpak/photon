@@ -3,6 +3,20 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.6.0 — 2026-09-27
+
+- feat(fusion): **host the room's simulation in the topology the client asked for.** `Topologies` in
+  `Fusion.Runtime` is `{ ClientServer = 1, Shared = 2 }` (decompiled), and this server built every
+  simulation as Shared. Outbound is Shared and unaffected; Moving Out 2 asks for ClientServer — a
+  dedicated-server session, which on Photon Cloud the plugin hosts — and was being given a Shared one.
+  `FusionServerFactory.CreateServer` now takes the topology, `IFusionSessionHost.PlayerJoined` carries
+  it from the JoinGame parameter, and a ClientServer client is answered with `StartRequestsNone`
+  instead of `ConnectToShared` (that flag brings up Fusion's own relay transport to the plugin, which
+  is a Shared-mode arrangement).
+- Every earlier combination was measured on the title: ConnectToShared with a Shared simulation held
+  the room ~5 s, either flag with no simulation ~1 s, no answer at all 15 s. Pairing the requested
+  topology with a simulation in that topology is the combination that had never been tried.
+
 ## v0.5.3 — 2026-09-27
 
 - fix(lb): host the Fusion simulation for a ClientServer room too — back to the behaviour that

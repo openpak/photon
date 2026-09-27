@@ -284,7 +284,8 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
-                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor));
+                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor),
+                                          state.IsClientServerTopology);
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -297,13 +298,18 @@ public sealed class GameServerHandler : IOperationHandler
                     // StartGameOperation) when told to via the ConnectToShared flag; matches the
                     // user's own observation that a hosted session has no single fixed host and
                     // survives them leaving the screen.
-                    // ConnectToShared for both topologies, which is what measured best: answering a
-                    // ClientServer client with StartRequestsNone instead made it drop the room in one
-                    // second, against five with this flag and fifteen with no answer at all. What
-                    // ClientServer changes is that no simulation is hosted for its room and its
-                    // event-101 relay traffic is passed between peers rather than consumed.
+                    // ConnectToShared is a Shared-mode instruction: it tells the client to bring up
+                    // Fusion's own relay transport to the plugin. A ClientServer session has a real
+                    // server simulation instead (hosted above in that topology), so it gets
+                    // StartRequestsNone. Every earlier combination was measured on Moving Out 2 —
+                    // ConnectToShared with a Shared simulation lasted ~5 s, either flag with no
+                    // simulation ~1 s, no answer at all 15 s — and this pairing is the one that has
+                    // never been tried: the topology it asked for, answered as that topology.
+                    var startRequests = state.IsClientServerTopology
+                        ? FusionProtocol.StartRequestsNone
+                        : FusionProtocol.StartRequestsConnectToShared;
                     var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
-                                                           remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
+                                                           remoteServerId: 0, startRequests);
                     peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
                     state.FusionStarted = true;
