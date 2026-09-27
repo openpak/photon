@@ -498,7 +498,96 @@ namespace UnityEngine {
         sealed class JsonStringEnumConverterOff : JsonConverterFactory { public override bool CanConvert(Type t) => false; public override JsonConverter CreateConverter(Type t, JsonSerializerOptions o) => null; }
         public static string ToJson(object obj) => JsonSerializer.Serialize(obj, obj.GetType(), Opts);
         public static string ToJson(object obj, bool prettyPrint) => JsonSerializer.Serialize(obj, obj.GetType(), prettyPrint ? new JsonSerializerOptions(Opts) { WriteIndented = true } : Opts);
-        public static T FromJson<T>(string json) => JsonSerializer.Deserialize<T>(json, Opts);
+        /// <summary>
+        /// Reads JSON the way Unity's JsonUtility does, which System.Text.Json cannot be configured
+        /// into: FIELDS only (public, or private with [SerializeField]), properties ignored, unknown
+        /// keys ignored, missing keys left at their default, enums as numbers, and no constructor
+        /// requirement. Needed to load a real client's NetworkProjectConfig — which it sends us as
+        /// JSON in its NetworkConfigSync — into a Fusion runner: System.Text.Json threw
+        /// NotSupportedException on it, since the SDK's config is a graph of field-only types.
+        /// </summary>
+        public static T FromJson<T>(string json)
+        {
+            using var doc = JsonDocument.Parse(Sanitize(json));
+            return (T)ReadValue(doc.RootElement, typeof(T));
+        }
+
+        /// <summary>
+        /// Unity writes non-finite floats as bare <c>Infinity</c>/<c>-Infinity</c>/<c>NaN</c>, which no
+        /// strict JSON parser accepts — a real Moving Out 2 config carries `"_inverse":Infinity`. Quote
+        /// them so they survive as strings; the number readers below take those back.
+        /// </summary>
+        private static string Sanitize(string json) => NonFinite.Replace(json, "$1\"$2\"");
+
+        private static readonly System.Text.RegularExpressions.Regex NonFinite =
+            new(@"([:\[,]\s*)(-?Infinity|NaN)\b", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+        private static object ReadValue(JsonElement e, Type t)
+        {
+            if (t == typeof(string)) return e.ValueKind == JsonValueKind.String ? e.GetString() : null;
+            if (t.IsEnum) return e.ValueKind == JsonValueKind.Number ? Enum.ToObject(t, e.GetInt64()) : Enum.Parse(t, e.GetString(), true);
+
+            var under = Nullable.GetUnderlyingType(t);
+            if (under != null) return e.ValueKind == JsonValueKind.Null ? null : ReadValue(e, under);
+
+            if (t == typeof(bool)) return e.ValueKind == JsonValueKind.True || (e.ValueKind == JsonValueKind.Number && e.GetInt32() != 0);
+            if (t == typeof(byte)) return e.GetByte();
+            if (t == typeof(sbyte)) return e.GetSByte();
+            if (t == typeof(short)) return e.GetInt16();
+            if (t == typeof(ushort)) return e.GetUInt16();
+            if (t == typeof(int)) return e.GetInt32();
+            if (t == typeof(uint)) return e.GetUInt32();
+            if (t == typeof(long)) return e.GetInt64();
+            if (t == typeof(ulong)) return e.GetUInt64();
+            if (t == typeof(float)) return (float)AsDouble(e);
+            if (t == typeof(double)) return AsDouble(e);
+
+            if (t.IsArray)
+            {
+                var element = t.GetElementType();
+                if (e.ValueKind != JsonValueKind.Array) return Array.CreateInstance(element, 0);
+                var array = Array.CreateInstance(element, e.GetArrayLength());
+                int i = 0;
+                foreach (var item in e.EnumerateArray()) array.SetValue(ReadValue(item, element), i++);
+                return array;
+            }
+
+            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(List<>))
+            {
+                var element = t.GetGenericArguments()[0];
+                var list = (System.Collections.IList)Activator.CreateInstance(t);
+                if (e.ValueKind == JsonValueKind.Array)
+                    foreach (var item in e.EnumerateArray()) list.Add(ReadValue(item, element));
+                return list;
+            }
+
+            // A field-only object graph: make it without running a constructor, then fill what is named.
+            var instance = t.IsValueType ? Activator.CreateInstance(t) : System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(t);
+            if (e.ValueKind != JsonValueKind.Object) return instance;
+
+            foreach (var field in Fields(t))
+            {
+                if (!e.TryGetProperty(field.Name, out var value) || value.ValueKind == JsonValueKind.Null) continue;
+                try { field.SetValue(instance, ReadValue(value, field.FieldType)); }
+                catch (Exception) { /* a shape Unity would skip too; leave the default */ }
+            }
+            return instance;
+        }
+
+        /// <summary>A number, or one of the quoted non-finite literals Sanitize preserved.</summary>
+        private static double AsDouble(JsonElement e) => e.ValueKind == JsonValueKind.String
+            ? double.Parse(e.GetString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture)
+            : e.GetDouble();
+
+        private static IEnumerable<System.Reflection.FieldInfo> Fields(Type t)
+        {
+            const System.Reflection.BindingFlags Flags = System.Reflection.BindingFlags.Instance |
+                System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic;
+            for (var type = t; type != null && type != typeof(object); type = type.BaseType)
+                foreach (var f in type.GetFields(Flags))
+                    if (f.IsPublic || f.GetCustomAttributes(typeof(SerializeField), inherit: true).Length > 0)
+                        yield return f;
+        }
     }
 }
 
