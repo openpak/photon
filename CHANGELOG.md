@@ -26,6 +26,17 @@ client library, and fixed.
   Confirmation already carries its PlayerRef and UniqueId), and another player's is now released on the
   first Fusion packet the peer sends after its Start, which proves the runner is up.
 
+## v0.9.2 — 2026-09-27
+
+- fix(fusion): **never send PlayerRefMapping to a Fusion 1.x peer.** Message id 8 is PlayerRefMapping
+  only in Fusion 2; in Fusion 1.x it is `DummyTrafficSync`. Moving Out 2 runs **Fusion 1.1.8**, and
+  running our 35-byte mapping through the Fusion 1.1.12 SDK's own deserializer produced *two*
+  DummyTrafficSync messages — the first telling the client to send dummy traffic every 100 ms. The
+  peer's serialization version comes in its own Join, so that is the gate. `docs/fusion-protocol-map.md`
+  now carries the 1.x registry and what else 1.1.12 does differently (its `ConfirmJoin` has no timeout,
+  `Initialize` only resolves true, and a Host's Start resolves the cloud operation immediately) — all
+  read from the SDK, not inferred.
+
 ## v0.9.1 — 2026-09-27
 
 - fix(fusion): hold relay packets (event 101) that arrive while a room's simulation is still being

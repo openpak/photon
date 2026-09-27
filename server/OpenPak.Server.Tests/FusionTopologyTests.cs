@@ -152,7 +152,7 @@ public class FusionTopologyTests
 
         foreach (var peer in new[] { host, joiner })
         {
-            Fusion(h, peer, RealJoinRequest);
+            Fusion(h, peer, Fusion2JoinRequest);
             Fusion(h, peer, new byte[] { FusionProtocol.MsgIdNetworkConfigSync, 1 });
         }
         joinerRaised.Clear();
@@ -167,6 +167,31 @@ public class FusionTopologyTests
     /// serialization version 1.1.8, Request / ClientServer / PeerMode.Server, no JoinRequests.
     private static readonly byte[] RealJoinRequest =
         Convert.FromHexString("010601000000010000000800000001010100000000000000");
+
+    /// The same Join from a Fusion 2.x peer (serialization version 2.1.2), which is the only kind
+    /// that has a PlayerRefMapping message at all.
+    private static readonly byte[] Fusion2JoinRequest =
+        Convert.FromHexString("010602000000010000000200000001010100000000000000");
+
+    /// Message id 8 is PlayerRefMapping in Fusion 2 and DummyTrafficSync in Fusion 1 — a 1.x peer fed
+    /// ours reads it as an instruction to send dummy traffic every 100 ms (confirmed by running our
+    /// bytes through the Fusion 1.1.12 SDK's own deserializer). So a 1.x peer never gets one.
+    [Fact]
+    public void AFusion1PeerIsNeverSentAPlayerRefMapping()
+    {
+        var (h, _) = NewHandler();
+        var host = Joined(h, "v1", out _);
+        var joiner = Joined(h, "v1", out var joinerRaised);
+
+        foreach (var peer in new[] { host, joiner })
+        {
+            Fusion(h, peer, RealJoinRequest);                                       // Fusion 1.1.8
+            Fusion(h, peer, new byte[] { FusionProtocol.MsgIdNetworkConfigSync, 1 });
+        }
+        joinerRaised.Clear();
+        Fusion(h, joiner, new byte[] { 6, 1 });   // whatever it sends, no mapping may follow
+        Assert.DoesNotContain(joinerRaised, e => IsFusionMessage(e, 8));
+    }
 
     private static bool IsFusionMessage(EventData e, byte messageId) =>
         e.Code == FusionProtocol.ProtocolPackageEventCode

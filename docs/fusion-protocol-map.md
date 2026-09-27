@@ -116,6 +116,40 @@ ClientServer host announces itself as `PeerMode.Server`, and echoing its own mod
 plugin would do. Nothing in the client's `HandleJoinMessage` reads it, so this is correctness rather
 than a known failure — recorded because it is the only field we invent rather than echo.
 
+## Fusion 1.x is a different protocol registry (2026-09-27, measured against the 1.1.12 SDK)
+
+The map below was transcribed from **Fusion 2.1.2**. Moving Out 2 runs **Fusion 1.1.8**, and the
+message ids are not the same. Decompiled from the Fusion 1.1.12 SDK (`scratch/fusion/libs-1.1.12`,
+`src-1.1.12`):
+
+| id | Fusion 1.1.x | Fusion 2.1.x |
+|---|---|---|
+| 1-7 | Join, NetworkConfigSync, ReflexiveInfo, Disconnect, Start, Snapshot, HostMigration | same |
+| 8 | **DummyTrafficSync** | **PlayerRefMapping** |
+| 9 | — | ChangeMasterClient |
+| 10 | — | DummyTrafficSync |
+
+So `PlayerRefMapping` does not exist before Fusion 2, and a 1.x peer reads ours as a
+DummyTrafficSync: fed through 1.1.12's own deserializer, our 35-byte mapping came out as *two*
+DummyTrafficSync messages, the first instructing the client to send dummy traffic every 100 ms. The
+peer's serialization version arrives in its own Join, so that is the gate — a peer below Fusion 2
+gets no mapping.
+
+What IS identical in 1.1.x: the `Message` header and its major-version gate, the `Join` body through
+`UniqueId` (and 1.1.x has nothing after it — no PlayerRef, no EncryptionKey), the `Start` body
+(`int RemoteServerID`, `uint StartRequests`), `PluginGameMode` (ClientServer=1, Shared=2) and
+`ProtocolMessageVersion`. Our Join Confirmation and Start were run through the 1.1.12 deserializer
+and come out with exactly the intended field values, so those two messages are correct for both
+majors.
+
+Also read from 1.1.12, and worth knowing before blaming the server: `ConfirmJoin()` has **no**
+timeout (it waits forever on the join stage; the 15 s deadline belongs to
+`Service_CheckScheduledRequests`), `NetworkRunner.Initialize` only ever resolves **true**
+(`SetInitializationDone` sets it; the failure modes are thrown exceptions), and for
+`GameMode.Host`/`Server` `HandleStartMessage` resolves the cloud operation with `ShutdownReason.Ok`
+as soon as Initialize returns. `StartGame` then waits out `IsStarting` and requires the runner not to
+be shut down. So nothing beyond Join Confirmation + Start is owed to a 1.x ClientServer host.
+
 ## What the client itself requires — measured, not inferred (2026-09-27)
 
 Three questions were settled by running Photon's **own client library** (`Photon3Unity3D.dll`, the

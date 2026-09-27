@@ -408,6 +408,17 @@ public sealed class GameServerHandler : IOperationHandler
     private static void SendFusionPlayerRefMapping(PeerConnection? recipient, FusionProtocol.JoinMessage? ver, int actor)
     {
         if (recipient is null || ver is null) return;
+        // PlayerRefMapping is message id 8 — but only in Fusion 2.x. In Fusion 1.x that id is
+        // DummyTrafficSync, and a 1.x peer reads ours as one: fed through the 1.1.12 SDK's own
+        // deserializer, our 35-byte mapping came out as two DummyTrafficSync messages, the first
+        // telling the client to send dummy traffic every 100 ms. The peer's own serialization version
+        // rides in its Join, so a 1.x peer simply does not get this message (it has no equivalent).
+        if (ver.Major < 2)
+        {
+            Log.Debug("GameServer", $"actor {actor} mapping withheld from a Fusion {ver.Major}.{ver.Minor}.{ver.Build} " +
+                                    "peer: PlayerRefMapping does not exist before Fusion 2");
+            return;
+        }
         var msg = FusionProtocol.EncodePlayerRefMapping(ver.ProtocolVersion, ver.Major, ver.Minor, ver.Build,
                                                         actor, actor, FusionProtocol.UniqueIdForActor(actor));
         recipient.RaiseEvent(ServerFusionEvent(FusionProtocol.ProtocolPackageEventCode, msg));
