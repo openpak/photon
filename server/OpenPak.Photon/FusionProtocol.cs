@@ -86,9 +86,18 @@ public static class FusionProtocol
             byte[]? uniqueId = null, encKey = null, encSecret = null;
             int playerRef = 0, playerCounterRef = 0;
             if (protocolVersion >= 6) uniqueId = r.ReadByteArrayLP();
-            if (protocolVersion >= 7) playerRef = r.ReadIntN(32);
-            if (protocolVersion >= 9) { encKey = r.ReadByteArrayLP(); encSecret = r.ReadByteArrayLP(); }
-            if (protocolVersion >= 12) playerCounterRef = r.ReadIntN(32);
+            // Everything after UniqueId is a Fusion 2 field. Fusion 1.x has NONE of them at ANY
+            // protocol version — its Join body ends there — so the gate is the peer's serialization
+            // major, not the protocol version. Measured with a real Fusion 1.1.12 host: at its default
+            // V1_6_0 (10) the old reading ran off the end of a 24-byte Join, returned null, and the
+            // peer was never sent a Confirmation. Moving Out 2 escapes it only by using V1_2_3 (6).
+            bool fusion2 = major >= 2;
+            if (fusion2)
+            {
+                if (protocolVersion >= 7) playerRef = r.ReadIntN(32);
+                if (protocolVersion >= 9) { encKey = r.ReadByteArrayLP(); encSecret = r.ReadByteArrayLP(); }
+                if (protocolVersion >= 12) playerCounterRef = r.ReadIntN(32);
+            }
             string? customData = protocolVersion >= 3 ? r.ReadString() : null;
 
             return new JoinMessage(protocolVersion, major, minor, build, type, gameMode, peerMode,
@@ -111,6 +120,27 @@ public static class FusionProtocol
     /// life of the peer's session: the client stores the Join Confirmation's UniqueId and presents it
     /// again on its event-101 relay Connect, and the hosted Fusion server keys its player mapping on it.
     /// Derived from the actor number so the server can recompute it without extra state.</summary>
+    /// <summary>
+    /// Decodes a <c>NetworkConfigSync</c> (protocol id 2): the client's own NetworkProjectConfig, as
+    /// JSON. Worth having because it is the one thing a Fusion client tells us about its own setup —
+    /// tick rate, heap pages, object counts — and it can be replayed into a stock host of the same SDK
+    /// version (scratch/mo2/fusionhost) to see whether the config alone reproduces a failure.
+    /// Layout: SyncType byte then the string, after the standard version header. Null if it is not one.
+    /// </summary>
+    public static (byte SyncType, string Config)? TryDecodeNetworkConfigSync(byte[] payload)
+    {
+        try
+        {
+            var r = new FusionBitReader(payload);
+            if (r.ReadBits(8) != MsgIdNetworkConfigSync) return null;
+            byte protocolVersion = r.ReadBits(8);
+            if (protocolVersion >= 2) { r.ReadIntN(32); r.ReadIntN(32); r.ReadIntN(32); }
+            byte syncType = r.ReadBits(8);
+            return (syncType, r.ReadString());
+        }
+        catch { return null; }
+    }
+
     public static byte[] UniqueIdForActor(int actor)
     {
         var id = new byte[8];
@@ -132,9 +162,14 @@ public static class FusionProtocol
         w.WriteBits(request.PeerMode == PeerModeNone ? PeerModeClient : request.PeerMode, 8);
         w.WriteUIntN(JoinRequestsNetworkConfig, 32);
         if (request.ProtocolVersion >= 6) w.WriteByteArrayLP(UniqueIdForActor(playerRef));
-        if (request.ProtocolVersion >= 7) w.WriteIntN(playerRef, 32);
-        if (request.ProtocolVersion >= 9) { w.WriteByteArrayLP(null); w.WriteByteArrayLP(null); }
-        if (request.ProtocolVersion >= 12) w.WriteIntN(0, 32);
+        // Fusion 1.x has no PlayerRef/EncryptionKey/PlayerCounterRef in its Join at any protocol
+        // version; writing them would leave a 1.x peer reading our CustomData out of their bytes.
+        if (request.Major >= 2)
+        {
+            if (request.ProtocolVersion >= 7) w.WriteIntN(playerRef, 32);
+            if (request.ProtocolVersion >= 9) { w.WriteByteArrayLP(null); w.WriteByteArrayLP(null); }
+            if (request.ProtocolVersion >= 12) w.WriteIntN(0, 32);
+        }
         if (request.ProtocolVersion >= 3) w.WriteString("");
         return w.ToArray();
     }

@@ -26,6 +26,30 @@ client library, and fixed.
   Confirmation already carries its PlayerRef and UniqueId), and another player's is now released on the
   first Fusion packet the peer sends after its Start, which proves the runner is up.
 
+## v0.9.3 — 2026-09-27
+
+Found by running a **real Fusion 1.1.12 host** headlessly against this server
+(`scratch/mo2/fusionhost`, built today from the SDK): it joined, was answered, and never got a Join
+Confirmation back — because our decoder read Fusion 2 fields out of a Fusion 1 Join.
+
+- fix(fusion): **gate the Join's Fusion 2 fields on the peer's serialization major, not its protocol
+  version.** `PlayerRef`, `EncryptionKey`/`EncryptionKeySecret` and `PlayerCounterRef` do not exist in
+  a Fusion 1.x Join at ANY protocol version — its body ends at `UniqueId`. A 1.x client using the
+  default `V1_6_0` (10) therefore had 24 bytes read as if they held four more fields: the decode ran
+  off the end, returned null, and the peer was never answered. Moving Out 2 escaped it only because it
+  uses `V1_2_3` (6). The Confirmation encoder is gated the same way, so a 1.x peer is not sent fields
+  it would read our CustomData out of. With this, a stock 1.1.12 host now completes the whole
+  handshake against us and reports **"Fusion Simulation Startup Done."**, `StartGame Ok=True`, and
+  stays running — so the server side of a ClientServer host session is correct.
+- feat(fusion): log the client's `NetworkConfigSync` as decoded JSON at Debug. It is the only
+  description a Fusion client gives of its own setup (tick rate, heap pages, object counts), and it can
+  be replayed into a stock host of the same SDK version to test whether a config alone reproduces a
+  failure.
+- The UnityEngine stub gains `partial` on a few types and drops an over-strict `new()` constraint on
+  `GameObject.AddComponent<T>` (Unity constrains it to `Component` only; the extra constraint rejected
+  Fusion's own call sites). No behaviour change for the server; it lets a harness compile the same stub
+  source against a different Fusion version.
+
 ## v0.9.2 — 2026-09-27
 
 - fix(fusion): **never send PlayerRefMapping to a Fusion 1.x peer.** Message id 8 is PlayerRefMapping

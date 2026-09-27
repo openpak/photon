@@ -348,7 +348,7 @@ namespace UnityEngine {
     public struct LayerMask { public int value; public static implicit operator int(LayerMask m) => m.value; public static implicit operator LayerMask(int v) => new LayerMask { value = v }; }
 
     // ---- objects ------------------------------------------------------------------------------
-    public class Object {
+    public partial class Object {
         static int _nextId = 1;
         readonly int _id = System.Threading.Interlocked.Increment(ref _nextId);
         internal bool _destroyed;
@@ -368,7 +368,7 @@ namespace UnityEngine {
         public override string ToString() => name;
     }
     public class ScriptableObject : Object { }
-    public class GameObject : Object {
+    public partial class GameObject : Object {
         readonly List<Component> _components = new();
         public GameObject() { }
         public GameObject(string name) { this.name = name; }
@@ -378,7 +378,11 @@ namespace UnityEngine {
         public SceneManagement.Scene scene => default;
         public Transform transform { get; }
         public void SetActive(bool v) => activeSelf = v;
-        public T AddComponent<T>() where T : Component, new() { var c = new T { gameObject = this }; _components.Add(c); return c; }
+        // Unity constrains this to Component only. Requiring new() as well rejects any component
+        // without a public parameterless constructor at the CALL SITE inside Fusion, which fails as
+        // "type argument violates the constraint of type parameter" when its runner adds its own
+        // helpers — so construct through Activator instead, exactly as AddComponent(Type) does.
+        public T AddComponent<T>() where T : Component { var c = (T)Activator.CreateInstance(typeof(T)); c.gameObject = this; _components.Add(c); return c; }
         public Component AddComponent(Type t) { var c = (Component)Activator.CreateInstance(t); c.gameObject = this; _components.Add(c); return c; }
         public T GetComponent<T>() { foreach (var c in _components) if (c is T t) return t; return default; }
         public T GetComponentInChildren<T>() => GetComponent<T>();
@@ -386,7 +390,7 @@ namespace UnityEngine {
         public T[] GetComponentsInChildren<T>(bool includeInactive) { var l = new List<T>(); foreach (var c in _components) if (c is T t) l.Add(t); return l.ToArray(); }
         public bool TryGetComponent<T>(out T r) { r = GetComponent<T>(); return r != null; }
     }
-    public class Component : Object {
+    public partial class Component : Object {
         public GameObject gameObject { get; internal set; }
         public Transform transform => gameObject?.transform;
         public T GetComponent<T>() => gameObject == null ? default : gameObject.GetComponent<T>();
@@ -471,7 +475,7 @@ namespace UnityEngine {
         public static float unscaledDeltaTime { get; set; } = 1f / 60f;
         public static float fixedDeltaTime { get; set; } = 1f / 60f;
     }
-    public static class Application {
+    public static partial class Application {
         public static bool isBatchMode => true; public static bool isEditor => false; public static bool isPlaying => true;
         public static string persistentDataPath => System.IO.Path.GetTempPath();
         public static RuntimePlatform platform => RuntimePlatform.LinuxServer;
@@ -526,10 +530,12 @@ namespace UnityEngine.SceneManagement {
         public LoadSceneParameters(LoadSceneMode mode, LocalPhysicsMode physics) { loadSceneMode = mode; localPhysicsMode = physics; }
         public LoadSceneMode loadSceneMode { get; set; } public LocalPhysicsMode localPhysicsMode { get; set; }
     }
-    public struct Scene {
+    public partial struct Scene {
         public bool IsValid() => false;
         public GameObject[] GetRootGameObjects() => Array.Empty<GameObject>();
         public static bool operator ==(Scene a, Scene b) => true; public static bool operator !=(Scene a, Scene b) => false;
     }
-    public static class SceneManager { public static Scene GetActiveScene() => default; public static bool SetActiveScene(Scene s) => true; public static void MoveGameObjectToScene(GameObject g, Scene s) { } }
+    // partial so a harness can add the surface a different Fusion version wants without touching this
+    // file: scratch/mo2/unitystub-112 compiles this source plus its own extras for Fusion 1.1.x.
+    public static partial class SceneManager { public static Scene GetActiveScene() => default; public static bool SetActiveScene(Scene s) => true; public static void MoveGameObjectToScene(GameObject g, Scene s) { } }
 }

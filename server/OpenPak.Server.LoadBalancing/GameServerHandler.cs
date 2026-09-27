@@ -310,6 +310,14 @@ public sealed class GameServerHandler : IOperationHandler
                 }
                 else if (state.PendingFusionJoin is { } pending && FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdNetworkConfigSync)
                 {
+                    // The client's own NetworkProjectConfig, as JSON. The only description we ever get
+                    // of how a title's Fusion is set up, and replayable into a stock host of the same
+                    // SDK version (scratch/mo2/fusionhost) — which is how a config-specific failure
+                    // gets reproduced without the game.
+                    if (Log.Enabled(LogLevel.Debug) && FusionProtocol.TryDecodeNetworkConfigSync(payload) is { } sync)
+                        Log.Debug("GameServer", $"actor {state.Actor} NetworkConfigSync type={sync.SyncType} " +
+                                                $"config={sync.Config}");
+
                     // GameMode came back Shared (2) on the wire (PluginGameMode), not ClientServer —
                     // Fusion's Shared-mode client only actually connects (and resolves
                     // StartGameOperation) when told to via the ConnectToShared flag; matches the
