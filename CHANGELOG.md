@@ -26,6 +26,13 @@ client library, and fixed.
   Confirmation already carries its PlayerRef and UniqueId), and another player's is now released on the
   first Fusion packet the peer sends after its Start, which proves the runner is up.
 
+## v0.9.1 — 2026-09-27
+
+- fix(fusion): hold relay packets (event 101) that arrive while a room's simulation is still being
+  built, and replay them into it in order — a client that brings up its relay transport the moment it
+  is started no longer has to rely on Fusion's own Connect retries. Bounded at 256 packets per room.
+  Follows v0.9.0, where that build moved off the listener thread.
+
 ## v0.8.0 — 2026-09-27
 
 - fix(transport): **fragment outgoing messages over the MTU.** Photon's client reads every datagram

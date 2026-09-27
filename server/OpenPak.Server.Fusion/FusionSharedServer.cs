@@ -41,8 +41,14 @@ public sealed class FusionSharedServer : IFusionSessionHost
     private sealed class Building
     {
         public readonly List<(int Actor, byte[] UniqueId)> Joins = new();
+        /// <summary>Relay packets that arrived before the simulation existed, replayed into it in order.
+        /// Bounded: a peer that floods us while we build gets its oldest packets dropped, not the server's
+        /// memory. Fusion's own relay Connect is sent more than once, so a dropped one is recoverable.</summary>
+        public readonly Queue<(int Actor, byte[] Payload)> Relay = new();
         public bool Published;
     }
+
+    private const int MaxBufferedRelayPackets = 256;
 
     public void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false)
     {
@@ -75,7 +81,13 @@ public sealed class FusionSharedServer : IFusionSessionHost
                 {
                     foreach (var (a, id) in building.Joins) sim.AddPlayer(a, id, owner);
                     building.Joins.Clear();
-                    _rooms[room] = sim;          // published inside the lock: later joins take the live path
+                    while (building.Relay.Count > 0)
+                    {
+                        var (a, payload) = building.Relay.Dequeue();
+                        sim.Feed(a, payload);
+                    }
+                    _rooms[room] = sim;          // published inside the lock: later joins and relay
+                                                 // packets take the live path
                 }
             }
             catch (Exception ex)
@@ -98,9 +110,19 @@ public sealed class FusionSharedServer : IFusionSessionHost
 
     public bool FeedRelay(string room, int actor, byte[] payload)
     {
-        if (!_rooms.TryGetValue(room, out var sim)) return false;
-        sim.Feed(actor, payload);
-        return true;
+        if (_rooms.TryGetValue(room, out var sim)) { sim.Feed(actor, payload); return true; }
+
+        // The room's simulation is still being built: hold the packet rather than drop it, so a client
+        // that brings up its relay transport the moment it is started does not have to rely on Fusion's
+        // own Connect retries.
+        if (_building.TryGetValue(room, out var building))
+            lock (building)
+            {
+                if (building.Relay.Count >= MaxBufferedRelayPackets) building.Relay.Dequeue();
+                building.Relay.Enqueue((actor, payload));
+                return true;
+            }
+        return false;
     }
 
     public void Tick()
