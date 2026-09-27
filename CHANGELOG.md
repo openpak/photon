@@ -3,6 +3,18 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.7.0 — 2026-09-27
+
+- fix(core): **acknowledge a packet's reliable commands before doing its application work.**
+  `PeerConnection.HandlePacket` queued the ACKs and sent them only after handling every payload in
+  the packet — and that work can take most of a second, because a Fusion Join creates the room's
+  whole simulation (heap pages, SDK init). eNet retransmits an unacknowledged reliable command on a
+  timer, so Moving Out 2's client resent its Join and its 2.8 KB `NetworkConfigSync` until the peer
+  was dropped ~3 s after entering the room. Measured from the trace: an ACK **830 ms** behind the
+  command it answered (`03.084 RECV seq=1` → `03.914 SEND Acknowledge seq=1`). Now the ACKs for a
+  packet leave first, then the lifecycle callbacks, then the payloads in arrival order. Every title
+  benefits; this one could not get past it.
+
 ## v0.6.1 — 2026-09-27
 
 - docs: **`docs/fusion-protocol-map.md`** — Fusion's session protocol transcribed from the SDK

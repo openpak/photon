@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Net;
 using OpenPak.Photon;
+using OpenPak.Photon.Transport;
 using OpenPak.Server.Core;
 using OpenPak.Server.Data;
 using OpenPak.Server.LoadBalancing;
@@ -117,5 +118,40 @@ public class FusionTopologyTests
         // the other peer sees it...
         Assert.Contains(otherRaised, e => e.Code == FusionProtocol.ProtocolPackageEventCode);
 
+    }
+
+    /// eNet retransmits an unacknowledged reliable command on a timer, so the acknowledgement has to
+    /// leave before any application work for that packet — a Fusion Join creates a whole simulation,
+    /// and an ACK measured 830 ms behind its command had Moving Out 2 retransmitting until the peer
+    /// was dropped.
+    [Fact]
+    public void ReliableCommandsAreAcknowledgedBeforeTheWorkIsDone()
+    {
+        var sends = new List<(IReadOnlyList<NCommand> Commands, int Challenge)>();
+        var order = new List<string>();
+
+        var handler = new RecordingHandler(order);
+        var peer = new PeerConnection("GameServer", new IPEndPoint(IPAddress.Loopback, 0), handler,
+                                      (cmds, ch) => { order.Add("ack"); sends.Add((cmds, ch)); });
+
+        // One packet carrying a reliable application send: the ACK must precede OnOperationRequest.
+        var payload = new byte[] { 0xF3, 0x02, 0xFD, 0x03 };
+        var command = new NCommand(NCommand.SendReliable, 1, NCommand.FlagReliable, 4, 1, payload);
+        peer.HandlePacket(new PhotonHeader(0, false, 1, 1234, 42), new[] { command });
+
+        Assert.Contains("ack", order);
+        if (order.Contains("work"))
+        {
+            Assert.True(order.IndexOf("ack") < order.IndexOf("work"),
+                        "the acknowledgement must be sent before the payload is processed");
+        }
+        Assert.Contains(sends, s => s.Commands.Any(c => c.CommandType == NCommand.Acknowledge));
+    }
+
+    private sealed class RecordingHandler(List<string> order) : IOperationHandler
+    {
+        public void OnConnect(PeerConnection peer) => order.Add("work");
+        public void OnOperationRequest(PeerConnection peer, OperationRequest request) => order.Add("work");
+        public void OnDisconnect(PeerConnection peer) => order.Add("work");
     }
 }

@@ -59,10 +59,32 @@ public sealed class PeerConnection
     {
         LastInboundUtc = DateTime.UtcNow;
         _enet.NoteChallenge(header.Challenge);
+
+        // Two passes, and the order matters: acknowledge everything in this packet BEFORE doing any
+        // application work with it. eNet retransmits an unacknowledged reliable command on a timer,
+        // and the work can take most of a second — a Fusion Join creates the room's whole simulation
+        // (heap pages, SDK init). Acknowledging afterwards had Moving Out 2's client retransmitting
+        // its Join and its 2.8 KB config sync until the peer was dropped ~3 s after entering the room:
+        // an ACK measured 830 ms behind the command it answered.
         var control = new List<NCommand>();
+        var payloads = new List<(NCommand Command, byte[] Payload)>();
+
         foreach (var cmd in commands)
         {
             control.AddRange(_enet.HandleCommand(cmd, header.ServerTime, out var payload));
+
+            if (payload is not null)
+            {
+                payloads.Add((cmd, payload));
+            }
+        }
+
+        if (control.Count > 0) _send(control, _enet.Challenge);
+
+        // Now the work: lifecycle first (Connect/Disconnect), then the application payloads in the
+        // order they arrived.
+        foreach (var cmd in commands)
+        {
             if (cmd.CommandType == NCommand.Connect)
             {
                 Log.Info(_role, $"{Remote} eNet CONNECT");
@@ -76,14 +98,14 @@ public sealed class PeerConnection
                 Log.Info(_role, $"{Remote} eNet DISCONNECT received");
                 _handler.OnDisconnect(this);
             }
-            if (payload is not null)
-            {
-                CurrentInboundUnreliable = cmd.CommandType is NCommand.SendUnreliable or NCommand.SendUnsequenced;
-                HandleAppPayload(payload);
-                CurrentInboundUnreliable = false;
-            }
         }
-        if (control.Count > 0) _send(control, _enet.Challenge);
+
+        foreach (var (cmd, payload) in payloads)
+        {
+            CurrentInboundUnreliable = cmd.CommandType is NCommand.SendUnreliable or NCommand.SendUnsequenced;
+            HandleAppPayload(payload);
+            CurrentInboundUnreliable = false;
+        }
     }
 
     private void HandleAppPayload(byte[] payload)
