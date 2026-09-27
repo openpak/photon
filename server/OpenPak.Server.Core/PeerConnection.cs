@@ -266,5 +266,5 @@ public sealed class PeerConnection
     }
 
     private void SendRaw(byte[] appMessage) =>
-        _send(new[] { _enet.WrapReliable(appMessage) }, _enet.Challenge);
+        _send(_enet.WrapReliableFragmented(appMessage), _enet.Challenge);
 }

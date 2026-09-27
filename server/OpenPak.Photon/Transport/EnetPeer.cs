@@ -130,11 +130,58 @@ public sealed class EnetPeer
         return asm.Buffer;
     }
 
+    /// <summary>
+    /// The client's UDP receive buffer is exactly one MTU (Photon's <c>SocketUdp.ReceiveLoop</c> reads
+    /// into <c>new byte[MTU]</c>), and its default MTU is 1200. A bigger datagram is truncated and then
+    /// thrown away by its command parser — measured against the real client library, which logs
+    /// "Exception while reading commands from incoming data: ArgumentException". Nothing we send may
+    /// exceed this, and anything larger goes out as eNet fragments.
+    /// </summary>
+    public const int Mtu = 1200;
+
+    /// <summary>Bytes of application payload that fit in one fragment: the client's own
+    /// <c>GetFragmentLength()</c> is <c>mtu - 12 - 36</c> (datagram header + command header + the
+    /// 20-byte fragment sub-header, rounded as Photon does it).</summary>
+    public const int FragmentPayload = Mtu - 12 - 36;
+
     /// <summary>Wraps an application payload ([0xF3]... message) as a reliable command on channel 0.</summary>
     public NCommand WrapReliable(byte[] payload, byte channel = 0)
     {
         lock (_seqLock)
             return new(NCommand.SendReliable, channel, NCommand.FlagReliable, 4, NextSeq(channel), payload);
+    }
+
+    /// <summary>
+    /// Wraps an application payload as reliable command(s), splitting it into eNet fragments
+    /// (type 8) when it does not fit one datagram. Fragments take consecutive sequence numbers on
+    /// the channel and all carry the first one's sequence as <c>startSequenceNumber</c>, which is
+    /// how the client reassembles them (it keys the group on that and dispatches when the start
+    /// fragment is the channel's next expected sequence).
+    /// </summary>
+    public List<NCommand> WrapReliableFragmented(byte[] payload, byte channel = 0)
+    {
+        if (payload.Length <= FragmentPayload) return new() { WrapReliable(payload, channel) };
+
+        int fragmentCount = (payload.Length + FragmentPayload - 1) / FragmentPayload;
+        var commands = new List<NCommand>(fragmentCount);
+        lock (_seqLock)
+        {
+            int startSeq = _outgoingSeq.TryGetValue(channel, out int n) ? n + 1 : 1;
+            for (int i = 0, offset = 0; i < fragmentCount; i++, offset += FragmentPayload)
+            {
+                int length = Math.Min(FragmentPayload, payload.Length - offset);
+                var body = new byte[20 + length];
+                BinaryPrimitives.WriteInt32BigEndian(body.AsSpan(0), startSeq);
+                BinaryPrimitives.WriteInt32BigEndian(body.AsSpan(4), fragmentCount);
+                BinaryPrimitives.WriteInt32BigEndian(body.AsSpan(8), i);
+                BinaryPrimitives.WriteInt32BigEndian(body.AsSpan(12), payload.Length);
+                BinaryPrimitives.WriteInt32BigEndian(body.AsSpan(16), offset);
+                payload.AsSpan(offset, length).CopyTo(body.AsSpan(20));
+                commands.Add(new NCommand(NCommand.SendFragment, channel, NCommand.FlagReliable, 4,
+                                          NextSeq(channel), body));
+            }
+        }
+        return commands;
     }
 
     /// <summary>

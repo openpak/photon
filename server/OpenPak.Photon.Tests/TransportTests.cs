@@ -1,3 +1,5 @@
+using System.Buffers.Binary;
+using System.Linq;
 using OpenPak.Photon.Transport;
 using Xunit;
 
@@ -240,6 +242,38 @@ public class TransportTests
         Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, p3);
         peer.HandleCommand(U(4, 3, 2, 1, 4, 2, new byte[] { 8, 8 }), 0, out var p4);   // second group completes
         Assert.Equal(new byte[] { 9, 9, 8, 8 }, p4);
+    }
+
+    [Fact]
+    public void An_oversized_outgoing_message_is_split_into_fragments_the_client_can_reassemble()
+    {
+        // The client reads a datagram into a buffer exactly one MTU long, so anything bigger is
+        // truncated and dropped unread (measured against the real Photon client library: it logged
+        // "Exception while reading commands from incoming data"). Round-trip the fragments through a
+        // peer's own reassembly, which is the same algorithm the client runs.
+        var payload = new byte[4000];
+        Random.Shared.NextBytes(payload);
+        var commands = new EnetPeer().WrapReliableFragmented(payload);
+
+        Assert.Equal(4, commands.Count);
+        Assert.All(commands, c => Assert.True(c.ToBytes().Length + PhotonHeader.Size <= EnetPeer.Mtu,
+                                              $"fragment datagram would be {c.ToBytes().Length + PhotonHeader.Size}B"));
+        // Every fragment names the FIRST one's sequence as the group's start sequence, and they take
+        // consecutive sequence numbers — how the client keys the group and knows when to dispatch it.
+        Assert.Equal(new[] { 1, 2, 3, 4 }, commands.Select(c => c.ReliableSequenceNumber));
+        Assert.All(commands, c => Assert.Equal(1, BinaryPrimitives.ReadInt32BigEndian(c.Payload.AsSpan(0))));
+
+        var receiver = new EnetPeer();
+        byte[]? reassembled = null;
+        foreach (var cmd in commands) receiver.HandleCommand(cmd, 0, out reassembled);
+        Assert.Equal(payload, reassembled);
+    }
+
+    [Fact]
+    public void A_message_that_fits_one_datagram_is_not_fragmented()
+    {
+        var commands = new EnetPeer().WrapReliableFragmented(new byte[EnetPeer.FragmentPayload]);
+        Assert.Equal(NCommand.SendReliable, Assert.Single(commands).CommandType);
     }
 
     [Fact]

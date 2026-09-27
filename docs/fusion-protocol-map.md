@@ -116,12 +116,45 @@ ClientServer host announces itself as `PeerMode.Server`, and echoing its own mod
 plugin would do. Nothing in the client's `HandleJoinMessage` reads it, so this is correctness rather
 than a known failure — recorded because it is the only field we invent rather than echo.
 
-## The open question (2026-09-27)
+## What the client itself requires — measured, not inferred (2026-09-27)
 
-Moving Out 2 sends its `Join` **four times** and its 2,814-byte `NetworkConfigSync` four times, then
-ENet disconnects it ~4 s after entering the room. Four identical sends inside one second is the shape
-of **reliable retransmission**, not of a client retrying a 30-second operation — so the next
-measurement is the ENet sequence numbers and our ACKs for this peer (`UdpListener` logs commands with
-channel and sequence at Trace level). Fragment reassembly and per-command ACKs are both implemented
-(`EnetPeer.HandleCommand`), so the question is whether the ACK we emit matches what the client is
-waiting for, not whether we emit one.
+Three questions were settled by running Photon's **own client library** (`Photon3Unity3D.dll`, the
+same library the game links) against this server, and by reading the game's compiled copy of it.
+The harness is `~/REPOS/Openpak/scratch/mo2/fragack` — it drives a real `PhotonPeer` against either
+an in-process `UdpListener` or the production server, and decodes our Fusion messages with the SDK's
+own `ProtocolSerializer`. One run takes seconds, so none of this needs a game launch.
+
+**Our fragment acknowledgements are correct.** The retransmission of Moving Out 2's three
+`NetworkConfigSync` fragments is NOT an ACK mismatch. Measured twice:
+- The real client library accepted our type-16 ACKs and retransmitted nothing — locally and against
+  production, plaintext and encrypted, channel 0 and 1, single message and a burst of three.
+- Moving Out 2's own matcher, decompiled from its binary (`Photon3Unity3D::RemoveSentReliableCommand`
+  at `0x42de0a0`, Photon **4.1.6.23**), requires exactly `reliableSequenceNumber == ackedSequence`,
+  `commandChannelID == ackChannel`, and `IsFlaggedUnsequenced == (ackType == 16)`. `ExecuteCommand`
+  (`0x42dc130`) derives that third argument as `commandType == 0x10`. That is what we emit.
+
+Retransmits do appear over the internet now and then (one fragment, once, on a 200 ms-RTT run that
+did not repeat) — that is ordinary UDP loss, and the server has no retransmission of its own to
+recover from it. See below.
+
+**Our Join Confirmation, Start and PlayerRefMapping are wire-correct.** Fed to the SDK's
+`ProtocolSerializer.ConvertToMessages`, all three deserialize with the intended field values
+(`Type=Confirmation, GameMode=ClientServer, PeerMode=Server, JoinRequests=NetworkConfig,
+ProtocolVersion=V1_6_0, FusionSerializationVersion=2.1.2`, an 8-byte UniqueId, empty CustomData).
+`dotnet run decode` in the harness re-checks this.
+
+**A datagram bigger than the client's MTU is lost, silently.** Photon's `SocketUdp.ReceiveLoop`
+reads into `new byte[MTU]` (default 1200), so a larger datagram is truncated and its command parser
+throws — the real client logged `Exception while reading commands from incoming data:
+System.ArgumentException` on a 4,035-byte response and never acknowledged it. This server had no
+outgoing fragmentation at all, so any reliable message over ~1.15 KB was unreadable by every client.
+`EnetPeer.WrapReliableFragmented` now splits one over the MTU into type-8 fragments with consecutive
+sequence numbers (all naming the first one's sequence as the group start, which is how the client
+keys the group), `UdpListener` packs at most one MTU per datagram, and an oversized datagram is
+logged as a warning. Verified with the real client: the same 4 KB response now arrives reassembled.
+
+**Still missing: the server never retransmits its own reliable commands.** The client dispatches a
+channel's reliable stream strictly in order (`incomingReliableSequenceNumber + 1`), so a single lost
+server datagram stalls everything we send afterwards on that channel — permanently, since nothing
+resends it. That is the next transport gap, and it is the remaining transport-level explanation for a
+peer that goes quiet a few seconds after joining.

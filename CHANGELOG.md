@@ -3,6 +3,25 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.8.0 — 2026-09-27
+
+- fix(transport): **fragment outgoing messages over the MTU.** Photon's client reads every datagram
+  into a buffer exactly one MTU long (`SocketUdp.ReceiveLoop`: `new byte[MTU]`, default 1200), so a
+  bigger datagram is truncated and then thrown away by its command parser — measured against the real
+  client library, which logged `Exception while reading commands from incoming data:
+  System.ArgumentException` on a 4,035-byte response and never acknowledged it. This server had no
+  outgoing fragmentation, so **any** reliable message over ~1.15 KB was silently unreadable by every
+  client. `EnetPeer.WrapReliableFragmented` now splits such a message into type-8 fragments with
+  consecutive sequence numbers, `UdpListener` packs at most one MTU per datagram, and an oversized
+  datagram is logged as a warning. Verified with the real client: the 4 KB response now arrives
+  reassembled.
+- docs(fusion): `docs/fusion-protocol-map.md` records what the client itself requires, measured with
+  its own library instead of inferred — our fragment ACKs are correct (confirmed both against the
+  library and against Moving Out 2's decompiled `RemoveSentReliableCommand`, Photon 4.1.6.23), and our
+  Join Confirmation / Start / PlayerRefMapping deserialize correctly in the SDK's own
+  `ProtocolSerializer`. The remaining transport gap is named: the server never retransmits its own
+  unacknowledged reliable commands, and the client dispatches a channel strictly in sequence order.
+
 ## v0.7.0 — 2026-09-27
 
 - fix(core): **acknowledge a packet's reliable commands before doing its application work.**

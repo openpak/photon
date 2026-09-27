@@ -187,13 +187,35 @@ public sealed class UdpListener
         peer.HandlePacket(header, commands);
     }
 
+    /// <summary>
+    /// Sends the commands, packing as many as fit per datagram. The MTU limit is the client's, not
+    /// ours: it reads each datagram into a buffer exactly one MTU long, so a bigger one is truncated
+    /// and dropped by its command parser (measured against the real client library).
+    /// </summary>
     private void Send(IPEndPoint to, IReadOnlyList<NCommand> commands, int challenge)
+    {
+        var batch = new List<NCommand>(commands.Count);
+        int size = PhotonHeader.Size;
+        foreach (var cmd in commands)
+        {
+            int cmdSize = cmd.ToBytes().Length;
+            if (batch.Count > 0 && size + cmdSize > EnetPeer.Mtu) { SendOne(to, batch, challenge); batch.Clear(); size = PhotonHeader.Size; }
+            batch.Add(cmd);
+            size += cmdSize;
+        }
+        if (batch.Count > 0) SendOne(to, batch, challenge);
+    }
+
+    private void SendOne(IPEndPoint to, IReadOnlyList<NCommand> commands, int challenge)
     {
         if (commands.Count == 0) return;
         var body = commands.SelectMany(c => c.ToBytes()).ToArray();
         var packet = new byte[PhotonHeader.Size + body.Length];
         new PhotonHeader(0, false, (byte)commands.Count, Environment.TickCount, challenge).WriteTo(packet);
         body.CopyTo(packet, PhotonHeader.Size);
+        if (packet.Length > EnetPeer.Mtu)
+            Log.Warn(_name, $"datagram {packet.Length}B exceeds the client's {EnetPeer.Mtu}B MTU — it will be dropped unread " +
+                            $"([{string.Join("+", commands.Select(c => PhotonNames.Command(c.CommandType)))}])");
         try
         {
             int sent = _socket.Send(packet, packet.Length, to);
