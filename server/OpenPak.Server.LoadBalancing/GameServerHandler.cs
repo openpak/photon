@@ -268,13 +268,11 @@ public sealed class GameServerHandler : IOperationHandler
             // with), so without an answer the client waits ~30s and gives up. Answer its own Join
             // directly so a solo-host session can complete; still also relay below in case a second
             // real peer is present to negotiate with. Best-effort/reverse-engineered — see HANDOFF.md.
-            // ...but only in Shared topology. A ClientServer client IS the server: there is no cloud
-            // plugin at actor 0 for it to negotiate with, so a Join Confirmation and Start arriving
-            // from the server are messages it never asked for. Sending them made Moving Out 2 drop the
-            // room one second after entering it — faster than the five seconds it lasted when we only
-            // had the flags wrong. For that topology this server does what plain Photon does: relay
-            // the event to the other actors and inject nothing.
-            if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload && !state.IsClientServerTopology)
+            // Every topology gets an answer: measured, a ClientServer client that is answered with
+            // nothing sends its single Join Request, waits, and gives up on its own timeout (15 s of
+            // silence with one OpRaiseEvent in it). What differs by topology is the flag below and
+            // whether a simulation is hosted for the room at all.
+            if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
             {
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
                 {
@@ -298,14 +296,13 @@ public sealed class GameServerHandler : IOperationHandler
                     // StartGameOperation) when told to via the ConnectToShared flag; matches the
                     // user's own observation that a hosted session has no single fixed host and
                     // survives them leaving the screen.
-                    // A ClientServer client owns its own simulation: ConnectToShared would send it
-                    // down Fusion's Shared relay path, which is not what it asked for and not what
-                    // this server does for it.
-                    var startRequests = state.IsClientServerTopology
-                        ? FusionProtocol.StartRequestsNone
-                        : FusionProtocol.StartRequestsConnectToShared;
+                    // ConnectToShared for both topologies, which is what measured best: answering a
+                    // ClientServer client with StartRequestsNone instead made it drop the room in one
+                    // second, against five with this flag and fifteen with no answer at all. What
+                    // ClientServer changes is that no simulation is hosted for its room and its
+                    // event-101 relay traffic is passed between peers rather than consumed.
                     var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
-                                                           remoteServerId: 0, startRequests);
+                                                           remoteServerId: 0, FusionProtocol.StartRequestsConnectToShared);
                     peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
                     state.FusionStarted = true;

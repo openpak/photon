@@ -77,11 +77,11 @@ public class FusionTopologyTests
         Assert.False(state.IsClientServerTopology);
     }
 
-    /// A ClientServer peer's protocol-package traffic (event 100) is what the peers say to each other,
-    /// so it must be relayed on and not answered by the server: the host client is the server, and a
-    /// Join Confirmation arriving from us made it drop the room within a second.
+    /// A ClientServer peer's protocol-package traffic is relayed to the other actors as well as
+    /// answered: answering nothing at all left Moving Out 2 sending one event and timing out after
+    /// fifteen seconds of silence.
     [Fact]
-    public void ClientServerProtocolPackagesAreRelayedNotAnswered()
+    public void ClientServerProtocolPackagesAreRelayedToTheOtherActors()
     {
         var (h, reg) = NewHandler();
 
@@ -116,9 +116,6 @@ public class FusionTopologyTests
 
         // the other peer sees it...
         Assert.Contains(otherRaised, e => e.Code == FusionProtocol.ProtocolPackageEventCode);
-        // ...and the server did not answer the sender with one of its own
-        Assert.DoesNotContain(hostRaised, e => e.Code == FusionProtocol.ProtocolPackageEventCode
-                                               && (!e.Parameters.TryGetValue(245, out var echoed)
-                                                   || !ReferenceEquals(echoed, payload)));
+
     }
 }

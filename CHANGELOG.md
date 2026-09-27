@@ -3,6 +3,16 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.5.2 — 2026-09-27
+
+- fix(lb): a ClientServer peer is answered again, with the flag that measured best. Three
+  observations of Moving Out 2 bracket it: Join Confirmation + `Start(ConnectToShared)` with a hosted
+  Shared simulation held its room ~5 s; `Start(StartRequestsNone)` with no simulation dropped it in
+  ~1 s; answering nothing at all left the client sending one event and timing out after 15 s of
+  silence. So the answer is required and `ConnectToShared` is the one it accepts. What ClientServer
+  changes is the rest: no hosted simulation for its room, and its event-100/101 traffic reaches the
+  other actors instead of being consumed by a simulation that was feeding and emitting nothing.
+
 ## v0.5.1 — 2026-09-27
 
 - fix(lb): a **ClientServer** peer is not answered with Fusion server protocol at all. The Join
