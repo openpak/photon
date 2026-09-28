@@ -38,6 +38,16 @@ public sealed class RoomSession
 
     public string RoomName { get; }
 
+    /// <summary>
+    /// The Fusion topology of the ROOM, from whoever made it. Only the creator's JoinGame carries
+    /// parameter 213; a client joining a session somebody else hosts does not say, because it is not
+    /// its choice. Kept per peer only, every joiner was treated as a Shared-mode peer of its own.
+    /// </summary>
+    public string? FusionTopology { get; set; }
+
+    /// <summary>The actor that made the room, which in a ClientServer session is the Fusion host.</summary>
+    public int FusionHostActor { get; set; }
+
     public RoomSession(string roomName, InterceptorChain chain)
     {
         RoomName = roomName; _chain = chain;

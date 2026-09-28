@@ -399,7 +399,7 @@ namespace UnityEngine {
         public bool TryGetComponent<T>(out T r) { r = GetComponent<T>(); return r != null; }
         public bool TryGetComponent(Type t, out Component r) { r = null; return false; }
     }
-    public class Behaviour : Component { public bool enabled { get; set; } = true; }
+    public class Behaviour : Component { public bool enabled { get; set; } = true; public bool isActiveAndEnabled => enabled; }
     public class MonoBehaviour : Behaviour { public Coroutine StartCoroutine(IEnumerator routine) => new Coroutine(); }
     public sealed class Coroutine { }
     public class AsyncOperation { public bool isDone => true; public event Action<AsyncOperation> completed; }
@@ -464,8 +464,8 @@ namespace UnityEngine {
         public int Raycast(Vector2 o, Vector2 d, float dist, RaycastHit2D[] r, int mask) => 0;
         public RaycastHit2D Raycast(Vector2 o, Vector2 d, float dist, int mask) => default;
     }
-    public static class Physics { public static bool autoSimulation => true; public static PhysicsScene defaultPhysicsScene => default; public static Vector3 gravity => new Vector3(0, -9.81f, 0); }
-    public static class Physics2D { public static PhysicsScene2D defaultPhysicsScene => default; public static SimulationMode2D simulationMode => SimulationMode2D.FixedUpdate; public static Vector2 gravity => new Vector2(0, -9.81f); }
+    public static class Physics { public static void Simulate(float step) { } public static void SyncTransforms() { } public static bool autoSimulation => true; public static PhysicsScene defaultPhysicsScene => default; public static Vector3 gravity => new Vector3(0, -9.81f, 0); }
+    public static class Physics2D { public static bool Simulate(float step) => true; public static void SyncTransforms() { } public static PhysicsScene2D defaultPhysicsScene => default; public static SimulationMode2D simulationMode => SimulationMode2D.FixedUpdate; public static Vector2 gravity => new Vector2(0, -9.81f); }
     public static class Gizmos { public static Color color { get; set; } public static Matrix4x4 matrix { get; set; } public static void DrawLine(Vector3 a, Vector3 b) { } public static void DrawRay(Vector3 a, Vector3 d) { } public static void DrawWireCube(Vector3 c, Vector3 s) { } public static void DrawWireSphere(Vector3 c, float r) { } }
     public static class Random { static readonly System.Random _r = new(); public static float value => (float)_r.NextDouble(); }
 

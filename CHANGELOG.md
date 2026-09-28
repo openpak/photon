@@ -3,6 +3,30 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.10.0 — 2026-09-28
+
+**A second player can join a ClientServer session.** Moving Out 2's joiner reached the room for the
+first time, completed Fusion's handshake, and then sat on "joining crew" for ever. Reproduced without
+the game — `scratch/mo2/fusionhost` now runs a real Fusion 1.1.12 **client** beside a real host — and
+the same run passes against this build: `StartGame -> Ok=True`, both sides list two players, and the
+client's simulation ticks.
+
+- fix(fusion): **the topology belongs to the room.** Only the creator's JoinGame carries parameter
+  213. Kept per peer, a joiner had none, was treated as a Shared-mode peer and told
+  `ConnectToShared`. A joiner now inherits the room's topology and its host actor.
+- fix(fusion): **a client is told who its server is.** `Start.RemoteServerID` is the host's actor,
+  not 0.
+- feat(fusion): **`ReflexiveInfo` (message 3).** A `GameMode.Client` only ever connects from
+  `HandleReflexiveInfoMessage`, on the message whose ActorNr is that RemoteServerID. A joiner is
+  asked for its own (`JoinRequests.ReflexiveInfo`), which it sends once its runner exists; that is
+  answered with the host's, addresses unset, so the client connects over the relay. The host is
+  told who is coming.
+- feat(fusion): **relay traffic (101) is carried between the peers** of a ClientServer room, to the
+  actors each packet names. It used to be handed to a hosted simulation that a session with a real
+  host does not use.
+- chore(unitystub): `Behaviour.isActiveAndEnabled`, `Physics.Simulate`, `Physics.SyncTransforms`,
+  for the headless harness.
+
 ## v0.9.0 — 2026-09-27
 
 Moving Out 2 entered its room and was dropped a second later, with the client resending its 2,814-byte

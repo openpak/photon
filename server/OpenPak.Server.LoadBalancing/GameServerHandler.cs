@@ -209,13 +209,20 @@ public sealed class GameServerHandler : IOperationHandler
         var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) && rn is string rns ? rns : "room";
         var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
         var topology = request.Parameters.TryGetValue(PFusionTopology, out var topo) && topo is string topoText ? topoText : null;
+        var session = _registry.Session(roomName);
+        // The room's topology is its creator's. A joiner inherits it rather than stating it.
+        if (session.Count == 0 || session.FusionTopology is null)
+        {
+            session.FusionTopology = topology;
+            session.FusionHostActor = actor;
+        }
+        topology ??= session.FusionTopology;
         peer.Tag = new PeerRoomState(roomName, actor) { FusionTopology = topology };
         if (topology is not null)
         {
-            Log.Info("GameServer", $"\"{roomName}\" actor={actor} Fusion topology \"{topology}\"");
+            Log.Info("GameServer", $"\"{roomName}\" actor={actor} Fusion topology \"{topology}\" host={session.FusionHostActor}");
         }
         peer.Status = SessionStatus.InRoom;
-        var session = _registry.Session(roomName);
         session.Join(actor, peer);
         session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
         peer.RaiseEvent(join);             // and give the newcomer its own join
@@ -293,11 +300,30 @@ public sealed class GameServerHandler : IOperationHandler
                 && ec is FusionProtocol.ProtocolPackageEventCode or FusionRelayProtocol.DataEventCode)
                 FlushFusionPlayerRefMappings(peer, state);
 
+            // In a ClientServer session the simulation is the host CLIENT's, so Fusion's relay transport
+            // (101) runs between the peers themselves and the server only carries it: each packet goes
+            // to the actors it names, stamped with its sender. Packets for actor 0 are still ours.
+            if (ec == FusionRelayProtocol.DataEventCode && state.IsClientServerTopology
+                && request.Parameters.TryGetValue(PActorList, out var listed) && listed is int[] targets
+                && Array.Exists(targets, t => t != 0))
+            {
+                var session = _registry.Session(state.RoomName);
+                var relayed = new EventData(ec, new() { { PActorNr, state.Actor }, { PData, data } });
+                foreach (var target in targets)
+                    if (target != 0 && target != state.Actor)
+                        session.PeerOf(target)?.RaiseEvent(relayed, peer.CurrentInboundUnreliable);
+                return;
+            }
+
             if (ec == FusionProtocol.ProtocolPackageEventCode && data is byte[] payload)
             {
                 if (FusionProtocol.TryDecodeJoin(payload) is { Type: FusionProtocol.JoinTypeRequest } join)
                 {
-                    var confirmation = FusionProtocol.EncodeJoinConfirmation(join, state.Actor);
+                    // A client of a ClientServer session is asked for its reflexive info. It sends
+                    // that once its runner is up, which is the one moment it is safe to tell it
+                    // where its host is (see the ReflexiveInfo arm below).
+                    var asksWhereItIs = IsFusionClientOf(state, out _) ? FusionProtocol.JoinRequestsReflexiveInfo : 0u;
+                    var confirmation = FusionProtocol.EncodeJoinConfirmation(join, state.Actor, asksWhereItIs);
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
@@ -307,6 +333,21 @@ public sealed class GameServerHandler : IOperationHandler
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
                     state.FusionVersion = join;
+                }
+                else if (FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdReflexiveInfo
+                         && IsFusionClientOf(state, out var host) && state.FusionVersion is { } mine)
+                {
+                    // The client's runner exists now, so its RemoteReflexiveInfo does too: it is set
+                    // after NetworkRunner.Initialize, and HandleReflexiveInfoMessage reads it with no
+                    // null guard. Tell the client where its host is, and the host who is coming.
+                    peer.RaiseEvent(ServerFusionEvent(ec, FusionProtocol.EncodeReflexiveInfo(
+                        mine.ProtocolVersion, mine.Major, mine.Minor, mine.Build,
+                        host, FusionProtocol.UniqueIdForActor(host))));
+                    if (_registry.Session(state.RoomName).PeerOf(host) is { Tag: PeerRoomState { FusionVersion: { } theirs } } hostPeer)
+                        hostPeer.RaiseEvent(ServerFusionEvent(ec, FusionProtocol.EncodeReflexiveInfo(
+                            theirs.ProtocolVersion, theirs.Major, theirs.Minor, theirs.Build,
+                            state.Actor, FusionProtocol.UniqueIdForActor(state.Actor))));
+                    Log.Info("GameServer", $"\"{state.RoomName}\" Fusion client actor={state.Actor} introduced to host actor={host}");
                 }
                 else if (state.PendingFusionJoin is { } pending && FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdNetworkConfigSync)
                 {
@@ -333,8 +374,14 @@ public sealed class GameServerHandler : IOperationHandler
                     var startRequests = state.IsClientServerTopology
                         ? FusionProtocol.StartRequestsNone
                         : FusionProtocol.StartRequestsConnectToShared;
+                    // A client of a ClientServer session is told who its server is: the host's actor.
+                    // Its runner then opens Fusion's relay transport to NetAddress.FromActorId(that),
+                    // and with 0 -- "the plugin" -- it waited for ever on a peer that is not the host.
+                    // Measured with a real Fusion client (scratch/mo2/fusionhost, FUSIONHOST_MODE=client):
+                    // `Start: RemoteServerID=0`, and StartGame never returned.
+                    var remoteServerId = IsFusionClientOf(state, out var hostActor) ? hostActor : 0;
                     var start = FusionProtocol.EncodeStart(pending.ProtocolVersion, pending.Major, pending.Minor, pending.Build,
-                                                           remoteServerId: 0, startRequests);
+                                                           remoteServerId, startRequests);
                     peer.RaiseEvent(ServerFusionEvent(ec, start));
                     state.PendingFusionJoin = null;
                     state.FusionStarted = true;
@@ -379,6 +426,14 @@ public sealed class GameServerHandler : IOperationHandler
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
+    }
+
+    /// <summary>True for a peer that joined a ClientServer room somebody else made: a Fusion client,
+    /// whose server is the room's host actor.</summary>
+    private bool IsFusionClientOf(PeerRoomState state, out int host)
+    {
+        host = _registry.Session(state.RoomName).FusionHostActor;
+        return state.IsClientServerTopology && host != 0 && host != state.Actor;
     }
 
     /// <summary>Exchange Fusion PlayerRefMapping messages between <paramref name="joined"/> (whose Start was

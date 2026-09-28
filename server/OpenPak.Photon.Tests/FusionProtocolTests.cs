@@ -122,4 +122,21 @@ public class FusionProtocolTests
 
         Assert.Equal(RealCapturedStart, startBytes);
     }
+
+    // The message that makes a ClientServer client connect: its ActorNr has to be the host the Start
+    // named, and both addresses have to read as unset so the client falls back to the relay. Accepted
+    // by a real Fusion 1.1.12 client (scratch/mo2/fusionhost, FUSIONHOST_MODE=client), which logged
+    // `ReflexiveInfo: ActorNr=1, PublicAddr=[... IsValid: False ...]` and then connected.
+    [Fact]
+    public void EncodeReflexiveInfo_names_the_actor_and_leaves_both_addresses_unset()
+    {
+        var bytes = FusionProtocol.EncodeReflexiveInfo(6, 1, 1, 8, actorNr: 1, FusionProtocol.UniqueIdForActor(1));
+
+        Assert.Equal(FusionProtocol.MsgIdReflexiveInfo, bytes[0]);
+        Assert.Equal(6, bytes[1]);                                        // protocol version
+        Assert.Equal(new byte[] { 1, 0, 0, 0 }, bytes[14..18]);           // ActorNr, after the 14-byte header
+        Assert.All(bytes[18..66], b => Assert.Equal(0, b));               // 2 addresses x 3 ulongs
+        Assert.Equal(FusionProtocol.NatTypeUdpBlocked, bytes[66]);
+        Assert.Equal(80, bytes.Length);                                   // + UniqueId (1+16+64 bits) + CustomData
+    }
 }

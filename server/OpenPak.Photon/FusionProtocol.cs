@@ -21,6 +21,7 @@ public static class FusionProtocol
     public const byte ProtocolPackageEventCode = 100;
     private const byte MsgIdJoin = 1;
     public const byte MsgIdNetworkConfigSync = 2;
+    public const byte MsgIdReflexiveInfo = 3;
     private const byte MsgIdStart = 5;
     private const byte MsgIdPlayerRefMapping = 8;
 
@@ -148,7 +149,38 @@ public static class FusionProtocol
         return id;
     }
 
-    public static byte[] EncodeJoinConfirmation(JoinMessage request, int playerRef)
+    /// <summary>JoinRequests.ReflexiveInfo: "tell me where you are once your runner is up".</summary>
+    public const uint JoinRequestsReflexiveInfo = 4;
+
+    /// <summary>NATType.UdpBlocked: no direct route, use the relay.</summary>
+    public const byte NatTypeUdpBlocked = 1;
+
+    /// <summary>
+    /// Builds a <c>ReflexiveInfo</c> message (protocol id 3): where an actor can be reached. It is
+    /// what makes a ClientServer client connect at all — its <c>HandleReflexiveInfoMessage</c> is the
+    /// only caller of <c>Connect</c> for <c>GameMode.Client</c>, and it acts on the message whose
+    /// ActorNr is the RemoteServerID its Start named. Both addresses are left unset, which the client
+    /// reads as "not valid" and answers with <c>Connect(Relay, NetAddress.FromActorId(actor))</c>:
+    /// Fusion's transport carried over Photon events, the only route this server offers.
+    /// Layout is the SDK's <c>ReflexiveInfo.SerializeProtected</c>: ActorNr:int, PublicAddr and
+    /// PrivateAddr as three ulongs each, NatType:byte from protocol 4, UniqueId:byte[] from 6.
+    /// </summary>
+    public static byte[] EncodeReflexiveInfo(byte protocolVersion, int major, int minor, int build,
+                                             int actorNr, byte[] uniqueId)
+    {
+        var w = new FusionBitWriter();
+        w.WriteBits(MsgIdReflexiveInfo, 8);
+        w.WriteBits(protocolVersion, 8);
+        if (protocolVersion >= 2) { w.WriteIntN(major, 32); w.WriteIntN(minor, 32); w.WriteIntN(build, 32); }
+        w.WriteIntN(actorNr, 32);
+        for (var half = 0; half < 12; half++) w.WriteUIntN(0, 32);   // two addresses, three ulongs each
+        if (protocolVersion >= 4) w.WriteBits(NatTypeUdpBlocked, 8);
+        if (protocolVersion >= 6) w.WriteByteArrayLP(uniqueId);
+        if (protocolVersion >= 3) w.WriteString("");
+        return w.ToArray();
+    }
+
+    public static byte[] EncodeJoinConfirmation(JoinMessage request, int playerRef, uint extraJoinRequests = 0)
     {
         var w = new FusionBitWriter();
         w.WriteBits(MsgIdJoin, 8);
@@ -160,7 +192,7 @@ public static class FusionProtocol
         // as PeerMode.Server (see docs/fusion-protocol-map.md), and inventing a value here is the only
         // field of the Confirmation we do not take from the request.
         w.WriteBits(request.PeerMode == PeerModeNone ? PeerModeClient : request.PeerMode, 8);
-        w.WriteUIntN(JoinRequestsNetworkConfig, 32);
+        w.WriteUIntN(JoinRequestsNetworkConfig | extraJoinRequests, 32);
         if (request.ProtocolVersion >= 6) w.WriteByteArrayLP(UniqueIdForActor(playerRef));
         // Fusion 1.x has no PlayerRef/EncryptionKey/PlayerCounterRef in its Join at any protocol
         // version; writing them would leave a 1.x peer reading our CustomData out of their bytes.
