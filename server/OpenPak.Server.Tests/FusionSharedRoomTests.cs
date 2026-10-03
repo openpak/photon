@@ -359,6 +359,63 @@ public class FusionSharedRoomTests
         Assert.True(creation >= 0 && rpc > creation, $"creation in packet {creation}, rpc in {rpc}");
     }
 
+    [Fact]
+    public void A_client_flooding_broadcasts_is_disconnected_and_nobody_else_is()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var c = Join(room, 3);
+        var id = Spawn(room, a, 1024);
+        var flood = Enumerable.Range(0, 255).Select(i =>
+        {
+            var message = Rpc(id, i);
+            message.Flags |= SimMessageFlags.Unreliable;
+            return message;
+        }).ToList();
+        for (var i = 0; i < 40; i++) Send(room, a, a.Packet(messages: flood));   // 10 200 messages, no round between
+        Step(room, 2);
+
+        Assert.Equal(2, room.PlayerCount);
+        var before = b.Packets.Count;
+        Step(room, 2);
+        Assert.True(b.Packets.Count > before && c.Packets.Count > 0);   // B and C are still served
+        Assert.True(MessagesOf(b).Count <= 512);
+        Assert.Contains(b.Packets.SelectMany(p => p.Destroys), d => d == FusionSharedRoom.FirstServerId);   // A's PlayerData
+    }
+
+    [Fact]
+    public void A_client_the_server_disconnects_is_cleaned_up_at_once_without_the_goodbye_grace()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var doomed = Spawn(room, a, 1024, flags: FusionObject.FlagDestroyWhenStateAuthorityLeaves);
+        // 1025 reliable messages behind a sequence gap (sequence 1 never comes).
+        var gap = Enumerable.Range(0, 1025).Select(i =>
+        {
+            var message = Rpc(doomed, i);
+            message.Sequence = (ulong)(i + 2);
+            return message;
+        }).ToList();
+        foreach (var batch in gap.Chunk(200))
+        {
+            Step(room, FusionSharedRoom.ServerSendRate / 2);   // under the message-rate bound
+            Send(room, a, a.Notify(w =>
+            {
+                w.WriteBits(0, 64);
+                w.PadToByteBoundary();
+                foreach (var m in batch) FusionSimCodec.WriteMessage(w, m, 300, m.Sequence);
+                w.PadToByteBoundary();
+                FusionSimCodec.PatchHeader(w, 0, batch.Length, 0, 0, 300);
+            }));
+        }
+        Step(room);
+
+        Assert.Equal(1, room.PlayerCount);
+        Assert.Contains(doomed, b.Packets.SelectMany(p => p.Destroys));   // not a second later: now
+    }
+
     // ---- State authority (§12.6) ----
 
     [Fact]

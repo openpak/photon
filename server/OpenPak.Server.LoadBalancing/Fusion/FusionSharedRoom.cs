@@ -40,6 +40,7 @@ public sealed partial class FusionSharedRoom
     private readonly Dictionary<int, FusionSimPlayer> _players = new();
     /// <summary>Players whose client closed its relay connection and whose Photon leave is expected next.</summary>
     private readonly Dictionary<int, (FusionSimPlayer Player, double Deadline)> _departing = new();
+    private bool _kicking;
     private readonly Dictionary<uint, FusionObject> _objects = new();
     /// <summary>Client objects in creation order: the rotation order of §8.3.</summary>
     private readonly List<FusionObject> _worldObjects = new();
@@ -232,12 +233,21 @@ public sealed partial class FusionSharedRoom
     private void OnDisconnected(FusionRelayConnection connection, NetDisconnectReason reason)
     {
         if (!_players.Remove(connection.Actor, out var leaver)) return;
-        if (reason == NetDisconnectReason.Requested && _registered.Contains(connection.Actor))
+        if (reason == NetDisconnectReason.Requested && !_kicking && _registered.Contains(connection.Actor))
         {
             _departing[connection.Actor] = (leaver, _now + DepartureGrace);
             return;
         }
         CleanUpAfter(leaver, reason);
+    }
+
+    /// <summary>A server-initiated disconnect: cleaned up at once, not given the goodbye grace.</summary>
+    private void Kick(FusionSimPlayer player, string why)
+    {
+        Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} disconnected: {why}");
+        _kicking = true;
+        try { _peer.Disconnect(player.Connection); }
+        finally { _kicking = false; }
     }
 
     private void CleanUpAfter(FusionSimPlayer leaver, NetDisconnectReason reason)

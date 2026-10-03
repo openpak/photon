@@ -16,6 +16,9 @@ public sealed partial class FusionSharedRoom
     private const int ObjectOverheadBytes = 64;
     /// <summary>Reliable messages a client may have waiting behind a sequence gap before it is dropped.</summary>
     private const int MaxPendingInbound = 1024;
+    /// <summary>Messages one client may send per second (Outbound's join sync is a burst of ~134).</summary>
+    private const int MaxMessagesPerSecond = 512;
+    private const int MaxQueued = 8192, MaxQueuedUnreliable = 1024;
     /// <summary>Destroyed transform-object ids remembered so late records for them still parse (§4.7).</summary>
     private const int MaxRememberedTransformIds = 65_536;
 
@@ -59,7 +62,11 @@ public sealed partial class FusionSharedRoom
             Log.Debug(Cat, $"\"{Name}\" malformed packet from actor {player.Actor} at bit {reader.BitPosition}: {ex.Message}");
         }
         // Messages are handled after the packet's records, so one may refer to an object created beside it.
-        foreach (var message in _packetMessages) AcceptMessage(player, message);
+        foreach (var message in _packetMessages)
+        {
+            if (!_players.ContainsKey(player.Actor)) break;   // kicked by an earlier message
+            AcceptMessage(player, message);
+        }
         _packetMessages.Clear();
     }
 
@@ -250,16 +257,26 @@ public sealed partial class FusionSharedRoom
     private void AcceptMessage(FusionSimPlayer player, SimMessage message)
     {
         message.Source = player.PlayerIndex;
+        if (message.IsReliable && (message.Sequence <= player.InDelivered || player.InPending.ContainsKey(message.Sequence))) return;   // duplicate
+        // The flood bound is on the source: what one client sends is what every other queue receives.
+        if (_arrival - player.MessageWindowStart >= 1)
+        {
+            player.MessageWindowStart = _arrival;
+            player.MessagesInWindow = 0;
+        }
+        if (++player.MessagesInWindow > MaxMessagesPerSecond)
+        {
+            Kick(player, $"more than {MaxMessagesPerSecond} messages in a second");
+            return;
+        }
         if (!message.IsReliable)
         {
             DeliverMessage(player, message);
             return;
         }
-        if (message.Sequence <= player.InDelivered || player.InPending.ContainsKey(message.Sequence)) return;   // duplicate
         if (player.InPending.Count >= MaxPendingInbound)
         {
-            Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} has {player.InPending.Count} messages behind a sequence gap: disconnected");
-            _peer.Disconnect(player.Connection);
+            Kick(player, $"{player.InPending.Count} messages behind a sequence gap");
             return;
         }
         player.InPending.Add(message.Sequence, message);
@@ -313,11 +330,13 @@ public sealed partial class FusionSharedRoom
     /// <summary>Queues a message for <paramref name="player"/> with a sequence from its own counter (§12.3-§12.4).</summary>
     private bool Enqueue(FusionSimPlayer player, SimMessage message)
     {
-        const int maxQueued = 8192;
-        if (player.Outgoing.Count >= maxQueued)
+        // An unreliable message may be lost anyway: a backed-up queue drops it rather than grow. A reliable
+        // one cannot be dropped without breaking the receiver's sequence; with every source rate-bounded,
+        // a queue this deep means the receiver has stopped acknowledging.
+        if (!message.IsReliable && player.Outgoing.Count >= MaxQueuedUnreliable) return false;
+        if (player.Outgoing.Count >= MaxQueued)
         {
-            Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} is {player.Outgoing.Count} messages behind: disconnected");
-            _peer.Disconnect(player.Connection);
+            Kick(player, $"{player.Outgoing.Count} messages behind");
             return false;
         }
         var sequence = message.IsReliable ? ++player.OutSequence : 0;

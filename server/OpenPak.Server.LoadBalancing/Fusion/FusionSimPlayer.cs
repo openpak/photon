@@ -45,6 +45,9 @@ internal sealed class FusionSimPlayer(FusionRelayConnection connection, uint pla
     public ulong OutSequence;
     public ulong InDelivered;
     public readonly SortedDictionary<ulong, SimMessage> InPending = new();
+    /// <summary>Inbound message rate: messages counted since <see cref="MessageWindowStart"/>.</summary>
+    public double MessageWindowStart;
+    public int MessagesInWindow;
 
     /// <summary>Where the next packet's object and PlayerData scans start (spec §8.3 rotation).</summary>
     public int ObjectCursor, PlayerDataCursor;
