@@ -103,17 +103,14 @@ public sealed class ListenersHostedService : BackgroundService
             .Register(new OpenPak.Server.Data.RealmCommands(realms))
             .Register(new OpenPak.Server.Data.MotdCommands(motd));
         foreach (var provider in _plugins.CommandProviders) chatCommands.Register(provider);
-        // Optional: host Fusion's own Shared-mode server per room (the role Photon Cloud's Fusion plugin
-        // plays) so two+ Fusion peers relay real gameplay instead of a solo-host self-loopback. Present
-        // only when the non-redistributable Fusion libs were linked (see docs/fusion-shared-server.md);
-        // otherwise null and GameServerHandler keeps the solo path. Its outbound relay packets are sent as
-        // event 101 (server sender, actor 0) to the addressed actor, on the room's own listener thread.
-        IFusionSessionHost? fusion = null;
-#if FUSION_LIBS
-        fusion = new OpenPak.Server.Fusion.FusionSharedServer(
-            (room, actor, payload) =>
-                _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } })));
-#endif
+        // Host Fusion 2's Shared-mode simulation per room (the role Photon Cloud's Fusion plugin plays), so
+        // two+ Fusion peers relay real gameplay. Its relay datagrams go out as event 101 (server sender,
+        // actor 0) to the addressed actor on the room's own listener loop: unreliable, except fragment
+        // pieces and anything too big for one unreliable Photon datagram (see FusionSharedHost).
+        IFusionSessionHost fusion = new OpenPak.Server.LoadBalancing.Fusion.FusionSharedHost(
+            (room, actor, payload, reliable) =>
+                _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } }), unreliable: !reliable),
+            new OpenPak.Server.LoadBalancing.Fusion.FusionRoomOptions { SceneAuthorityMasterClient = s.Fusion.SceneAuthorityMasterClient });
 
         // A region node has no adapter to publish presence to; home does that from the room report.
         var fed = _config.Federation;
@@ -142,14 +139,11 @@ public sealed class ListenersHostedService : BackgroundService
         // peers, mutating the same EnetPeer send state that thread already owns, so neither may run
         // anywhere else.
         game.OnMaintenance = () => { _bots.Tick(); _admin.Drain(); };
-        if (fusion is not null)
-        {
-            // Advance hosted Fusion room simulations at ~simulation rate on the Game listener thread(s).
-            // Each room's sim only ticks from the listener LOOP that owns it (UdpListener.Current, not a
-            // thread id — the loop hops pool threads), so wiring both game and gameAlt is safe.
-            game.OnTick = fusion.Tick;
-            if (gameAlt != null) gameAlt.OnTick = fusion.Tick;
-        }
+        // Advance hosted Fusion room simulations on the Game listener loop(s). Each room only ticks from the
+        // loop that created it (UdpListener.Current, not a thread id — the loop hops pool threads), so
+        // wiring both game and gameAlt is safe.
+        game.OnTick = fusion.Tick;
+        if (gameAlt != null) gameAlt.OnTick = fusion.Tick;
         if (masterAlt != null) masterAlt.OnMaintenance = master.OnMaintenance;
         if (gameAlt != null) gameAlt.OnMaintenance = game.OnMaintenance;
 

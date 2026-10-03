@@ -76,7 +76,13 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
     // Server plugins. The custom features (anti-cheat, game modes) are plugins; vanilla runs with them
     // disabled. "Directory" is scanned for external plugin DLLs; "Disabled" lists plugins that start off
     // (still loadable, toggle live with the `plugin enable <name>` console command). See docs/plugins.md.
-    "Plugins": { "Directory": "server-plugins", "Disabled": [] }
+    "Plugins": { "Directory": "server-plugins", "Disabled": [] },
+
+    // Fusion 2 Shared-mode simulation (docs/protocol/08-fusion-shared-simulation.md). With
+    // SceneAuthorityMasterClient true, SceneInfo/PhysicsInfo get StateAuthority = MasterClient instead
+    // of None: a stock master client then stops asserting on its initial scene, but Outbound's join
+    // sync was live-tested with None, so it stays off until tested in the game.
+    "Fusion": { "SceneAuthorityMasterClient": false }
   },
 
   "Database": {

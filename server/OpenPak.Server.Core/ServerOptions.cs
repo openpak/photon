@@ -94,6 +94,9 @@ public sealed class ServerOptions
     /// <summary>Team-deathmatch / arena match settings (score cap + auto-reset); off by default.</summary>
     public ArenaOptions Arena { get; set; } = new();
 
+    /// <summary>Fusion 2 Shared-mode simulation switches.</summary>
+    public FusionOptions Fusion { get; set; } = new();
+
     /// <summary>True when <see cref="Secret"/> is still the shipped placeholder — insecure for anything public.</summary>
     public bool UsesDefaultSecret => Secret == DefaultSecret;
 
