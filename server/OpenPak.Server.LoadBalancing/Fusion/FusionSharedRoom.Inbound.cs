@@ -219,6 +219,8 @@ public sealed partial class FusionSharedRoom
     {
         string? refusal = wordCount < FusionObject.HeaderWords ? $"word count {wordCount}"
             : id < FirstClientId ? "id in the server's range"
+            // A client mints every id it creates from its own connection counter (spec 08 §6.2).
+            : id >> 19 != (player.Connection.Counter & 0x1FFF) ? "id outside the creator's range"
             : (header[FusionObject.FlagsWord] & FusionObject.FlagStruct) != 0 ? "struct flag"
             : _worldObjects.Count >= MaxRoomObjects || _roomBytes + CostOf(wordCount) > MaxRoomBytes ? "room memory bound reached"
             : _usage.GetValueOrDefault(player.Actor) is var used && (used.Objects >= MaxCreatorObjects || used.Bytes + CostOf(wordCount) > MaxCreatorBytes)
@@ -230,6 +232,15 @@ public sealed partial class FusionSharedRoom
             return;
         }
 
+        // A stock client creates with itself or MasterClient as state authority (§6.2). Anything else is
+        // rewritten rather than refused: the creation was acknowledged by the transport, so a refused
+        // object would silently never exist.
+        var authority = header[FusionObject.StateAuthorityWord];
+        if (authority != player.PlayerRaw && authority != FusionObject.PlayerMasterClient)
+        {
+            Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} created {id} with authority {authority}: made its own");
+            header[FusionObject.StateAuthorityWord] = player.PlayerRaw;
+        }
         var obj = new FusionObject(id, wordCount) { Creator = player.Actor };
         var stamp = NextStamp;
         for (var index = 1; index < FusionObject.HeaderWords; index++)

@@ -189,6 +189,27 @@ public class FusionSharedRoomTests
     }
 
     [Fact]
+    public void A_client_creates_only_in_its_own_id_range_and_under_its_own_authority()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+
+        // B pre-creates A's next id under its own authority: refused, so A's spawn of that id stands.
+        Send(room, b, b.Packet(records: [(IdOf(a, 1024), FusionSimTestClient.Header(22, 0, b.PlayerRaw), [(20, 66)])]));
+        Step(room, 2);
+        var aSpawn = Spawn(room, a, 1024);
+        Assert.Equal(a.PlayerRaw, b.LatestWord(aSpawn, 8));
+        Assert.Equal(5, b.LatestWord(aSpawn, 20));
+
+        // B creates in its own range naming A, or None, as authority: B's own.
+        var named = Spawn(room, b, 1024, authority: a.PlayerRaw);
+        Assert.Equal(b.PlayerRaw, a.LatestWord(named, 8));
+        var master = Spawn(room, b, 1025, authority: FusionObject.PlayerMasterClient);
+        Assert.Equal(-1, a.LatestWord(master, 8));   // MasterClient objects are allowed
+    }
+
+    [Fact]
     public void A_lost_packet_is_resent_even_though_nothing_changed_since()
     {
         var room = NewRoom();
