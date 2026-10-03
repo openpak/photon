@@ -102,15 +102,14 @@ public sealed class FusionSharedHost : IFusionSessionHost
         {
             List<Action<FusionSharedRoom>> work;
             lock (_gate) (work, entry.Pending) = (entry.Pending, new());
-            try
+            // One failing action must not drop the ones behind it (a lost Unregister leaves a ghost master).
+            foreach (var action in work)
             {
-                foreach (var action in work) action(entry.Room);
-                entry.Room.Tick(_clock());
+                try { action(entry.Room); }
+                catch (Exception ex) { Log.Exception(Cat, $"\"{entry.Room.Name}\" queued action failed", ex); }
             }
-            catch (Exception ex)
-            {
-                Log.Exception(Cat, $"\"{entry.Room.Name}\" tick failed", ex);
-            }
+            try { entry.Room.Tick(_clock()); }
+            catch (Exception ex) { Log.Exception(Cat, $"\"{entry.Room.Name}\" tick failed", ex); }
 
             lock (_gate)
                 if (entry.Room.IsEmpty && entry.Pending.Count == 0 && _rooms.Remove(entry.Room.Name))

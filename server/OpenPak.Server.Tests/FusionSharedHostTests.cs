@@ -34,6 +34,17 @@ public class FusionSharedHostTests
     }
 
     [Fact]
+    public void A_failing_queued_action_does_not_drop_the_ones_behind_it()
+    {
+        var host = NewHost();
+        host.PlayerJoined("r", 1, new byte[7]);   // not a UniqueId: registering it throws
+        host.PlayerJoined("r", 2, FusionProtocol.UniqueIdForActor(2));
+        host.FeedRelay("r", 2, Connect(2));
+        host.Tick();
+        Assert.Contains(_sent, s => s.Actor == 2 && FusionRelayCodec.TryDecodeAccepted(s.Data, out _, out _, out _));
+    }
+
+    [Fact]
     public void A_client_server_room_gets_no_simulation()
     {
         var host = NewHost();
