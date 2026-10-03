@@ -214,7 +214,14 @@ public sealed partial class FusionSharedRoom
         _totalWords += wordCount;
 
         foreach (var other in _players.Values)
+        {
+            // GAP: an id reused while the old object's destroy is still queued for someone replaces that
+            // destroy with the new object's full record, which a client applies over the old one. Clients
+            // allocate ids from a rising counter, so only a misbehaving one gets here — revisit if a title
+            // ever reuses ids.
+            other.PendingDestroys.Remove(id);
             other.Objects[id] = new ObjectSendState(other == player ? ObjectSendStatus.CreatedConfirmed : ObjectSendStatus.CreatedUnconfirmed);
+        }
         Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} created {id}: type {header[FusionObject.TypeWord]}/{header[FusionObject.TypeWord + 1]} " +
                        $"words {wordCount} flags {header[FusionObject.FlagsWord]} authority {header[FusionObject.StateAuthorityWord]}");
     }

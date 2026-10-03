@@ -250,6 +250,25 @@ public class FusionSharedRoomTests
         Assert.Equal(words.Length, b.Packets.SelectMany(p => p.Records).First(r => r.Id == id).Words.Count);
     }
 
+    [Fact]
+    public void An_id_reused_while_its_destroy_is_in_flight_ends_up_as_the_new_object()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var id = Spawn(room, a, 1024);
+
+        Send(room, a, a.Packet(destroys: [id]));
+        b.DropNext = true;   // B misses the destroy, so it is still owed one
+        Step(room);
+        Send(room, a, a.Packet(records: [(id, FusionSimTestClient.Header(22, 0, a.PlayerRaw), [(20, 2)])]));
+        Step(room, 4);
+
+        Assert.Equal(2, b.LatestWord(id, 20));
+        Assert.True(b.Packets.Last(p => p.Records.Any(r => r.Id == id)).Records.First(r => r.Id == id).Full);
+        Assert.DoesNotContain(b.Packets.SkipWhile(p => !p.Records.Any(r => r.Id == id && r.Words.Contains((20, 2)))), p => p.Destroys.Contains(id));
+    }
+
     // ---- Messages (§12) ----
 
     [Fact]
