@@ -626,6 +626,43 @@ public class FusionSharedRoomTests
     // ---- Untrusted input ----
 
     [Fact]
+    public void Transport_level_garbage_through_the_room_disturbs_nobody_else()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var c = Join(room, 3);
+        var id = Spawn(room, a, 1024);
+        var random = new Random(1402);
+        var sequence = (ushort)1000;
+
+        for (var i = 0; i < 20_000; i++)
+        {
+            var datagram = new byte[random.Next(1, 1400)];
+            random.NextBytes(datagram);
+            datagram[0] = (byte)random.Next(0, 10);
+            if (datagram[0] is 3 or 8 && datagram.Length >= FusionRelayCodec.NotifyHeaderSize && random.Next(2) == 0)
+            {
+                // A plausible notify header (in-window sequence, sometimes a fragment) over a random body.
+                FusionRelayCodec.WriteNotifyHeader(datagram, new NotifyHeader((NetPacketType)datagram[0],
+                    (byte)(random.Next(4) == 0 ? random.Next(0, 256) : 0), ++sequence, 0, 0));
+            }
+            room.Receive(random.Next(2) == 0 ? c.Actor : 9, datagram, _now);
+            if (i % 2000 == 0) Step(room);
+        }
+        Step(room, 3);
+
+        Send(room, a, a.Packet(records: [(id, null, [(20, 4242)])]));
+        Step(room, 3);
+        Assert.Equal(4242, b.LatestWord(id, 20));
+        Assert.Equal(a.PlayerRaw, b.LatestWord(id, 8));
+        Assert.Equal(0, a.DecodeFailures + b.DecodeFailures);
+        Assert.Contains(room.PlayerCount, new[] { 2, 3 });   // C may have been disconnected; A and B never
+        Assert.NotNull(room.ConnectionOf(1));
+        Assert.NotNull(room.ConnectionOf(2));
+    }
+
+    [Fact]
     public void Each_creator_has_a_memory_quota_counted_in_real_bytes_and_destroys_refund_it()
     {
         var room = NewRoom();
@@ -686,6 +723,17 @@ public class FusionSharedRoomTests
 
         Assert.Equal(2, room.PlayerCount);
         Assert.DoesNotContain(a.Packets.SelectMany(p => p.Records), r => r.Id is 2000 || r.Id >> 19 == b.Counter);
+        // Nothing B sent touched A's object or the structs, and both streams still decode.
+        Assert.Equal(5, b.LatestWord(id, 20));
+        Assert.Equal(a.PlayerRaw, b.LatestWord(id, 8));
+        foreach (var client in new[] { a, b })
+        {
+            Assert.Equal(0, client.DecodeFailures);
+            Assert.Equal(64, client.LatestWord(FusionSharedRoom.RuntimeConfigId, 20));
+            Assert.Equal(a.PlayerRaw, client.LatestWord(FusionSharedRoom.RuntimeConfigId, 26));
+            Assert.Equal(1, client.LatestWord(FusionSharedRoom.FirstServerId, 22));
+            Assert.Equal(2, client.LatestWord(FusionSharedRoom.FirstServerId + 1, 22));
+        }
         Send(room, a, a.Packet(records: [(id, null, [(20, 31337)])]));
         Step(room, 2);
         Assert.Equal(31337, b.LatestWord(id, 20));   // the room still replicates

@@ -29,6 +29,8 @@ public sealed class FusionSimTestClient(int actor)
     /// <summary>When set, the next notify packet is ignored as if Photon lost it.</summary>
     public bool DropNext;
     public uint Counter;
+    /// <summary>Server packets that did not decode.</summary>
+    public int DecodeFailures;
 
     public byte[] Connect() => FusionRelayCodec.EncodeConnect(new NetConnectionId(0, 0, 1), [], UniqueId);
 
@@ -61,7 +63,10 @@ public sealed class FusionSimTestClient(int actor)
         if (distance <= 0) return;
         _recvMask = distance >= 64 ? 1UL : (_recvMask << distance) | 1UL;
         _recvSequence = header.Sequence;
-        Packets.Add(Decode(new NetBitReader(packet, FusionRelayCodec.NotifyHeaderSize * 8)));
+        // A packet this client cannot parse is a server bug; the room would swallow an exception thrown
+        // from inside its send callback, so it is counted instead and tests assert on it.
+        try { Packets.Add(Decode(new NetBitReader(packet, FusionRelayCodec.NotifyHeaderSize * 8))); }
+        catch (Exception ex) when (ex is EndOfStreamException or InvalidDataException) { DecodeFailures++; }
     }
 
     private ReceivedPacket Decode(NetBitReader reader)
