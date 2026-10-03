@@ -507,15 +507,16 @@ public sealed class FusionRelayPeer
             Log.Debug(Cat, $"actor {connection.Actor} reliable slice too short ({packet.Length} bytes)");
             return;
         }
-        // A slice is at most 1088 bytes (spec §8), and a player only ever sends its own messages: one
-        // naming another Source would let it inject into that player's stream at the receiver.
-        if (packet.Length - dataOffset > FusionRelayCodec.MaxReliableSliceBytes || id.Source != connection.PlayerId)
+        // A slice is at most 1088 bytes, says its own length truthfully (a receiver trusts SliceLength),
+        // and a player only ever sends its own messages: one naming another Source would let it inject
+        // into that player's stream at the receiver (spec §8.1).
+        var length = packet.Length - dataOffset;
+        if (length > FusionRelayCodec.MaxReliableSliceBytes || id.SliceLength != length || id.Source != connection.PlayerId)
         {
-            Log.Debug(Cat, $"actor {connection.Actor} reliable slice dropped: {packet.Length - dataOffset} bytes, source {id.Source}");
+            Log.Debug(Cat, $"actor {connection.Actor} reliable slice dropped: {length} bytes, SliceLength {id.SliceLength}, source {id.Source}");
             return;
         }
-        // The slice is whatever follows the id; the wire's SliceLength is not trusted.
-        var slice = new ReliableSlice(id with { SliceLength = packet.Length - dataOffset }, packet[dataOffset..]);
+        var slice = new ReliableSlice(id, packet[dataOffset..]);
 
         var ahead = (int)(id.Sequence - (connection.ReliableLastDelivered + 1));
         // Behind = already delivered (a resend whose ack was lost). The SDK stores those forever; dropping

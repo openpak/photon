@@ -522,7 +522,7 @@ public class FusionRelayPeerTests
     {
         var peer = NewPeer();
         Connect(peer, 1);
-        ReliableId Slice(uint sequence) => new(sequence, 9999, 6, 1, 1, -1, Key);   // the wire SliceLength is not trusted
+        ReliableId Slice(uint sequence) => new(sequence, 3, 6, 1, 1, -1, Key);
 
         peer.Receive(1, ReliableDatagram(1, Slice(2), [4, 5, 6]));
         Assert.Empty(_reliables);
@@ -556,7 +556,7 @@ public class FusionRelayPeerTests
     }
 
     [Fact]
-    public void A_slice_naming_another_source_or_over_1088_bytes_is_dropped()
+    public void A_slice_naming_another_source_misstating_its_length_or_over_1088_bytes_is_dropped()
     {
         var peer = NewPeer();
         Connect(peer, 1);
@@ -565,7 +565,8 @@ public class FusionRelayPeerTests
 
         peer.Receive(1, ReliableDatagram(1, new ReliableId(1, 1, 1, 3, 5, 2, Key), [7]));   // poses as player 3
         peer.Receive(1, ReliableDatagram(2, new ReliableId(1, 1089, 1089, 1, 6, 2, Key), new byte[1089]));
-        peer.Receive(1, ReliableDatagram(3, new ReliableId(1, 1, 1, 1, 7, 2, Key), [8]));   // the genuine one
+        peer.Receive(1, ReliableDatagram(3, new ReliableId(1, 5, 5, 1, 6, 2, Key), [7]));   // claims 5 bytes, carries 1
+        peer.Receive(1, ReliableDatagram(4, new ReliableId(1, 1, 1, 1, 7, 2, Key), [8]));   // the genuine one
         peer.Update(0);
         peer.Update(0.05);
         peer.Update(0.1);
