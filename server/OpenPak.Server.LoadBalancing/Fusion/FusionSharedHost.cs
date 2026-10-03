@@ -54,7 +54,7 @@ public sealed class FusionSharedHost : IFusionSessionHost
         _clock = clock;
     }
 
-    public void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false)
+    public void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false, int maxPlayers = 0)
     {
         if (clientServer)
         {
@@ -67,7 +67,8 @@ public sealed class FusionSharedHost : IFusionSessionHost
             if (!_rooms.TryGetValue(room, out var entry))
             {
                 var created = new FusionSharedRoom(room, (target, datagram, reliable) =>
-                    _send(room, target, datagram, reliable || datagram.Length > MaxUnreliableDatagramBytes), _clock(), _options);
+                    _send(room, target, datagram, reliable || datagram.Length > MaxUnreliableDatagramBytes), _clock(),
+                    maxPlayers > 0 ? _options with { MaxPlayers = maxPlayers } : _options);
                 _rooms[room] = entry = new Entry(created, UdpListener.Current);
                 Log.Debug(Cat, $"\"{room}\" Shared simulation created");
             }

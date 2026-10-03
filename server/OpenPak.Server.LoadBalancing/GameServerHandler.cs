@@ -334,7 +334,7 @@ public sealed class GameServerHandler : IOperationHandler
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
                     _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor),
-                                          state.IsClientServerTopology);
+                                          state.IsClientServerTopology, RoomMaxPlayers(state.RoomName));
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -404,19 +404,21 @@ public sealed class GameServerHandler : IOperationHandler
             // at actor 0); without an Accepted reply it times out and disconnects, same
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
-            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null)
+            else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null
+                     && _fusion.FeedRelay(state.RoomName, state.Actor, relayIn))
             {
-                // A real Fusion Shared-mode server hosts this room: hand it the raw relay packet. It runs
-                // the NetPeerGroup transport (Connect/Accepted/NotifyData) and replicates state between
-                // peers, emitting its own event-101 packets back through the send callback (see Host wiring).
-                _fusion.FeedRelay(state.RoomName, state.Actor, relayIn);
-                return;   // never relay 101 peer-to-peer; it is client<->server transport
+                // A Shared simulation hosts this room and took the packet: it runs the relay transport
+                // and replicates state between peers, emitting its own event-101 packets back through
+                // the send callback (see Host wiring). Never relay 101 peer-to-peer; it is client<->server.
+                return;
             }
+            // No simulation for this room (a ClientServer room, whose peers are measured never to send
+            // to actor 0, or a packet before any Fusion Join): the pre-simulation paths below.
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayPayload
                      && FusionRelayProtocol.TryDecodeConnect(relayPayload) is { } connect
                      && state.AcceptedFusionRelayIds.Add(Convert.ToHexString(connect.UniqueId)))
             {
-                // Legacy solo-host fallback (no Fusion server linked): self-loopback accept. Counter 1 is
+                // Legacy solo-host fallback (no simulation for the room): self-loopback accept. Counter 1 is
                 // the first connection's namespace; this path only ever serves a room's one client.
                 peer.RaiseEvent(ServerFusionEvent(ec, FusionRelayProtocol.EncodeAccepted(connect.ConnectionId, counter: 1)));
             }
@@ -435,6 +437,11 @@ public sealed class GameServerHandler : IOperationHandler
             _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
+
+    /// <summary>The room's MaxPlayers game property (255) as its creator set it, or 0 when absent.</summary>
+    private int RoomMaxPlayers(string roomName) =>
+        _registry.Find(roomName)?.GameProperties.TryGetValue(PhotonCodes.RoomProperty.MaxPlayers, out var value) == true
+        && value is byte or short or int or long ? Convert.ToInt32(value) : 0;
 
     /// <summary>True for a peer that joined a ClientServer room somebody else made: a Fusion client,
     /// whose server is the room's host actor.</summary>

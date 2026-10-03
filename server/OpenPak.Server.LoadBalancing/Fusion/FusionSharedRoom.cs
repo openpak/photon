@@ -5,8 +5,9 @@ namespace OpenPak.Server.LoadBalancing.Fusion;
 /// <summary>Per-deployment switches for the Shared-mode simulation.</summary>
 public sealed record FusionRoomOptions
 {
-    /// <summary>Room capacity written to RuntimeConfig.PlayerMaxCount and the transport's connection limit.</summary>
-    public int MaxPlayers { get; init; } = 8;
+    /// <summary>Room capacity written to RuntimeConfig.PlayerMaxCount (informational: no client reads it)
+    /// and the basis of the transport's connection limit. The Photon room's MaxPlayers when known.</summary>
+    public int MaxPlayers { get; init; } = 64;
 
     /// <summary>Create SceneInfo/PhysicsInfo with StateAuthority = MasterClient instead of None. The stock
     /// client asserts when the master consumes an initial scene under None, but a past build that combined
@@ -67,7 +68,9 @@ public sealed partial class FusionSharedRoom
         Name = name;
         _start = now;
         _options = options ?? new FusionRoomOptions();
-        _peer = new FusionRelayPeer(_options.MaxPlayers, (actor, datagram, reliable) => { _sent++; send(actor, datagram, reliable); });
+        // Photon enforces the room's capacity; the transport limit is only a bound, with room for the slots
+        // of connections still shutting down after a leave (spec 07 §5.4).
+        _peer = new FusionRelayPeer(_options.MaxPlayers + 8, (actor, datagram, reliable) => { _sent++; send(actor, datagram, reliable); });
         _peer.Connected += OnConnected;
         _peer.Disconnected += (connection, reason) => OnDisconnected(connection, reason);
         _peer.NotifyReceived += OnNotifyReceived;

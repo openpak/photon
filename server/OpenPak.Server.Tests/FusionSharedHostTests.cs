@@ -45,6 +45,27 @@ public class FusionSharedHostTests
     }
 
     [Fact]
+    public void A_room_takes_the_photon_rooms_capacity_and_is_not_capped_at_eight_without_one()
+    {
+        var host = NewHost();
+        for (var actor = 1; actor <= 12; actor++)
+        {
+            host.PlayerJoined("r", actor, FusionProtocol.UniqueIdForActor(actor));
+            host.FeedRelay("r", actor, Connect(actor));
+        }
+        host.PlayerJoined("sized", 1, FusionProtocol.UniqueIdForActor(1), maxPlayers: 10);
+        host.FeedRelay("sized", 1, Connect(1));
+        _now += 0.1;
+        host.Tick();
+
+        for (var actor = 1; actor <= 12; actor++)
+            Assert.Contains(_sent, s => s.Room == "r" && s.Actor == actor && FusionRelayCodec.TryDecodeAccepted(s.Data, out _, out _, out _));
+        var client = new FusionSimTestClient(1);
+        foreach (var s in _sent.Where(s => s.Room == "sized")) client.Receive(s.Data);
+        Assert.Equal(10, client.LatestWord(FusionSharedRoom.RuntimeConfigId, 25));
+    }
+
+    [Fact]
     public void A_client_server_room_gets_no_simulation()
     {
         var host = NewHost();

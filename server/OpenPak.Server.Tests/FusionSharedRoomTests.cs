@@ -94,7 +94,7 @@ public class FusionSharedRoomTests
         var config = records[FusionSharedRoom.RuntimeConfigId];
         Assert.Equal(29, config.Header![1]);
         Assert.Equal(32, config.Header[6]);
-        Assert.Equal([(20, 64), (21, 32), (22, 64), (23, 32), (24, 1), (25, 8), (28, 2)], config.Words);
+        Assert.Equal([(20, 64), (21, 32), (22, 64), (23, 32), (24, 1), (25, 64), (28, 2)], config.Words);
         Assert.Equal(33, records[FusionSharedRoom.SceneInfoId].Header![1]);
         Assert.Equal(0, records[FusionSharedRoom.SceneInfoId].Header![8]);
         Assert.Equal(30, records[FusionSharedRoom.PhysicsInfoId].Header![1]);

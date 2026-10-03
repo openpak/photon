@@ -21,7 +21,8 @@ public interface IFusionSessionHost
     /// ClientServer is a dedicated-server session, which on Photon Cloud the plugin hosts, and a
     /// client that asks for it and is given a Shared simulation exchanges a few seconds of traffic and
     /// then drops the room.</param>
-    void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false);
+    /// <param name="maxPlayers">The Photon room's MaxPlayers, or 0 when it has none.</param>
+    void PlayerJoined(string room, int actor, byte[] uniqueId, bool clientServer = false, int maxPlayers = 0);
 
     /// <summary>A peer left the room; drop its simulation connection.</summary>
     void PlayerLeft(string room, int actor);
