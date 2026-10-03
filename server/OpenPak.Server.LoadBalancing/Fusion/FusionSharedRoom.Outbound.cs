@@ -9,6 +9,8 @@ public sealed partial class FusionSharedRoom
     /// notify datagram (spec §4.3), i.e. this many payload bits.</summary>
     private const int MessageBudgetBits = 9088 - FusionRelayCodec.NotifyHeaderSize * 8;
     private const int MaxRecordsPerPacket = 255, MaxDestroysPerPacket = 32, MaxPlayerDataPerPacket = 5;
+    private const double RpcHoldSeconds = 2;
+    private double _lastFitWarning = double.NegativeInfinity;
 
     private enum WriteResult { Written, Nothing, DidNotFit }
 
@@ -56,7 +58,15 @@ public sealed partial class FusionSharedRoom
         {
             if (count > 0 && writer.BitCount > MessageBudgetBits) break;
             var queued = node.Value;
-            if (WaitsForObject(player, queued.Message)) break;
+            // Held at most RpcHoldSeconds, then sent anyway: a client drops an RPC for an object it does not
+            // know and retries one whose object is not spawned yet, and a numbered reliable message cannot
+            // be dropped here without breaking the receiver's sequence (§12.3).
+            if (WaitsForObject(player, queued.Message))
+            {
+                if (double.IsNaN(player.HeldSince)) player.HeldSince = _now;
+                if (_now - player.HeldSince < RpcHoldSeconds) break;
+            }
+            player.HeldSince = double.NaN;
             FusionSimCodec.WriteMessage(writer, queued.Message, queued.Tick, queued.Sequence);
             player.Outgoing.RemoveFirst();
             if (queued.Message.IsReliable) packet.Messages.Add(queued);
@@ -101,7 +111,11 @@ public sealed partial class FusionSharedRoom
             {
                 // Start the next packet here; past it if it could not fit even first in line.
                 player.ObjectCursor = attempted == 0 ? index + 1 : index;
-                if (attempted == 0) Log.Warn(Cat, $"\"{Name}\" object {_worldObjects[index].Id} ({_worldObjects[index].WordCount} words) does not fit a packet");
+                if (attempted == 0 && _now - _lastFitWarning >= 10)
+                {
+                    _lastFitWarning = _now;
+                    Log.Warn(Cat, $"\"{Name}\" object {_worldObjects[index].Id} ({_worldObjects[index].WordCount} words) does not fit a packet to actor {player.Actor}");
+                }
                 break;
             }
             attempted++;

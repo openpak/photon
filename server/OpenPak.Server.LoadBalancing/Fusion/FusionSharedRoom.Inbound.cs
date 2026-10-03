@@ -14,6 +14,9 @@ public sealed partial class FusionSharedRoom
     private const long MaxCreatorBytes = 16L << 20, MaxRoomBytes = 64L << 20;
     private const int MaxCreatorObjects = 4096, MaxRoomObjects = 16_384;
     private const int ObjectOverheadBytes = 64;
+    /// <summary>The largest full record accepted at creation: a packet's payload less the message budget
+    /// (1136 bytes) and room for the header, feedback, destroys and structs.</summary>
+    private const int MaxFullRecordBytes = FusionRelayCodec.MaxNotifyPayloadBytes - 2048;
     /// <summary>Reliable messages a client may have waiting behind a sequence gap before it is dropped.</summary>
     private const int MaxPendingInbound = 1024;
     /// <summary>Messages one client may send per second (Outbound's join sync is a burst of ~134).</summary>
@@ -246,6 +249,16 @@ public sealed partial class FusionSharedRoom
         for (var index = 1; index < FusionObject.HeaderWords; index++)
             if (index != FusionObject.InterestWord) obj.Set(index, header[index], stamp);
         foreach (var (index, value) in _recordWords) if (index >= FusionObject.HeaderWords) obj.Set(index, value, stamp);
+        // An object whose full record cannot go out in one of our packets would never reach anyone, and
+        // would hold every RPC naming it. The creator's own record fitted its packet; ours must fit beside
+        // a full message block and the structs.
+        var probe = new NetBitWriter(1024);
+        obj.WriteRecordBody(probe, full: true, since: 0, interestFlags: 3);
+        if (probe.ByteCount > MaxFullRecordBytes)
+        {
+            Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} object {id} refused: its full record is {probe.ByteCount} bytes");
+            return;
+        }
         _objects.Add(id, obj);
         obj.WorldIndex = _worldObjects.Count;
         _worldObjects.Add(obj);

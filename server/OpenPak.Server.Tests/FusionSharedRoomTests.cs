@@ -459,6 +459,44 @@ public class FusionSharedRoomTests
         Assert.Contains(doomed, b.Packets.SelectMany(p => p.Destroys));   // not a second later: now
     }
 
+    /// <summary>7800 data words of full-width values: a full record of about 45 KB, past what one of our packets carries.</summary>
+    private static (int, int)[] WideWords(int offset = 0) => Enumerable.Range(20, 7800).Select(i => (i, int.MinValue + i + offset)).ToArray();
+
+    [Fact]
+    public void An_object_whose_full_record_cannot_be_sent_is_refused_and_holds_no_rpc()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var id = IdOf(a, 1024);
+        Send(room, a, a.Packet(messages: [Rpc(id, 1)], records: [(id, FusionSimTestClient.Header(7820, 0, a.PlayerRaw), WideWords())]));
+        Step(room, 3);
+
+        Assert.DoesNotContain(b.Packets.SelectMany(p => p.Records), r => r.Id == id);
+        Assert.Equal([1], MessagesOf(b).Select(ArgumentOf));   // not held for an object that will never come
+    }
+
+    [Fact]
+    public void An_rpc_waits_for_its_object_two_seconds_at_most()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var id = IdOf(a, 1024);
+        // Created small, then every word made full-width: a later joiner's full record no longer fits.
+        Send(room, a, a.Packet(records: [(id, FusionSimTestClient.Header(7820, 0, a.PlayerRaw), Enumerable.Range(20, 7800).Select(i => (i, 1)).ToArray())]));
+        Step(room, 2);
+        Send(room, a, a.Packet(records: [(id, null, WideWords())]));
+        Step(room, 2);
+        var c = Join(room, 3);
+        Send(room, a, a.Packet(messages: [Rpc(id, 7)]));
+
+        Step(room, FusionSharedRoom.ServerSendRate);   // one second: still waiting
+        Assert.Empty(MessagesOf(c));
+        Step(room, FusionSharedRoom.ServerSendRate + 2);
+        Assert.Equal([7], MessagesOf(c).Select(ArgumentOf));
+    }
+
     // ---- State authority (§12.6) ----
 
     [Fact]

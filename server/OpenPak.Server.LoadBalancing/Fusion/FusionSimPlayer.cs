@@ -51,6 +51,8 @@ internal sealed class FusionSimPlayer(FusionRelayConnection connection, uint pla
 
     /// <summary>Where the next packet's object and PlayerData scans start (spec §8.3 rotation).</summary>
     public int ObjectCursor, PlayerDataCursor;
+    /// <summary>Since when the head of <see cref="Outgoing"/> has waited for its object (NaN: not waiting).</summary>
+    public double HeldSince = double.NaN;
 
     // Time feedback and send pacing (spec §10.2-§10.3).
     public double LastReceived;
