@@ -12,27 +12,6 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <!-- Link the optional Fusion Shared-mode server host only when its (non-redistributable) libs
-         are present locally. Without them the whole build still works; rooms fall back to the
-         solo-host relay path. See docs/fusion-shared-server.md. -->
-    <FusionAvailable Condition="Exists('$(MSBuildThisFileDirectory)..\fusion-libs\Fusion.Runtime.dll')">true</FusionAvailable>
-    <DefineConstants Condition="'$(FusionAvailable)' == 'true'">$(DefineConstants);FUSION_LIBS</DefineConstants>
   </PropertyGroup>
-
-  <ItemGroup Condition="'$(FusionAvailable)' == 'true'">
-    <ProjectReference Include="..\OpenPak.Server.Fusion\OpenPak.Server.Fusion.csproj" />
-    <!-- Fusion.Runtime loads Photon.Realtime by name at runtime (Assembly.Load), and .NET only trusts
-         assemblies listed in THIS app's deps.json. Transitive <Reference>s from the Fusion project don't
-         all propagate, so reference every Fusion lib here explicitly: that both copies them next to the
-         executable AND registers them in deps.json so name-loads resolve. -->
-    <Reference Include="Fusion.Runtime"><HintPath>..\fusion-libs\Fusion.Runtime.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Fusion.Sockets"><HintPath>..\fusion-libs\Fusion.Sockets.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Fusion.Common"><HintPath>..\fusion-libs\Fusion.Common.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Fusion.Log"><HintPath>..\fusion-libs\Fusion.Log.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Fusion.Realtime"><HintPath>..\fusion-libs\Fusion.Realtime.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="Photon3Unity3D"><HintPath>..\fusion-libs\Photon3Unity3D.dll</HintPath><Private>true</Private></Reference>
-    <Reference Include="NanoSockets"><HintPath>..\fusion-libs\NanoSockets.dll</HintPath><Private>true</Private></Reference>
-    <None Include="..\fusion-libs\libnanosockets.so" CopyToOutputDirectory="PreserveNewest" Visible="false" />
-  </ItemGroup>
 
 </Project>

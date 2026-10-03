@@ -1,8 +1,3 @@
-# The Fusion Shared-mode host links Photon Fusion's own assemblies, which are NOT
-# redistributable and therefore NOT in the repo: server/fusion-libs/ must exist in the
-# build context (see docs/fusion-shared-server.md). The release workflow copies them in from
-# the self-hosted runner's own copy and fails when that is missing. A build without them still
-# succeeds — you just get the solo-host path, no Fusion relay.
 FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 ARG TARGETARCH
 WORKDIR /src

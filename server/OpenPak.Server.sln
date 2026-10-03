@@ -23,10 +23,6 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPak.Server.Data.Tests",
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPak.Server.Common", "OpenPak.Server.Common\OpenPak.Server.Common.csproj", "{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPak.Server.Fusion", "OpenPak.Server.Fusion\OpenPak.Server.Fusion.csproj", "{A253F46B-B71C-4B39-AA9B-157C5F905E60}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "OpenPak.Server.Fusion.UnityStub", "OpenPak.Server.Fusion.UnityStub\OpenPak.Server.Fusion.UnityStub.csproj", "{1B587D87-AF46-461A-B9EE-746BDE318449}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -157,30 +153,6 @@ Global
 		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Release|x64.Build.0 = Release|Any CPU
 		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Release|x86.ActiveCfg = Release|Any CPU
 		{43E49D66-7EF4-4FEC-B730-6658AB1E6E99}.Release|x86.Build.0 = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|x64.Build.0 = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Debug|x86.Build.0 = Debug|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|Any CPU.Build.0 = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|x64.ActiveCfg = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|x64.Build.0 = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|x86.ActiveCfg = Release|Any CPU
-		{A253F46B-B71C-4B39-AA9B-157C5F905E60}.Release|x86.Build.0 = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|x64.Build.0 = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Debug|x86.Build.0 = Debug|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|Any CPU.Build.0 = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|x64.ActiveCfg = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|x64.Build.0 = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|x86.ActiveCfg = Release|Any CPU
-		{1B587D87-AF46-461A-B9EE-746BDE318449}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

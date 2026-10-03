@@ -25,17 +25,6 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/scratch"
           echo "TMPDIR=$RUNNER_TEMP/scratch" >> "$GITHUB_ENV"
-      - name: Stage the Fusion libs from the runner
-        # Fusion's assemblies are not redistributable, so they are not in the repo; the runner
-        # keeps a copy outside it. Without them the build would still succeed and publish a
-        # :latest with no Fusion relay, which every AutoUpdate=registry host would pull — so a
-        # missing copy fails the release instead.
-        run: |
-          src="${FUSION_LIBS_DIR:-$HOME/.local/share/openpak/fusion-libs}"
-          for f in Fusion.Runtime.dll Fusion.Sockets.dll Fusion.Common.dll Fusion.Log.dll Fusion.Realtime.dll Photon3Unity3D.dll NanoSockets.dll libnanosockets.so; do
-            [ -f "$src/$f" ] || { echo "::error::$src/$f missing: the image would have no Fusion relay (docs/fusion-shared-server.md)"; exit 1; }
-          done
-          rm -rf server/fusion-libs && cp -a "$src" server/fusion-libs
       # REGISTRY_AUTH_FILE lives on the steps: the runner context does not exist in
       # job-level env, and a workflow that cannot parse dispatches nothing.
       - run: echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
@@ -53,6 +42,6 @@ jobs:
           echo "pushed $IMG: $TAGS"
         env:
           REGISTRY_AUTH_FILE: ${{ runner.temp }}/auth.json
-      - name: Clear scratch and the staged libs
+      - name: Clear scratch
         if: always()
-        run: rm -rf "$RUNNER_TEMP/scratch" server/fusion-libs
+        run: rm -rf "$RUNNER_TEMP/scratch"
