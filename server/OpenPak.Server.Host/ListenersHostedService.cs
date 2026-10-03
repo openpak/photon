@@ -107,6 +107,12 @@ public sealed class ListenersHostedService : BackgroundService
         // two+ Fusion peers relay real gameplay. Its relay datagrams go out as event 101 (server sender,
         // actor 0) to the addressed actor on the room's own listener loop: unreliable, except fragment
         // pieces and anything too big for one unreliable Photon datagram (see FusionSharedHost).
+        // A room's members can sit on different listeners (GameServer vs GameServerAlt), so this callback,
+        // run on the room's own loop, may raise on a peer owned by the other loop — as RoomSession.RelayFrom
+        // already does for every relayed event. That is safe: a peer's outgoing sequence state is guarded
+        // by EnetPeer's lock, the server keeps no resend state, and the send is one UdpClient.Send on that
+        // peer's own socket. What two loops can do is interleave two sends to one peer; the client orders
+        // reliable commands itself and the notify layer drops a stale unreliable datagram as lost.
         IFusionSessionHost fusion = new OpenPak.Server.LoadBalancing.Fusion.FusionSharedHost(
             (room, actor, payload, reliable) =>
                 _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } }), unreliable: !reliable),
