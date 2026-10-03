@@ -32,11 +32,14 @@ public sealed partial class FusionSharedRoom
     /// <summary>Ids below this are the server's (structs); a client's are <c>counter &lt;&lt; 19 | n</c> with counter ≥ 1.</summary>
     private const uint FirstClientId = 1u << 19;
     private const string Cat = "FusionRoom";
+    private const double DepartureGrace = 1;
 
     private readonly FusionRoomOptions _options;
     private readonly FusionRelayPeer _peer;
     private readonly SortedSet<int> _registered = new();
     private readonly Dictionary<int, FusionSimPlayer> _players = new();
+    /// <summary>Players whose client closed its relay connection and whose Photon leave is expected next.</summary>
+    private readonly Dictionary<int, (FusionSimPlayer Player, double Deadline)> _departing = new();
     private readonly Dictionary<uint, FusionObject> _objects = new();
     /// <summary>Client objects in creation order: the rotation order of §8.3.</summary>
     private readonly List<FusionObject> _worldObjects = new();
@@ -112,6 +115,7 @@ public sealed partial class FusionSharedRoom
     {
         _registered.Remove(actor);
         _peer.Unregister(actor);   // raises Disconnected when it was connected
+        if (_departing.Remove(actor, out var departed)) CleanUpAfter(departed.Player, NetDisconnectReason.Requested);
         ElectMaster();
     }
 
@@ -151,6 +155,12 @@ public sealed partial class FusionSharedRoom
             }
         }
         _peer.Update(_now);
+        foreach (var (actor, departed) in _departing.ToArray())
+        {
+            if (_now < departed.Deadline) continue;
+            _departing.Remove(actor);
+            CleanUpAfter(departed.Player, NetDisconnectReason.Requested);
+        }
 
         if (_now - _lastLog >= 1 && Log.Enabled(LogLevel.Debug))
         {
@@ -200,6 +210,7 @@ public sealed partial class FusionSharedRoom
     /// <summary>A relay connection was accepted (spec §11.2): PlayerData, then the join sweep.</summary>
     private void OnConnected(FusionRelayConnection connection)
     {
+        if (_departing.Remove(connection.Actor, out var departed)) CleanUpAfter(departed.Player, NetDisconnectReason.Requested);
         // The server's id range is 1024..0x7FFFF; a room never lives long enough to run out.
         var playerData = CreateStruct(_nextServerId++, 3, 1 /* PlayerData */, 2 /* InternalStruct */, FusionObject.PlayerNone);
         var player = new FusionSimPlayer(connection, playerData.Id) { LastReceived = _now };
@@ -212,10 +223,25 @@ public sealed partial class FusionSharedRoom
         Log.Debug(Cat, $"\"{Name}\" actor {connection.Actor} joined as player {player.PlayerRaw}, PlayerData {playerData.Id}, counter {connection.Counter}, {_worldObjects.Count} objects to send");
     }
 
-    /// <summary>A relay connection ended, by leave, timeout or the client (spec §11.4).</summary>
+    /// <summary>
+    /// A relay connection ended, by leave, timeout or the client (spec §11.4). A client that says goodbye
+    /// leaves the Photon room a few milliseconds later; its cleanup waits for that (up to
+    /// <see cref="DepartureGrace"/>), so the Photon master hand-over in the Leave event reaches the others
+    /// before the PlayerLeft that the PlayerData destroy raises, and both masters move together.
+    /// </summary>
     private void OnDisconnected(FusionRelayConnection connection, NetDisconnectReason reason)
     {
         if (!_players.Remove(connection.Actor, out var leaver)) return;
+        if (reason == NetDisconnectReason.Requested && _registered.Contains(connection.Actor))
+        {
+            _departing[connection.Actor] = (leaver, _now + DepartureGrace);
+            return;
+        }
+        CleanUpAfter(leaver, reason);
+    }
+
+    private void CleanUpAfter(FusionSimPlayer leaver, NetDisconnectReason reason)
+    {
         if (_objects.TryGetValue(leaver.PlayerDataId, out var playerData)) Destroy(playerData);
 
         int destroyed = 0, released = 0;
@@ -233,7 +259,7 @@ public sealed partial class FusionSharedRoom
                 released++;
             }
         }
-        Log.Debug(Cat, $"\"{Name}\" actor {connection.Actor} left ({reason}): {destroyed} objects destroyed, {released} released");
+        Log.Debug(Cat, $"\"{Name}\" actor {leaver.Actor} left ({reason}): {destroyed} objects destroyed, {released} released");
     }
 
     /// <summary>Destroys an object (spec §8.5): its words go now, each connection that knows it is told.</summary>

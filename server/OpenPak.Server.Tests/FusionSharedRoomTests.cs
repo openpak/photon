@@ -415,6 +415,35 @@ public class FusionSharedRoomTests
         Assert.True(room.IsEmpty);
     }
 
+    [Fact]
+    public void A_client_that_closes_its_relay_is_cleaned_up_at_its_photon_leave_or_after_a_grace()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var c = Join(room, 3);
+        var aObject = Spawn(room, a, 1024, flags: FusionObject.FlagDestroyWhenStateAuthorityLeaves);
+        var cObject = Spawn(room, c, 1024, flags: FusionObject.FlagDestroyWhenStateAuthorityLeaves);
+        _clients.Remove(1);
+        _clients.Remove(3);
+
+        Send(room, a, FusionRelayCodec.EncodeDisconnect(NetDisconnectReason.Requested));
+        Send(room, c, FusionRelayCodec.EncodeDisconnect(NetDisconnectReason.Requested));
+        Step(room, 3);
+        Assert.Empty(b.Packets.SelectMany(p => p.Destroys));   // both wait for their Photon leave
+
+        room.Unregister(1);   // A's leave: cleaned up with the master change, in one packet
+        Step(room);
+        var packet = b.Packets[^1];
+        Assert.Contains(aObject, packet.Destroys);
+        Assert.Contains(packet.Records, r => r.Id == FusionSharedRoom.RuntimeConfigId && r.Words.Contains((26, b.PlayerRaw)));
+        Assert.DoesNotContain(cObject, b.Packets.SelectMany(p => p.Destroys));
+
+        Step(room, FusionSharedRoom.ServerSendRate);   // C never leaves Photon: cleaned up after the grace
+        Assert.Contains(cObject, b.Packets.SelectMany(p => p.Destroys));
+        Assert.Equal(1, room.PlayerCount);
+    }
+
     // ---- Untrusted input ----
 
     [Fact]
