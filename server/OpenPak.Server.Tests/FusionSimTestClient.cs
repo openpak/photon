@@ -122,6 +122,28 @@ public sealed class FusionSimTestClient(int actor)
         return datagram;
     }
 
+    /// <summary>What the SDK transport puts on the wire for one notify datagram: itself, or pieces of 1122
+    /// payload bytes behind copies of its header when it is over 1280 bytes (spec 07 §7).</summary>
+    public static IEnumerable<byte[]> OnTheWire(byte[] datagram)
+    {
+        if (datagram.Length <= FusionRelayCodec.MaxDatagramBytes)
+        {
+            yield return datagram;
+            yield break;
+        }
+        FusionRelayCodec.TryReadNotifyHeader(datagram, out var header);
+        var payload = datagram.AsSpan(FusionRelayCodec.NotifyHeaderSize).ToArray();
+        var pieces = (payload.Length + FusionRelayCodec.FragmentChunkBytes - 1) / FusionRelayCodec.FragmentChunkBytes;
+        for (var piece = 1; piece <= pieces; piece++)
+        {
+            var chunk = payload.Skip((piece - 1) * FusionRelayCodec.FragmentChunkBytes).Take(FusionRelayCodec.FragmentChunkBytes).ToArray();
+            var bytes = new byte[FusionRelayCodec.NotifyHeaderSize + chunk.Length];
+            FusionRelayCodec.WriteNotifyHeader(bytes, header with { Fragment = (byte)(piece | (piece == pieces ? 0x80 : 0)) });
+            chunk.CopyTo(bytes, FusionRelayCodec.NotifyHeaderSize);
+            yield return bytes;
+        }
+    }
+
     /// <summary>A simulation packet: messages, destroys, then records (id, header or null, words).</summary>
     public byte[] Packet(IEnumerable<SimMessage>? messages = null, IEnumerable<uint>? destroys = null,
                          IEnumerable<(uint Id, int[]? Header, (int Index, int Value)[] Words)>? records = null) => Notify(w =>

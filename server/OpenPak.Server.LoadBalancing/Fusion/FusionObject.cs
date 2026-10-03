@@ -23,6 +23,10 @@ public sealed class FusionObject
     }
 
     public uint Id { get; }
+    /// <summary>The actor that created a client object, charged for its memory.</summary>
+    public int Creator { get; init; }
+    /// <summary>Position in the room's client-object list, for O(1) removal.</summary>
+    internal int WorldIndex { get; set; }
     public int[] Words { get; }
     public int[] Stamps { get; }
     /// <summary>The highest of <see cref="Stamps"/>.</summary>

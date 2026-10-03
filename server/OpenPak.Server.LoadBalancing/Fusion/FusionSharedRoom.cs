@@ -269,8 +269,12 @@ public sealed partial class FusionSharedRoom
         if (obj.IsStruct) _playerData.Remove(obj);
         else
         {
-            _worldObjects.Remove(obj);
-            _totalWords -= obj.WordCount;
+            // Swap-remove keeps a destroy O(1); the order is only the rotation order of §8.3.
+            var last = _worldObjects[^1];
+            _worldObjects[obj.WorldIndex] = last;
+            last.WorldIndex = obj.WorldIndex;
+            _worldObjects.RemoveAt(_worldObjects.Count - 1);
+            Charge(obj, -1);
             if (obj.HasTransform) RememberTransformId(obj.Id);
         }
         foreach (var player in _players.Values)

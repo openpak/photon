@@ -5,19 +5,36 @@ namespace OpenPak.Server.LoadBalancing.Fusion;
 // Applying what a client sends (spec §9): header, messages, time feedback input, destroys, object records.
 public sealed partial class FusionSharedRoom
 {
-    /// <summary>Total words a room may hold across client objects (128 MB), and how many objects: the
-    /// room-memory bound of spec §15 duty 3 in place of the SDK's per-object heap limit.</summary>
-    private const long MaxRoomWords = 32L * 1024 * 1024;
-    private const int MaxRoomObjects = 65_536;
+    /// <summary>
+    /// The room-memory bound of spec §15 duty 3, in place of the SDK's per-object heap limit. A client
+    /// object costs 8 bytes a word (value + stamp) whatever its record carried, so a full record of a few
+    /// bits can claim 256 KB: each creator gets a quota and the room a total. Sized from Outbound, whose
+    /// biggest object is 9268 words (74 KB): one player may hold 200 of those.
+    /// </summary>
+    private const long MaxCreatorBytes = 16L << 20, MaxRoomBytes = 64L << 20;
+    private const int MaxCreatorObjects = 4096, MaxRoomObjects = 16_384;
+    private const int ObjectOverheadBytes = 64;
     /// <summary>Reliable messages a client may have waiting behind a sequence gap before it is dropped.</summary>
     private const int MaxPendingInbound = 1024;
     /// <summary>Destroyed transform-object ids remembered so late records for them still parse (§4.7).</summary>
     private const int MaxRememberedTransformIds = 65_536;
 
-    private long _totalWords;
+    private long _roomBytes;
+    /// <summary>Bytes and objects each actor's live creations hold (quota of spec §15 duty 3).</summary>
+    private readonly Dictionary<int, (long Bytes, int Objects)> _usage = new();
+
+    private static long CostOf(int wordCount) => 8L * wordCount + ObjectOverheadBytes;
     private readonly HashSet<uint> _destroyedTransformIds = new();
     private readonly List<(int Index, int Value)> _recordWords = new();
     private readonly List<SimMessage> _packetMessages = new();
+
+    private void Charge(FusionObject obj, int sign)
+    {
+        var cost = sign * CostOf(obj.WordCount);
+        _roomBytes += cost;
+        var used = _usage.GetValueOrDefault(obj.Creator);
+        _usage[obj.Creator] = (used.Bytes + cost, used.Objects + sign);
+    }
 
     private void RememberTransformId(uint id)
     {
@@ -196,7 +213,9 @@ public sealed partial class FusionSharedRoom
         string? refusal = wordCount < FusionObject.HeaderWords ? $"word count {wordCount}"
             : id < FirstClientId ? "id in the server's range"
             : (header[FusionObject.FlagsWord] & FusionObject.FlagStruct) != 0 ? "struct flag"
-            : _worldObjects.Count >= MaxRoomObjects || _totalWords + wordCount > MaxRoomWords ? "room memory bound reached"
+            : _worldObjects.Count >= MaxRoomObjects || _roomBytes + CostOf(wordCount) > MaxRoomBytes ? "room memory bound reached"
+            : _usage.GetValueOrDefault(player.Actor) is var used && (used.Objects >= MaxCreatorObjects || used.Bytes + CostOf(wordCount) > MaxCreatorBytes)
+                ? "the creator's memory quota is used up"
             : null;
         if (refusal is not null)
         {
@@ -204,14 +223,15 @@ public sealed partial class FusionSharedRoom
             return;
         }
 
-        var obj = new FusionObject(id, wordCount);
+        var obj = new FusionObject(id, wordCount) { Creator = player.Actor };
         var stamp = NextStamp;
         for (var index = 1; index < FusionObject.HeaderWords; index++)
             if (index != FusionObject.InterestWord) obj.Set(index, header[index], stamp);
         foreach (var (index, value) in _recordWords) if (index >= FusionObject.HeaderWords) obj.Set(index, value, stamp);
         _objects.Add(id, obj);
+        obj.WorldIndex = _worldObjects.Count;
         _worldObjects.Add(obj);
-        _totalWords += wordCount;
+        Charge(obj, +1);
 
         foreach (var other in _players.Values)
         {

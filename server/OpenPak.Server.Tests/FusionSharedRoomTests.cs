@@ -43,7 +43,10 @@ public class FusionSharedRoomTests
         }
     }
 
-    private void Send(FusionSharedRoom room, FusionSimTestClient client, byte[] datagram) => room.Receive(client.Actor, datagram, _now);
+    private void Send(FusionSharedRoom room, FusionSimTestClient client, byte[] datagram)
+    {
+        foreach (var piece in FusionSimTestClient.OnTheWire(datagram)) room.Receive(client.Actor, piece, _now);
+    }
 
     private static uint IdOf(FusionSimTestClient client, uint n) => client.Counter << 19 | n;
 
@@ -464,6 +467,32 @@ public class FusionSharedRoomTests
     }
 
     // ---- Untrusted input ----
+
+    [Fact]
+    public void Each_creator_has_a_memory_quota_counted_in_real_bytes_and_destroys_refund_it()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        // A full record of a few dozen bits claims 32767 words = 256 KB of server memory.
+        var huge = FusionSimTestClient.Header(32767, 0, a.PlayerRaw);
+        var ids = Enumerable.Range(0, 70).Select(i => IdOf(a, 2000 + (uint)i)).ToList();
+        foreach (var batch in ids.Chunk(10)) Send(room, a, a.Packet(records: batch.Select(id => (id, (int[]?)huge, Array.Empty<(int, int)>()))));
+        Step(room, 2);
+        var created = b.Packets.SelectMany(p => p.Records).Where(r => r.Full).Select(r => r.Id).ToHashSet();
+        Assert.Equal(63, ids.Count(created.Contains));   // 16 MB / (256 KB + overhead)
+
+        // Another player's quota is its own.
+        var bObject = Spawn(room, b, 1024);
+        Assert.Contains(a.Packets.SelectMany(p => p.Records), r => r.Id == bObject);
+
+        // A destroy gives the bytes back.
+        Send(room, a, a.Packet(destroys: [ids[0]]));
+        Step(room);
+        Send(room, a, a.Packet(records: [(ids[69], huge, [])]));
+        Step(room, 2);
+        Assert.Contains(b.Packets.SelectMany(p => p.Records), r => r.Id == ids[69] && r.Full);
+    }
 
     [Fact]
     public void Malformed_and_hostile_packets_never_throw_and_never_corrupt_the_room()
