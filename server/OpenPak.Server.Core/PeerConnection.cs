@@ -147,7 +147,14 @@ public sealed class PeerConnection
             return;
         }
 
-        if (msg.MessageType == WireMessage.Operation)
+        // RaiseEvent is the per-packet relay path (Fusion's 101 at the send rate, PUN's serialize stream):
+        // Debug, and formatted only when enabled. Every other operation stays an Info line.
+        var hotPath = msg.MessageType == WireMessage.Operation && msg.Code == PhotonCodes.Op.RaiseEvent;
+        if (hotPath)
+        {
+            if (Log.Enabled(LogLevel.Debug)) Log.Debug(_role, $"{Remote} <- {PhotonNames.Op(msg.Code)} [{PhotonNames.Params(msg.Parameters)}]");
+        }
+        else if (msg.MessageType == WireMessage.Operation)
             Log.Info(_role, $"{Remote} <- {PhotonNames.Op(msg.Code)} [{PhotonNames.Params(msg.Parameters)}]");
         else
             Log.Info(_role, $"{Remote} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
@@ -250,7 +257,8 @@ public sealed class PeerConnection
 
     public void RaiseEvent(EventData ev, bool unreliable)
     {
-        Log.Info(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
+        if (Log.Enabled(LogLevel.Debug))
+            Log.Debug(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
         OnRaised?.Invoke(ev);
         OnRaisedClassified?.Invoke(ev, unreliable);
         // Fusion's high-frequency session events (code 100 "protocol package" and 101 "relay data")
