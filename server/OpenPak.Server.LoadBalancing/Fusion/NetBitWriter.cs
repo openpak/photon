@@ -123,6 +123,32 @@ public sealed class NetBitWriter
         if (valueBits > 64) WriteBits(0, valueBits - 64);
     }
 
+    /// <summary>Discards everything written after <paramref name="bitCount"/> — how a packet builder rolls
+    /// back a record that did not fit.</summary>
+    public void Rewind(int bitCount)
+    {
+        if ((uint)bitCount > (uint)BitCount) throw new ArgumentOutOfRangeException(nameof(bitCount));
+        var firstByte = bitCount >> 3;
+        // Keep the low bits of a partly kept byte, zero the rest: later writes OR into zeroed storage.
+        if ((bitCount & 7) != 0) _buffer[firstByte++] &= (byte)((1 << (bitCount & 7)) - 1);
+        _buffer.AsSpan(firstByte, ByteCount - firstByte).Clear();
+        BitCount = bitCount;
+    }
+
+    /// <summary>Replaces <paramref name="bits"/> already-written bits at <paramref name="bitPosition"/> —
+    /// how a sender fills in a header it reserved before writing the body.</summary>
+    public void Overwrite(int bitPosition, ulong value, int bits)
+    {
+        if (bitPosition < 0 || bits < 0 || bits > 64 || bitPosition + bits > BitCount) throw new ArgumentOutOfRangeException(nameof(bitPosition));
+        for (var i = 0; i < bits; i++)
+        {
+            var bit = bitPosition + i;
+            var mask = (byte)(1 << (bit & 7));
+            if (((value >> i) & 1) != 0) _buffer[bit >> 3] |= mask;
+            else _buffer[bit >> 3] &= (byte)~mask;
+        }
+    }
+
     private static int CheckWidth(int bits, int max) =>
         bits >= 0 && bits <= max ? bits : throw new ArgumentOutOfRangeException(nameof(bits));
 

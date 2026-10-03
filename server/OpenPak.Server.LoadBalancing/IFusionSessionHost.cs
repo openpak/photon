@@ -1,17 +1,14 @@
 namespace OpenPak.Server.LoadBalancing;
 
 /// <summary>
-/// Per-server sink that hosts Photon Fusion's own Shared-mode server simulation for rooms whose
-/// clients run Fusion (Outbound). Photon Cloud runs this as a closed "Fusion plugin"; self-hosting
-/// it lets a room relay real Fusion gameplay between two or more peers rather than only echoing a
-/// solo host's traffic back to itself.
+/// Per-server sink that hosts a Fusion 2 Shared-mode server simulation for rooms whose clients run
+/// Fusion (Outbound). Photon Cloud runs this as a closed "Fusion plugin"; self-hosting it lets a room
+/// relay real Fusion gameplay between two or more peers rather than only echoing a solo host's
+/// traffic back to itself.
 ///
-/// The concrete implementation lives in <c>OpenPak.Server.Fusion</c>, which links Fusion's
-/// non-redistributable assemblies and so is an optional build (see docs/fusion-shared-server.md).
-/// When it is absent the handler holds a null reference and keeps the legacy solo-host path, so the
-/// core server builds and runs without any Fusion DLLs.
-///
-/// All members are called on the Game listener thread only (Fusion's simulation is single-threaded).
+/// The implementation is the clean-room <see cref="Fusion.FusionSharedHost"/>
+/// (docs/protocol/08-fusion-shared-simulation.md). Members are called from Game listener loops; the
+/// host keeps each room's simulation on one loop.
 /// </summary>
 public interface IFusionSessionHost
 {
