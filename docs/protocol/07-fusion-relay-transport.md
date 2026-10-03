@@ -14,7 +14,7 @@ wire-visible names the SDK uses, so logs and captures can be matched against it.
 
 | | |
 |---|---|
-| SDK build read | `Fusion.Sockets` / `Fusion.Runtime` / `Fusion.Realtime` **2.0.8.1402** (`+4c396d6f`), configuration **"Unity Debug"** — the DLLs in `server/fusion-libs/`, and the version Outbound reports in its own Join (`FusionProtocolTests`: serialization version 2.0.8) |
+| SDK build read | `Fusion.Sockets` / `Fusion.Runtime` / `Fusion.Realtime` **2.0.8.1402** (`+4c396d6f`), configuration **"Unity Debug"** — the DLLs that used to sit in `server/fusion-libs/` (removed from the repo with the retail-DLL host; a local copy now lives outside it at `~/.local/share/openpak/fusion-libs`), and the version Outbound reports in its own Join (`FusionProtocolTests`: serialization version 2.0.8) |
 | Cross-check | Fusion **1.1.12** (`scratch/fusion/src-1.1.12`): `NetPacketType`, `NetNotifyHeader`, `NetCommandConnect`, `NetCommandAccepted` are byte-for-byte the same, so this spec should also hold for Moving Out 2's 1.1.8 (not re-verified beyond those structs) |
 | Working files | `~/REPOS/Openpak/scratch/fusion/src/` (`Fusion.Realtime.decompiled.cs` was added for this doc), `~/REPOS/Openpak/scratch/fusion/transport-spec/bb.py` (the bit-packing model that produced the worked examples in §4) |
 | Captures | the Connect / Accepted pair in `server/OpenPak.Photon.Tests/FusionRelayProtocolTests.cs` (real Photon Cloud, Steam client, room JWN7NE) |
@@ -570,7 +570,7 @@ else:
 ```
 
 One sequence number and one send-window envelope cover all the pieces; the packet is delivered or
-lost as a whole. Since a fragmented packet is > 1280 bytes, it always has at least two pieces
+lost as a whole. Types 4 and 8 are never fragmented (see §8.1 for what happens if one is). Since a fragmented packet is > 1280 bytes, it always has at least two pieces
 (`Fragment = 0x81` never occurs from the SDK).
 
 Receiver, per connection (state: `fragIndex`, `fragDistance`, a 51 200-byte reassembly buffer):
@@ -668,6 +668,19 @@ re-sent, `ReliableId` unchanged except a fresh Sequence, to the connection of pl
 slice for −1 is delivered to the server application. If the mode needed for a slice is disabled the
 sender is disconnected (Requested).
 
+### 8.1 Size and framing invariants of a stock sender, and violations
+
+What a stock 2.0.8 peer never sends, what the SDK receiver would do if it got it anyway, and what our
+server does. Our server **drops** every violating datagram (no disconnect, no ack bit for it), so a
+non-stock or malicious peer cannot push the SDK's undefined paths onto other clients through us.
+
+| invariant (stock sender) | SDK receiver on violation | our server |
+|---|---|---|
+| Only NotifyData (3) is fragmented; a type-8 datagram always has `Fragment = 0` (its maximum, 14 + 48 + 1088 = 1150 bytes, is under the 1280 threshold, and the fragmenter only looks at type 3). | The fragment path asserts NotifyData in the Debug build only; a release build reassembles the pieces and hands them to the **simulation** as if they were a NotifyData packet (reliable bytes parsed as a simulation packet), and the reliable sequence is never consumed. | drop |
+| An unfragmented notify datagram (type 3 or 8) is ≤ 1280 bytes; anything larger is split. | Not checked: any length up to the receive buffer (8192 on a Fusion client, §7) is accepted. | drop if > 1280 |
+| A reliable slice carries ≤ 1088 data bytes, and its `SliceLength` equals the bytes actually present. | Not checked. The in-order path trusts the header's `SliceLength` (a larger value reads past the datagram); only the out-of-order path recomputes it from the length. An SDK server proxying an oversized slice would re-slice it at 1088. | drop if > 1088 or if `SliceLength` ≠ datagram length − 62 |
+| A client's slice always has `Source` = the sender's own player index (the runtime fills it from its local player; there is no API to set it). | Not checked by the SDK server or the receiving client. The receiver groups slices into messages by (`Source`, `SourceSend`), so a forged `Source` can splice bytes into, or prematurely complete, another player's transfer. (`Source` is used for nothing else: a receiving client's data callback reports the client's *own* PlayerRef as the player, not `Source`.) | drop when `Source` ≠ the sending connection's player index |
+
 ## 9. Unreliable and unconnected data
 
 - **UnreliableData (type 2)**: `[02]` then payload bits from bit 8; no sequencing, no acks. The
@@ -756,7 +769,8 @@ document; these are findings.
    the client's 10 s inactivity timeout. Worth checking against the "peer goes quiet a few seconds
    after joining" symptom. (The inference is about our Photon layer, not Fusion.)
 4. **SDK version.** `fusion-protocol-map.md` says it was transcribed from Fusion **2.1.2**; the
-   decompiled sources and the DLLs in `server/fusion-libs/` are **2.0.8.1402**, matching the 2.0.8
+   decompiled sources and the DLLs the retail-DLL host linked (formerly `server/fusion-libs/`, now
+   `~/.local/share/openpak/fusion-libs`) are **2.0.8.1402**, matching the 2.0.8
    serialization version in Outbound's captured Join. The 2.0.8 `ProtocolMessageVersion` ends at
    V1_6_0 = 10, so the `ProtocolVersion >= 12` (PlayerCounterRef) branch in `FusionProtocol` belongs
    to a newer SDK and never fires for Outbound — harmless.

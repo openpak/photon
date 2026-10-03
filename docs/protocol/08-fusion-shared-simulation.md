@@ -3,7 +3,7 @@
 What a self-hosted server must read and write **above** Fusion's transport so that stock Photon
 Fusion 2 clients in **Shared** topology join one session, see each other's networked objects and run
 RPCs — specified as a *minimal state-holding relay*, not a general Fusion runtime. This replaces the
-retail `Simulation.Server` that `server/OpenPak.Server.Fusion` currently links.
+retail `Simulation.Server` that the former `server/OpenPak.Server.Fusion` linked (removed; see git history).
 
 Scope boundary: everything here starts from "a NotifyData payload of N bits arrived from connection C"
 or "is to be sent to connection C". The transport underneath — NetPeerGroup, the Connect/Accepted
@@ -24,17 +24,19 @@ Everything unmarked was read from the decompiled SDK (clean-room description, ow
 Outbound ships a **Fusion 2.0.x** runtime. Its IL2CPP metadata (`outbound-re/dump-output`) has the same
 `StateReplicator` member list, the same block-size constants (data 6, offset 4, header 8, global 8), the
 same `NetworkObjectHeader`, `SimulationRuntimeConfig`, `SimulationPacketHeader`, `TimeFeedback` and
-`SimulationMessageInternalTypes` layouts as the **2.0.8.1402** assembly in `server/fusion-libs/` and its
-decompile `scratch/fusion/src/Fusion.Runtime.decompiled.cs`. Only methods the AOT compiler strips
+`SimulationMessageInternalTypes` layouts as the **2.0.8.1402** assembly the retail-DLL host used to link
+(formerly `server/fusion-libs/`, removed from the repo; a local copy is at
+`~/.local/share/openpak/fusion-libs`) and its decompile `scratch/fusion/src/Fusion.Runtime.decompiled.cs`. Only methods the AOT compiler strips
 (an uncalled private helper, `[Conditional]` debug hooks) differ. This document is the 2.0.x wire.
 
 **Correction to `docs/fusion-shared-server.md` ("The one required binary patch").** The 2.0.x wire has
 **no `PluginVersion` field at all** — not in the object record, not in the header. The PluginVersion
-varint and the `WriteObject_WriteData` / `ReadObjectUpdate_GetWords` methods that `tools/fusion-patcher`
-edits exist only in **Fusion 2.1.x** (the 2.1.2 build under `scratch/home/photon-oracle/`, where header
-word 10 became `PluginVersion`). `server/fusion-libs/Fusion.Runtime.dll` is byte-identical (MD5) to the
-unpatched 2.0.8 copy, and the patcher could not even run against it (the methods it looks up are absent).
-So the production Outbound host runs the **stock, unpatched** 2.0.8 server, and the asymmetry described
+varint and the `WriteObject_WriteData` / `ReadObjectUpdate_GetWords` methods that the former
+`tools/fusion-patcher` edited (removed together with the retail-DLL host; it survives only in git
+history) exist only in **Fusion 2.1.x** (the 2.1.2 build under `scratch/home/photon-oracle/`, where header
+word 10 became `PluginVersion`). The `Fusion.Runtime.dll` the host linked was byte-identical (MD5) to the
+unpatched 2.0.8 copy, and the patcher could not even run against it (the methods it looked up are
+absent). So the Outbound host ran the **stock, unpatched** 2.0.8 server, and the asymmetry described
 there is a 2.1.x fact that does not apply to Outbound. A future 2.1.x title needs its own wire study;
 §18 lists what is known to differ.
 
@@ -260,7 +262,7 @@ Consequences for the server:
 | messages per packet | 255 (u8 counter) | |
 | message payload | < 512 bytes | |
 | object WordCount | 20 … 32767 (signed 16-bit field) | server MUST accept any value in range |
-| object data per packet | the sender abandons a record that would take the packet past 44 880 bytes | larger packets are fragmented by 07 in 1136-byte pieces |
+| object data per packet | the sender abandons a record that would take the packet past 44 880 bytes (counted from the start of the datagram, notify header included) | larger packets are fragmented by 07 in 1136-byte pieces; largest sendable full record: §12.3 |
 | after a lost multi-fragment packet | the SDK sender limits packets to one fragment (1136 bytes) beyond the first record for a few sends | optional for our sender |
 
 The SDK server additionally asserts `WordCount · 4 ≤ heap block size` (32 KB by default — Outbound's
@@ -331,8 +333,36 @@ A u32. 0 = none. **1–1023 are reserved**: 1 RuntimeConfig, 2 PlayerDataArray (
 `connCounter` is the per-connection number the server hands out in the transport's **Accepted**
 command (07): a room-wide counter incremented for every connection the server accepts, starting at 1.
 The server MUST give every connection of a room a distinct, never-reused nonzero counter (13 usable
-bits) — otherwise two clients mint colliding ids. The server never needs to validate client ids beyond
-"not reserved, not already existing" (§9.2); there is no id-range negotiation message.
+bits) — otherwise two clients mint colliding ids. There is no id-range negotiation message. Only the
+low 13 bits of the counter reach the id, so "distinct" means distinct **mod 8192**, and a counter whose
+low 13 bits are 0 MUST NOT be issued (its ids would land in the server's own range).
+
+What a stock client creates (read from the SDK), and what the server MAY therefore enforce:
+- **Ids.** Every object a Shared client allocates — a prefab spawn, each of its nested objects, a
+  scene object, an `Attach`ed object — takes its id from the one client allocator above. The only
+  other id source (re-using ids from a host-migration snapshot) exists on a server simulation only.
+  So `id >> 19` always equals the low 13 bits of the counter that connection received in Accepted;
+  a stock client never sends a `full` record for a *new* id outside its own range. The low 19 bits
+  start at 1024 but wrap after 2^19 − 1024 spawns, so do **not** require them to be ≥ 1024.
+- **StateAuthority at creation (word 8).** Exactly two values occur: the creator's own PlayerRef, or
+  **MasterClient (−1)** when the object is a master-client object (inspector flag or spawn flag
+  `SharedModeStateAuthMasterClient`) *and* the creator believes it is the master at that moment. A
+  non-master asking for −1 gets its own PlayerRef instead (the SDK logs an error). None (0) never
+  occurs, and there is no API to spawn with another real player as SA (spawn takes only an *input*
+  authority). "Believes it is the master" is the **Photon room's** master flag as the client last
+  heard it, not RuntimeConfig.MasterClient — so a record with SA −1 can come from a client that just
+  stopped being master, while the change is still in flight to it.
+- **Scene objects** (type kind SceneObject) are allocated only by the Photon master client (the scene
+  authority in Shared mode), with ids from the master's own counter and SA = −1 if the scene object is
+  flagged as a master-client object, else the master's own PlayerRef. Other clients allocate nothing
+  for them; they match the master's records to their local scene instances by scene ref and index.
+
+So the check "counter bits == creator's counter, SA ∈ {creator, −1 if creator is master}" rejects no
+legitimate stock behaviour **except** the master-change race above. Two cautions: (1) a rejected
+creation is still acknowledged at the transport level, so the client marks the object confirmed and
+never re-sends it — the object silently never exists for anyone; prefer **rewriting** a bad SA to the
+creator (or tolerating −1 from a creator that was master within the last few seconds) over dropping
+the record. (2) Allowing None at creation is unnecessary; a stock client never sends it.
 
 ---
 
@@ -548,7 +578,7 @@ Ids 1–1023 are never destroyed.
 For each record (after parsing per §4.6):
 - **Unknown id, `full`**: create the object from the header (WordCount from word 1). Reject (skip) if
   WordCount < 20, the id is reserved (≤ 1023) **[recommended — the SDK does not check]**, or Flags
-  has `Struct`. Then apply the data words. C's `ObjectData` for it starts `CreatedConfirmed` (C created
+  has `Struct`. Id-range and creation-SA checks, and why a bad SA is better rewritten than rejected: §6.2. Then apply the data words. C's `ObjectData` for it starts `CreatedConfirmed` (C created
   it, do not echo the creation). **Every other connection** gets a fresh `CreatedUnconfirmed`
   `ObjectData` so the object reaches everyone already in the room (plugin duty 2, §15).
 - **Known id, `full`**: the SDK replaces the whole header from the record (WordCount mismatch is only
@@ -833,11 +863,32 @@ its own PlayerRef), Tick = the server's current tick, and a **new sequence from 
 connection's own outgoing counter** (unreliable: none). Forwarding happens in delivery order, so each
 destination sees each source's messages in the source's order.
 
-Create-before-RPC hazard: a client that receives an RPC whose object it does not have yet drops it
-(object unknown) or retries it (object known, instance not yet spawned). The SDK gives no ordering
-guarantee beyond "messages are read before object records of the same packet". Our server SHOULD NOT
-forward an RPC to P before the target object's creation has been written to P at least once (hold it
-in P's queue until then) **[recommended]**.
+Create-before-RPC hazard. What the receiving client does with an RPC at delivery time (messages are
+delivered once per tick, after every packet received so far has been fully read, so an RPC and its
+object's creation in the **same** packet are safe):
+- object id unknown → the RPC is **dropped silently** (a debug-level log line only); no retry;
+- object known but its local instance not created yet → **retried every tick with no time limit**.
+  A reliable RPC is put back at the head of the queue and **stalls every later message** from the
+  server until the instance exists; an unreliable one is re-appended and blocks nothing. The retry
+  ends only when the instance appears, or the runner gives up on creating it (prefab load failed or
+  ignored), at which point the RPC is dropped.
+Holding an RPC until the target object is **confirmed delivered** on P (not merely written — a lost
+creation packet followed by a delivered RPC packet means a dropped RPC) is therefore the right rule
+**[recommended]**. If the creation can never reach P, delivering the RPC after a bound and dropping
+it are **equivalent to the client** (unknown object ⇒ silent drop); the only constraint is §12.4's:
+never drop a reliable message that already holds a sequence number for P. Numbering at release time
+makes dropping free; otherwise deliver it.
+
+Whether a creation can ever be "too big to send": the SDK sender stops adding records once the packet
+would pass 44 880 bytes (§4.8), and if the record does not fit even as the first one it is attempted
+again every send — the SDK neither refuses to create such an object nor ever skips it (with rising
+priority it ends up first and blocks every other record for that connection). Worst case per data
+word is 47 bits (a 5-bit index delta plus a 42-bit value), header ≤ 19 × 43 bits, so a full record
+whose every data word is a non-zero full-width value fits only up to about **7 600 words** (~29 900
+words if every value is small but non-zero; words never written since creation are not sent at all).
+For a client-originated object the server's record is the same bits as the client's plus at most ~22
+bytes (TimeFeedback and a non-zero word 9), so a record the client managed to send always fits a
+server packet that carries it **first, with no messages** — except within those ~22 bytes of the cap.
 
 ### 12.4 Sending reliably
 
@@ -943,13 +994,27 @@ With the default replication feature set (Scheduling, no area of interest) — w
 uses — the server sends **every object to every connection**, and that is a valid simplification for
 Outbound.
 
-Header word 9 is per recipient: bit 1 `InAreaOfInterest`, bit 2 `ForceInterest`. Without AOI the SDK
-sets `InAreaOfInterest` (1) on every non-struct object's `ObjectData` when it is created, and 0 on
-structs; for an object whose header Flags have `GlobalObjectInterest` (1) it also sets `ForceInterest`
-(2), giving 3. Our server SHOULD send 1 (3 for global-interest objects) in word 9 for every object (0
-for structs), stamped at creation. A
-client with AOI enabled reads it to decide interest and raises ObjectEnterAOI/ExitAOI when it changes;
-a client without AOI ignores it.
+Header word 9 is per recipient: bit 1 `InAreaOfInterest`, bit 2 `ForceInterest`. What the SDK server
+writes with AOI off (and the default Scheduling feature on), exactly:
+
+| object | word 9 |
+|---|---|
+| struct (RuntimeConfig, SceneInfo, PhysicsInfo, PlayerData) | **0** |
+| non-struct, header Flags without `GlobalObjectInterest` | **1** |
+| non-struct, header Flags with `GlobalObjectInterest` (1) | **3** (1 \| 2) |
+
+The value is set when that recipient's per-connection entry for the object is created, stamped then,
+and never changes afterwards; it goes to **every** connection, the creator included (the creator gets
+it in the SDK's echo, §9.2). Our server MUST send these values, constant for the object's lifetime.
+
+A client reads word 9 **whether or not its AOI is enabled** — only its interest *queries* short-circuit
+to "interested" without AOI. On every record it compares the old and new "any interest bit set" state
+for objects whose instance exists: zero → non-zero raises InterestEnter / ObjectEnterAOI and clears the
+object's received-snapshot timeline; non-zero → zero raises ObjectExitAOI / InterestExit. On creation
+the instance does not exist yet, so the first value raises nothing. Hence: never send 0 after a
+non-zero value (or vice versa) for a non-struct object — it fires game-visible callbacks and resets
+interpolation. Sending 0 throughout instead of 1/3 would be silent, but differs from the SDK for any
+game that implements the interest callbacks.
 
 If a client's config has AOI enabled it will send `SetAreaOfInterest` and `SharedModeSetAlwaysInterested`;
 with "everything to everyone" the server MAY ignore both (every object is already "in area"). Real AOI
@@ -1029,12 +1094,13 @@ state + structs ~250, per-connection replication + envelopes ~350, inbound appli
 
 ## 17. Corrections to existing docs and code
 
-1. `docs/fusion-shared-server.md`, "The one required binary patch": does not apply to Outbound or to
-   the libs in `server/fusion-libs/` (stock 2.0.8; no PluginVersion on the 2.0.x wire). The patch and
-   `tools/fusion-patcher` target 2.1.x only (§1).
+1. `docs/fusion-shared-server.md`, "The one required binary patch": did not apply to Outbound or to
+   the libs the host linked (stock 2.0.8; no PluginVersion on the 2.0.x wire). The patch and the
+   former `tools/fusion-patcher` (now only in git history) targeted 2.1.x only (§1).
 2. `docs/fusion-shared-server.md` says the libs come from "a Fusion 2.1.x Unity package", and
    `docs/fusion-protocol-map.md` says its map "was transcribed from Fusion 2.1.2" — but the working copy
-   it names (`scratch/fusion/src/`) is the **2.0.8.1402** decompile, the same build as `fusion-libs/`.
+   it names (`scratch/fusion/src/`) is the **2.0.8.1402** decompile, the same build as the libs the host
+   linked (now `~/.local/share/openpak/fusion-libs`).
    The session messages it lists (incl. PlayerRefMapping, ChangeMasterClient, ProtocolMessageVersion
    V1_6_0) are present in 2.0.8 too, so the map's content holds for Outbound; only the version label is
    off.
@@ -1055,7 +1121,7 @@ state + structs ~250, per-connection replication + envelopes ~350, inbound appli
 Seen in the 2.1.2 decompile only, recorded so nobody reuses this document for a 2.1 title unchanged:
 header word 10 becomes `PluginVersion` (u32) and word 9 `PlayerFlags`; the object record carries a
 PluginVersion varint before the word list that clients write and the cloud plugin reads but does not
-write back (the asymmetry `tools/fusion-patcher` reproduces); the replicator's write/read paths were
+write back (the asymmetry the former `tools/fusion-patcher` reproduced); the replicator's write/read paths were
 restructured. A 2.1.x server needs its own pass over that wire.
 
 ---
@@ -1091,8 +1157,10 @@ restructured. A 2.1.x server needs its own pass over that wire.
 10. **Echo to the authority (§9.2).** The SDK echoes an authority's own changes back. Skipping it is
     safe only together with the "resend everything to the losing authority" rule in §9.2 (the client
     adopts its last *received* snapshot when it loses authority); untested live.
-11. **Holding RPCs until the target object's creation has been sent (§12.3)** is a recommendation with no
-    observed failure behind it; the SDK does not do it.
+11. **Holding RPCs until the target object's creation is confirmed (§12.3)** is a recommendation with no
+    observed failure behind it; the SDK does not do it. The client side of it (silent drop for an
+    unknown object, unbounded head-of-queue retry for a known one without an instance) is now read
+    from the SDK.
 12. **`Smoothed` / median-absolute-deviation definitions** are now given exactly in §10.3. The one piece
     not read is the float → fixed-point step of §4.4 (it lives in `Fusion.Common`, which is not in the
     decompile set); the ×256 scaling and the `vb(6)` block size are confirmed.

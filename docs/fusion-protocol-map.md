@@ -175,7 +175,11 @@ recover from it. See below.
 `ProtocolSerializer.ConvertToMessages`, all three deserialize with the intended field values
 (`Type=Confirmation, GameMode=ClientServer, PeerMode=Server, JoinRequests=NetworkConfig,
 ProtocolVersion=V1_6_0, FusionSerializationVersion=2.1.2`, an 8-byte UniqueId, empty CustomData).
-`dotnet run decode` in the harness re-checks this.
+The deserializer was the **2.0.8.1402** SDK (the libs the host linked at the time). The 2.1.2 is not a
+measured value: it is the serialization version the harness wrote into its own synthetic Join
+Request, which our Confirmation echoes; the SDK only requires the major version to match its own.
+Outbound itself sends **2.0.8**. `dotnet run decode` in the harness re-checks this (it has since been
+re-pointed at the Fusion 1.1.12 SDK and a 1.1.8 request for Moving Out 2).
 
 **A datagram bigger than the client's MTU is lost, silently.** Photon's `SocketUdp.ReceiveLoop`
 reads into `new byte[MTU]` (default 1200), so a larger datagram is truncated and its command parser

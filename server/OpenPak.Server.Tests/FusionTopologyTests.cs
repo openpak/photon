@@ -12,7 +12,7 @@ namespace OpenPak.Server.Tests;
 /// <summary>
 /// Fusion has two topologies and they need opposite things from this server. Outbound joins in
 /// **Shared**, where the authoritative simulation belongs to Photon Cloud's plugin and we host it
-/// (OpenPak.Server.Fusion). Moving Out 2 joins in **ClientServer** — parameter 213 — where the host
+/// (FusionSharedHost). Moving Out 2 joins in **ClientServer** — parameter 213 — where the host
 /// *client* owns the simulation and the server is only a relay. Hosting a Shared simulation for one of
 /// those, and answering it as actor 0, made it drop the session seconds after joining.
 /// </summary>
@@ -168,8 +168,8 @@ public class FusionTopologyTests
     private static readonly byte[] RealJoinRequest =
         Convert.FromHexString("010601000000010000000800000001010100000000000000");
 
-    /// The same Join from a Fusion 2.x peer (serialization version 2.1.2), which is the only kind
-    /// that has a PlayerRefMapping message at all.
+    /// A synthetic Fusion 2 Join (serialization version 2.1.2, an arbitrary 2.x value: the server only
+    /// checks the major version; Outbound sends 2.0.8). Only Fusion 2 has a PlayerRefMapping message.
     private static readonly byte[] Fusion2JoinRequest =
         Convert.FromHexString("010602000000010000000200000001010100000000000000");
 

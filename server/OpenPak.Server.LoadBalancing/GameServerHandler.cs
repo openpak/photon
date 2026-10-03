@@ -19,7 +19,7 @@ public sealed record PeerRoomState(string RoomName, int Actor)
 
     /// <summary>The Fusion topology the client asked for in its JoinGame (parameter 213): "Shared"
     /// or "ClientServer". Outbound asks for Shared, where the authoritative simulation belongs to the
-    /// cloud plugin and we host it (see OpenPak.Server.Fusion). Moving Out 2 asks for
+    /// cloud plugin and we host it (see Fusion.FusionSharedHost). Moving Out 2 asks for
     /// **ClientServer**, where the host *client* owns the simulation and the server is a plain relay —
     /// hosting a Shared simulation for one of those, and answering it as actor 0, makes the client
     /// drop the session after a few seconds. Null means the client did not say, and everything then
