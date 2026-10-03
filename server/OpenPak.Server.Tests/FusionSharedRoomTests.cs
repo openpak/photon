@@ -176,6 +176,19 @@ public class FusionSharedRoomTests
     }
 
     [Fact]
+    public void Header_word_9_carries_interest_three_for_global_objects_one_for_the_rest()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var global = Spawn(room, a, 1024, flags: FusionObject.FlagGlobalObjectInterest);
+        var local = Spawn(room, a, 1025);
+        Assert.Equal(3, b.Packets.SelectMany(p => p.Records).First(r => r.Id == global).Header![9]);
+        Assert.Equal(1, b.Packets.SelectMany(p => p.Records).First(r => r.Id == local).Header![9]);
+        Assert.Equal(0, b.Packets.SelectMany(p => p.Records).First(r => r.Id == FusionSharedRoom.RuntimeConfigId).Header![9]);
+    }
+
+    [Fact]
     public void A_lost_packet_is_resent_even_though_nothing_changed_since()
     {
         var room = NewRoom();

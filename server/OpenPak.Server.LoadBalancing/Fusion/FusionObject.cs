@@ -9,7 +9,7 @@ public sealed class FusionObject
 {
     public const int HeaderWords = 20;
     public const int WordCountWord = 1, TypeWord = 2, FlagsWord = 6, InputAuthorityWord = 7, StateAuthorityWord = 8, InterestWord = 9;
-    public const int FlagDestroyWhenStateAuthorityLeaves = 2, FlagHasMainTrsp = 8, FlagAllowStateAuthorityOverride = 16, FlagStruct = 32;
+    public const int FlagGlobalObjectInterest = 1, FlagDestroyWhenStateAuthorityLeaves = 2, FlagHasMainTrsp = 8, FlagAllowStateAuthorityOverride = 16, FlagStruct = 32;
     public const int TransformFirstWord = 22, TransformLastWord = 28;
     /// <summary>Raw PlayerRef values (spec §6.1).</summary>
     public const int PlayerNone = 0, PlayerMasterClient = -1;

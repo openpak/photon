@@ -121,7 +121,9 @@ public sealed partial class FusionSharedRoom
         var mark = writer.BitCount;
         var full = state.Status == ObjectSendStatus.CreatedUnconfirmed;
         writer.WriteUInt32VarLength(FusionSimCodec.ZigZag32((int)(obj.Id - previousId)), 6);
-        var interest = obj.IsStruct ? 0 : 1;   // InAreaOfInterest: everything reaches everyone (§14)
+        // Without area of interest: InAreaOfInterest (1) for every object, plus ForceInterest (2) for a
+        // GlobalObjectInterest one; 0 for structs (§14). Constant for the object's life.
+        var interest = obj.IsStruct ? 0 : (obj.Flags & FusionObject.FlagGlobalObjectInterest) != 0 ? 3 : 1;
         // The state authority gets its own changes echoed, as from the SDK: it ignores them, and on losing
         // authority it falls back to its last received snapshot, which must not be stale (§9.2).
         var words = obj.WriteRecordBody(writer, full, state.Acked, interest);
