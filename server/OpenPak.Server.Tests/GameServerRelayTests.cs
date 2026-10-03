@@ -164,6 +164,29 @@ public class GameServerRelayTests
     }
 
     [Fact]
+    public void Leave_event_names_the_new_master_only_when_the_master_left()
+    {
+        var (h, _, db) = NewHandler();
+        using (db)
+        {
+            var a = Peer(out _);
+            var b = Peer(out var bRaised);
+            var c = Peer(out var cRaised);
+            h.OnOperationRequest(a, Join());
+            h.OnOperationRequest(b, Join());
+            h.OnOperationRequest(c, Join());
+            bRaised.Clear(); cRaised.Clear();
+
+            h.OnDisconnect(c);   // not the master: Photon's Leave carries no master id
+            Assert.Contains(bRaised, e => e.Code == 254 && !e.Parameters.ContainsKey(203));
+
+            h.OnDisconnect(a);   // the master (lowest actor) leaves: B is named
+            Assert.Contains(bRaised, e => e.Code == 254 && e.Parameters.TryGetValue(254, out var nr) && nr is 1
+                && e.Parameters.TryGetValue(203, out var master) && master is 2);
+        }
+    }
+
+    [Fact]
     public void OpLeave_succeeds_removes_actor_and_allows_a_later_disconnect()
     {
         var (h, _, db) = NewHandler();

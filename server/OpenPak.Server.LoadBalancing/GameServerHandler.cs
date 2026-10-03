@@ -74,6 +74,7 @@ public sealed class GameServerHandler : IOperationHandler
                        PProperties = PhotonCodes.Param.Properties;
     private const byte PBroadcast = PhotonCodes.Param.Broadcast;
     private const byte PTargetActorNr = PhotonCodes.Param.TargetActorNr;  // EvPropertiesChanged: whose properties changed
+    private const byte PLeaveMasterClientId = PhotonCodes.Param.MasterClientId;
     private const byte PFusionTopology = 213;  // JoinGame: "Shared" or "ClientServer", Fusion's own key
     private const byte RoomMasterClientId = PhotonCodes.RoomProperty.MasterClientId;
 
@@ -152,8 +153,13 @@ public sealed class GameServerHandler : IOperationHandler
         if (peer.Tag is not PeerRoomState state) return;
         peer.Tag = null; // make a later eNet disconnect idempotent
         var session = _registry.Session(state.RoomName);
-        // Notify remaining actors that this actor left (event 254, ActorNr = leaver).
-        session.RelayFrom(state.Actor, new EventData(EvLeave, new() { { PActorNr, state.Actor } }));
+        // Notify remaining actors that this actor left (event 254, ActorNr = leaver). The master is the
+        // lowest actor (RoomMasterClientId), so when it leaves the event also names the next one, as
+        // Photon's does — a Fusion Shared client takes IsSharedModeMasterClient from exactly that.
+        var leave = new EventData(EvLeave, new() { { PActorNr, state.Actor } });
+        var remaining = session.Actors().Where(a => a != state.Actor).ToArray();
+        if (remaining.Length > 0 && state.Actor < remaining.Min()) leave.Parameters[PLeaveMasterClientId] = remaining.Min();
+        session.RelayFrom(state.Actor, leave);
         session.Leave(state.Actor);
         var left = _registry.Find(state.RoomName);
         left?.RemoveActor(state.Actor);

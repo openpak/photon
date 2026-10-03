@@ -72,6 +72,7 @@ public static class PhotonCodes
         public const byte SteamTicket = 217;         // byte[] Steam auth-session ticket (Photon ClientAuthenticationData slot)
         public const byte ClientAuthenticationParams = 216;
         public const byte Region = 210;
+        public const byte MasterClientId = 203;      // EvLeave: the room's new master when the leaver was master
         public const byte LobbyName = 213;           // OpJoinLobby: the named/typed lobby to join (e.g. a Fusion session-code lobby)
         public const byte LobbyType = 212;
     }
