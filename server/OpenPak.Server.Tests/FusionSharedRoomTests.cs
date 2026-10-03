@@ -139,6 +139,15 @@ public class FusionSharedRoomTests
         Assert.Equal(b.PlayerRaw, b.LatestWord(FusionSharedRoom.RuntimeConfigId, 26));
     }
 
+    [Fact]
+    public void Packets_are_stamped_with_the_time_of_their_own_round()
+    {
+        var room = NewRoom();
+        Join(room, 1);
+        Step(room, 3);   // the client answers each round at the round's own time
+        Assert.Equal(0, room.ConnectionOf(1)!.Rtt, 6);
+    }
+
     // ---- Objects (§8, §9) ----
 
     [Fact]

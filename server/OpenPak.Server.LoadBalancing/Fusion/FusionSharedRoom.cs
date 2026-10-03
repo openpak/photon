@@ -92,6 +92,9 @@ public sealed partial class FusionSharedRoom
 
     public int PlayerCount => _players.Count;
 
+    /// <summary>The relay connection of <paramref name="actor"/> (tests and diagnostics).</summary>
+    internal FusionRelayConnection? ConnectionOf(int actor) => _peer.ConnectionOf(actor);
+
     /// <summary>The stamp changes get until the next send round (spec §8.1: always above every sent stamp).</summary>
     private int NextStamp => _round + 1;
 
@@ -144,6 +147,8 @@ public sealed partial class FusionSharedRoom
         for (var reached = Math.Max(_tick + 1, tick - TickRate + 1); reached <= tick; reached++)
             _tickTimes[reached % TickRate] = _now;
         _tick = tick;
+        // The transport's clock first, so this round's packets are stamped with this round's time (RTT).
+        _peer.Update(_now);
 
         if (_tick - _lastRoundTick >= SendIntervalTicks)
         {
@@ -155,7 +160,6 @@ public sealed partial class FusionSharedRoom
                 catch (Exception ex) { Log.Exception(Cat, $"\"{Name}\" packet to actor {player.Actor} failed", ex); }
             }
         }
-        _peer.Update(_now);
         foreach (var (actor, departed) in _departing.ToArray())
         {
             if (_now < departed.Deadline) continue;
