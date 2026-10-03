@@ -574,6 +574,7 @@ public class FusionRelayPeerTests
         var forwarded = SentReliable(2);
         var id = ReliableIdOf(Assert.Single(forwarded));
         Assert.Equal((1, 7), (id.Source, id.SourceSend));
+        Assert.Equal(1UL, peer.ConnectionOf(1)!.RecvMask);   // the dropped ones were never acknowledged
     }
 
     [Fact]

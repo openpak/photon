@@ -406,6 +406,7 @@ public sealed class FusionRelayPeer
             return;
         }
         if (distance == 0) return;   // duplicate
+        if (header.Type == NetPacketType.NotifyReliableData && !IsStockSlice(connection, datagram)) return;   // never acknowledged
 
         connection.ResetFragments();
         Accept(connection, header, distance);
@@ -502,20 +503,7 @@ public sealed class FusionRelayPeer
     private void ReceiveReliable(FusionRelayConnection connection, byte[] packet)
     {
         const int dataOffset = FusionRelayCodec.NotifyHeaderSize + FusionRelayCodec.ReliableIdSize;
-        if (!FusionRelayCodec.TryReadReliableId(packet.AsSpan(FusionRelayCodec.NotifyHeaderSize), out var id))
-        {
-            Log.Debug(Cat, $"actor {connection.Actor} reliable slice too short ({packet.Length} bytes)");
-            return;
-        }
-        // A slice is at most 1088 bytes, says its own length truthfully (a receiver trusts SliceLength),
-        // and a player only ever sends its own messages: one naming another Source would let it inject
-        // into that player's stream at the receiver (spec §8.1).
-        var length = packet.Length - dataOffset;
-        if (length > FusionRelayCodec.MaxReliableSliceBytes || id.SliceLength != length || id.Source != connection.PlayerId)
-        {
-            Log.Debug(Cat, $"actor {connection.Actor} reliable slice dropped: {length} bytes, SliceLength {id.SliceLength}, source {id.Source}");
-            return;
-        }
+        FusionRelayCodec.TryReadReliableId(packet.AsSpan(FusionRelayCodec.NotifyHeaderSize), out var id);   // checked before acceptance
         var slice = new ReliableSlice(id, packet[dataOffset..]);
 
         var ahead = (int)(id.Sequence - (connection.ReliableLastDelivered + 1));
@@ -536,6 +524,20 @@ public sealed class FusionRelayPeer
         DeliverReliable(connection, slice);
         while (connection.ReliableStore.Remove(connection.ReliableLastDelivered + 1, out var next))
             DeliverReliable(connection, next);
+    }
+
+    /// <summary>A slice is at most 1088 bytes, states its own length truthfully (a receiver trusts
+    /// SliceLength) and names its sender as Source: one naming another would let it inject into that
+    /// player's stream at the receiver. A stock peer never violates this; a violating datagram is dropped
+    /// before it is acknowledged (spec §8.1).</summary>
+    private static bool IsStockSlice(FusionRelayConnection connection, ReadOnlySpan<byte> datagram)
+    {
+        var length = datagram.Length - FusionRelayCodec.NotifyHeaderSize - FusionRelayCodec.ReliableIdSize;
+        if (FusionRelayCodec.TryReadReliableId(datagram[FusionRelayCodec.NotifyHeaderSize..], out var id)
+            && length <= FusionRelayCodec.MaxReliableSliceBytes && id.SliceLength == length && id.Source == connection.PlayerId)
+            return true;
+        Log.Debug(Cat, $"actor {connection.Actor} reliable slice dropped: {length} bytes, SliceLength {id.SliceLength}, source {id.Source}");
+        return false;
     }
 
     /// <summary>Hands a slice for the server up; proxies one for another player to that player's connection
