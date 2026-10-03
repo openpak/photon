@@ -117,10 +117,6 @@ public static class FusionProtocol
     /// client's own handler for receiving one is a no-op) so it's left unimplemented and simply
     /// falls through the generic relay path untouched.
     /// </summary>
-    /// <summary>The 8-byte Fusion UniqueId the server assigns to an actor. It must be STABLE for the
-    /// life of the peer's session: the client stores the Join Confirmation's UniqueId and presents it
-    /// again on its event-101 relay Connect, and the hosted Fusion server keys its player mapping on it.
-    /// Derived from the actor number so the server can recompute it without extra state.</summary>
     /// <summary>
     /// Decodes a <c>NetworkConfigSync</c> (protocol id 2): the client's own NetworkProjectConfig, as
     /// JSON. Worth having because it is the one thing a Fusion client tells us about its own setup —
@@ -137,11 +133,16 @@ public static class FusionProtocol
             byte protocolVersion = r.ReadBits(8);
             if (protocolVersion >= 2) { r.ReadIntN(32); r.ReadIntN(32); r.ReadIntN(32); }
             byte syncType = r.ReadBits(8);
-            return (syncType, r.ReadString());
+            // A null string on the wire carries no config; report it as empty rather than as a non-message.
+            return (syncType, r.ReadString() ?? "");
         }
         catch { return null; }
     }
 
+    /// <summary>The 8-byte Fusion UniqueId the server assigns to an actor. It must be STABLE for the
+    /// life of the peer's session: the client stores the Join Confirmation's UniqueId and presents it
+    /// again on its event-101 relay Connect, and the hosted Fusion server keys its player mapping on it.
+    /// Derived from the actor number so the server can recompute it without extra state.</summary>
     public static byte[] UniqueIdForActor(int actor)
     {
         var id = new byte[8];
@@ -411,27 +412,31 @@ public sealed class FusionBitWriter
 /// verified against a real Photon Cloud capture by mirroring the exact struct in an unsafe C#
 /// type locally and reading captured bytes through it, not by hand-counting offsets. Only
 /// Connect→Accepted is implemented: the minimal handshake needed for a solo host's own client to
-/// stop timing out. This is NOT the real-time simulation/snapshot data itself — that rides the
-/// same event code once a connection here is established, and remains unimplemented.
+/// stop timing out (the legacy no-Fusion-server path in <c>GameServerHandler</c>). The full transport
+/// — notify channel, fragmentation, reliable channel — is <c>OpenPak.Server.LoadBalancing.Fusion</c>;
+/// docs/protocol/07-fusion-relay-transport.md is the reference for both.
 /// </summary>
 public static class FusionRelayProtocol
 {
     public const byte DataEventCode = 101;
     private const byte NetPacketTypeCommand = 1;
-    private const byte NetPacketTypeData = 4;
+    // NetPacketType: 3 = NotifyData (every simulation packet), 4 = NotifyAcks (ack-only / keepalive).
+    private const byte NetPacketTypeNotifyAcks = 4;
     private const byte NetCommandConnect = 1, NetCommandAccepted = 2;
 
-    // NetCommandConnect (Fusion.Sockets, decompiled): [FieldOffset(0)] byte PacketType,
-    // [FieldOffset(1)] byte Command, [FieldOffset(4)] int TokenLength, [FieldOffset(8)]
-    // NetConnectionId (8B), [FieldOffset(16)] byte TokenData[128], [FieldOffset(144)]
-    // byte UniqueId[8]. Total 152 bytes — a real captured Connect matched this exactly.
-    private const int ConnectSize = 152, ConnectUniqueIdOffset = 144, ConnectUniqueIdLength = 8;
+    // NetCommandConnect (spec §3.1): byte PacketType @0, byte Command @1, int TokenLength @4,
+    // NetConnectionId (8 B) @8, byte TokenData[128] @16, byte UniqueId[8] @144. Total 152 bytes — a
+    // real captured Connect matched this exactly.
+    private const int ConnectSize = 152, ConnectConnectionIdOffset = 8, ConnectUniqueIdOffset = 144, IdLength = 8;
 
-    public sealed record ConnectRequest(byte[] UniqueId);
+    /// <summary>A decoded Connect: the client's UniqueId and its own 8-byte <c>NetConnectionId</c>,
+    /// which Accepted echoes.</summary>
+    public sealed record ConnectRequest(byte[] UniqueId, byte[] ConnectionId);
 
-    /// <summary>Returns true for Fusion relay data packets. In a solo Shared-mode room the
-    /// relay is a self-loop, so these packets must be delivered back to the sole actor.</summary>
-    public static bool IsDataPacket(byte[] payload) => payload.Length >= 14 && payload[0] == NetPacketTypeData;
+    /// <summary>Returns true for a Fusion <c>NotifyAcks</c> packet (type 4, the 14-byte notify header and
+    /// nothing else): the ack-only keepalive a client sends when it has no simulation packet to send. The
+    /// legacy solo path echoes these back to a lone client, which accepts its own keepalives.</summary>
+    public static bool IsNotifyAcksPacket(byte[] payload) => payload.Length >= 14 && payload[0] == NetPacketTypeNotifyAcks;
 
     /// <summary>Decodes a code-101 payload as a <c>NetCommandConnect</c>, or null if it isn't one
     /// (wrong packet/command type, or too short) — never throws, this is untrusted network input.</summary>
@@ -439,23 +444,25 @@ public static class FusionRelayProtocol
     {
         if (payload.Length < ConnectSize) return null;
         if (payload[0] != NetPacketTypeCommand || payload[1] != NetCommandConnect) return null;
-        return new ConnectRequest(payload[ConnectUniqueIdOffset..(ConnectUniqueIdOffset + ConnectUniqueIdLength)]);
+        return new ConnectRequest(payload[ConnectUniqueIdOffset..(ConnectUniqueIdOffset + IdLength)],
+            payload[ConnectConnectionIdOffset..(ConnectConnectionIdOffset + IdLength)]);
     }
 
     /// <summary>
-    /// Builds a <c>NetCommandAccepted</c> reply. Field values (Group=0, GroupIndex=0,
-    /// Generation=1 for both AcceptedLocalId and AcceptedRemoteId, Counter=1) are copied exactly
-    /// from a real Photon Cloud server's Accepted reply to a solo host's own Connect, captured and
-    /// decoded live — see earlier-outbound/HANDOFF.md.
+    /// Builds a 32-byte <c>NetCommandAccepted</c>: AcceptedLocalId (the server's id for the connection:
+    /// Group 0, slot 0, Generation 1) @8, AcceptedRemoteId = <paramref name="clientConnectionId"/> echoed
+    /// @16, and <paramref name="counter"/> @24. Counter is the client's NetworkId namespace: never 0 and
+    /// unique per connection in a session (spec §5.3).
     /// </summary>
-    public static byte[] EncodeAccepted()
+    public static byte[] EncodeAccepted(ReadOnlySpan<byte> clientConnectionId, uint counter)
     {
+        if (clientConnectionId.Length != IdLength) throw new ArgumentException("a NetConnectionId is 8 bytes", nameof(clientConnectionId));
         var b = new byte[32];
         b[0] = NetPacketTypeCommand;
         b[1] = NetCommandAccepted;
         BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(12), 1);   // AcceptedLocalId.Generation
-        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(20), 1);   // AcceptedRemoteId.Generation
-        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(24), 1);   // Counter
+        clientConnectionId.CopyTo(b.AsSpan(16));                       // AcceptedRemoteId
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(24), counter);
         return b;
     }
 }

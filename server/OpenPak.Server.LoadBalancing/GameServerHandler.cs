@@ -394,8 +394,8 @@ public sealed class GameServerHandler : IOperationHandler
             }
             // Fusion's OTHER channel (101, "DATA") is its own separate low-level transport
             // (NetPeerGroup/NetSocketRelay) — see FusionRelayProtocol. Right after Start, the
-            // client tries to Connect over this channel too (even for a solo host, to the "relay"
-            // representing itself); without an Accepted reply it times out and disconnects, same
+            // client tries to Connect over this channel too (even a solo host connects, to the server
+            // at actor 0); without an Accepted reply it times out and disconnects, same
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null)
@@ -410,14 +410,16 @@ public sealed class GameServerHandler : IOperationHandler
                      && FusionRelayProtocol.TryDecodeConnect(relayPayload) is { } connect
                      && state.AcceptedFusionRelayIds.Add(Convert.ToHexString(connect.UniqueId)))
             {
-                // Legacy solo-host fallback (no Fusion server linked): self-loopback accept.
-                peer.RaiseEvent(ServerFusionEvent(ec, FusionRelayProtocol.EncodeAccepted()));
+                // Legacy solo-host fallback (no Fusion server linked): self-loopback accept. Counter 1 is
+                // the first connection's namespace; this path only ever serves a room's one client.
+                peer.RaiseEvent(ServerFusionEvent(ec, FusionRelayProtocol.EncodeAccepted(connect.ConnectionId, counter: 1)));
             }
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayData
-                     && FusionRelayProtocol.IsDataPacket(relayData)
+                     && FusionRelayProtocol.IsNotifyAcksPacket(relayData)
                      && _registry.Session(state.RoomName).Count == 1)
             {
-                // AcceptedLocalId/AcceptedRemoteId form a self-loop for a solo Shared host.
+                // Echo a solo Shared host's ack-only keepalives back: with no server simulation, these keep
+                // its relay connection from timing out (its own NotifyData is not echoed).
                 peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
             // When a Fusion server hosts the room, its protocol-package (100) traffic is client<->server
