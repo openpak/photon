@@ -449,6 +449,25 @@ public class FusionSharedRoomTests
     }
 
     [Fact]
+    public void A_departing_players_objects_cannot_be_claimed_before_its_cleanup()
+    {
+        var room = NewRoom();
+        var a = Join(room, 1);
+        var b = Join(room, 2);
+        var doomed = Spawn(room, a, 1024, flags: FusionObject.FlagDestroyWhenStateAuthorityLeaves);
+        _clients.Remove(1);
+        Send(room, a, FusionRelayCodec.EncodeDisconnect(NetDisconnectReason.Requested));   // goodbye, Photon leave pending
+
+        Send(room, b, b.Packet(messages: [Internal(4, (int)doomed, 1)]));
+        Step(room, 2);
+        Assert.NotEqual(b.PlayerRaw, b.LatestWord(doomed, 8));
+
+        room.Unregister(1);
+        Step(room, 2);
+        Assert.Contains(doomed, b.Packets.SelectMany(p => p.Destroys));
+    }
+
+    [Fact]
     public void Only_the_authority_may_update_or_destroy_an_object()
     {
         var room = NewRoom();

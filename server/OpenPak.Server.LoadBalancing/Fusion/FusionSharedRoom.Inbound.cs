@@ -377,7 +377,8 @@ public sealed partial class FusionSharedRoom
         var next = raw;
         if (acquire)
         {
-            var currentGone = current == FusionObject.PlayerNone || !_players.ContainsKey(current - 1);
+            // A departing player still holds its objects: its cleanup decides whether they are destroyed or released.
+            var currentGone = current == FusionObject.PlayerNone || !_players.ContainsKey(current - 1) && !_departing.ContainsKey(current - 1);
             if (current != source.PlayerRaw && raw != FusionObject.PlayerMasterClient
                 && ((obj.Flags & FusionObject.FlagAllowStateAuthorityOverride) != 0 || currentGone))
                 next = source.PlayerRaw;
