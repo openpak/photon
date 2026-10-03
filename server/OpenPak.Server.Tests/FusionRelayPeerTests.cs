@@ -555,6 +555,70 @@ public class FusionRelayPeerTests
         Assert.Empty(SentReliable(1));
     }
 
+    [Fact]
+    public void A_slice_naming_another_source_or_over_1088_bytes_is_dropped()
+    {
+        var peer = NewPeer();
+        Connect(peer, 1);
+        Connect(peer, 2);
+        Connect(peer, 3);
+
+        peer.Receive(1, ReliableDatagram(1, new ReliableId(1, 1, 1, 3, 5, 2, Key), [7]));   // poses as player 3
+        peer.Receive(1, ReliableDatagram(2, new ReliableId(1, 1089, 1089, 1, 6, 2, Key), new byte[1089]));
+        peer.Receive(1, ReliableDatagram(3, new ReliableId(1, 1, 1, 1, 7, 2, Key), [8]));   // the genuine one
+        peer.Update(0);
+        peer.Update(0.05);
+        peer.Update(0.1);
+
+        var forwarded = SentReliable(2);
+        var id = ReliableIdOf(Assert.Single(forwarded));
+        Assert.Equal((1, 7), (id.Source, id.SourceSend));
+    }
+
+    [Fact]
+    public void Oversize_unfragmented_datagrams_and_fragmented_reliable_slices_are_dropped()
+    {
+        var peer = NewPeer();
+        Connect(peer, 1);
+        peer.Receive(1, Notify(NetPacketType.NotifyData, 1, payload: new byte[FusionRelayCodec.MaxDatagramBytes]));
+        peer.Receive(1, ReliableDatagram(2, new ReliableId(1, 1, 1, 1, 1, -1, Key), [1]) is var slice ? Fragment(slice, 0x81) : null!);
+        Assert.Empty(_notifies);
+        Assert.Empty(_reliables);
+
+        peer.Receive(1, Notify(NetPacketType.NotifyData, 3, payload: new byte[FusionRelayCodec.MaxDatagramBytes - FusionRelayCodec.NotifyHeaderSize]));
+        Assert.Single(_notifies);   // exactly 1280 is fine
+    }
+
+    private static byte[] Fragment(byte[] datagram, byte fragment)
+    {
+        var copy = datagram.ToArray();
+        Assert.True(FusionRelayCodec.TryReadNotifyHeader(copy, out var header));
+        FusionRelayCodec.WriteNotifyHeader(copy, header with { Fragment = fragment });
+        return copy;
+    }
+
+    [Fact]
+    public void Counters_skip_the_server_id_range_and_any_namespace_still_in_use()
+    {
+        var peer = NewPeer(maxConnections: 4);
+        var longLived = Connect(peer, 1);
+        Assert.Equal(1u, longLived.Counter);
+        var now = 0.0;
+        // Reconnect a second player 8200 times: its counter wraps the 13 bits a client id carries.
+        var seen = new List<uint>();
+        for (var i = 0; i < 8200; i++)
+        {
+            var connection = Connect(peer, 2);
+            seen.Add(connection.Counter & 0x1FFF);
+            peer.Unregister(2);
+            peer.Update(now += 1);
+            peer.Update(now += 2);   // shutdown time passes: the slot is released
+            longLived.LastRecv = now;
+        }
+        Assert.DoesNotContain(0u, seen);
+        Assert.DoesNotContain(1u, seen);   // still player 1's namespace
+    }
+
     // ---- Keepalive and timeout (§6.4) ----
 
     private List<byte[]> SentAcks() => _sent.Where(s => s.Data[0] == (byte)NetPacketType.NotifyAcks).Select(s => s.Data).ToList();

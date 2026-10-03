@@ -393,6 +393,13 @@ public sealed class FusionRelayPeer
             return;
         }
         if (distance < 0) return;   // older than the newest: never accepted, the sender sees it lost
+        // Trust boundary (spec §7): only NotifyData is ever fragmented, and an unfragmented datagram is at
+        // most 1280 bytes. The SDK never sends anything else, so anything else is dropped unread.
+        if (header.Fragment != 0 ? header.Type != NetPacketType.NotifyData : datagram.Length > FusionRelayCodec.MaxDatagramBytes)
+        {
+            if (Log.Enabled(LogLevel.Trace)) Log.Trace(Cat, $"actor {connection.Actor} {header.Type} fragment {header.Fragment} of {datagram.Length} bytes dropped");
+            return;
+        }
         if (header.Fragment != 0)
         {
             ReceiveFragment(connection, header, distance, datagram);
@@ -500,6 +507,13 @@ public sealed class FusionRelayPeer
             Log.Debug(Cat, $"actor {connection.Actor} reliable slice too short ({packet.Length} bytes)");
             return;
         }
+        // A slice is at most 1088 bytes (spec §8), and a player only ever sends its own messages: one
+        // naming another Source would let it inject into that player's stream at the receiver.
+        if (packet.Length - dataOffset > FusionRelayCodec.MaxReliableSliceBytes || id.Source != connection.PlayerId)
+        {
+            Log.Debug(Cat, $"actor {connection.Actor} reliable slice dropped: {packet.Length - dataOffset} bytes, source {id.Source}");
+            return;
+        }
         // The slice is whatever follows the id; the wire's SliceLength is not trusted.
         var slice = new ReliableSlice(id with { SliceLength = packet.Length - dataOffset }, packet[dataOffset..]);
 
@@ -577,14 +591,15 @@ public sealed class FusionRelayPeer
     }
 
     /// <summary>The per-transport Counter (spec §5.3): first connection 1, +1 per accepted connection, never
-    /// reset, never 0. A Shared client builds its NetworkIds as <c>Counter &lt;&lt; 19</c>, so only the low
-    /// 13 bits matter.</summary>
+    /// reset. A Shared client builds its NetworkIds as <c>Counter &lt;&lt; 19</c>, so only the low 13 bits
+    /// matter: a value whose low bits are 0 (the server's own id range) or belong to a live connection is
+    /// skipped, so a long-lived room never hands two connections one id namespace.</summary>
     private uint NextCounter()
     {
-        // GAP: the low 13 bits repeat after 8192 connections in one room's lifetime, so a client could then
-        // share an object-id namespace with a long-gone one — revisit if rooms ever live that long.
-        _counter++;
-        if (_counter == 0) _counter = 1;
+        const uint idBits = 0x1FFF;
+        var inUse = _slots.Where(c => c is not null).Select(c => c!.Counter & idBits).ToHashSet();
+        do _counter++;
+        while ((_counter & idBits) == 0 || inUse.Contains(_counter & idBits));
         return _counter;
     }
 }
