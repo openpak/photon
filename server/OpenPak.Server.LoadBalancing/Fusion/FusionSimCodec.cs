@@ -89,9 +89,10 @@ public static class FusionSimCodec
             throw new InvalidDataException("message carries user flags");   // the SDK never sends them
         message.Flags = (SimMessageFlags)flags | SimMessageFlags.Remote;
         if (message.IsReliable) message.Sequence = reader.ReadUInt64VarLength(16);
-        var bytes = (message.BitLength + 7) / 8;
-        if (message.BitLength < 0 || bytes > MaxMessagePayloadBytes)
+        // Bounded before rounding up: (bits + 7) / 8 overflows to a small number near int.MaxValue.
+        if ((uint)message.BitLength > MaxMessagePayloadBytes * 8)
             throw new InvalidDataException($"message payload of {message.BitLength} bits");
+        var bytes = (message.BitLength + 7) / 8;
         // An empty payload has no pad before it (spec §4.3).
         if (bytes > 0) message.Payload = reader.ReadBytesAligned(bytes);
         return message;
