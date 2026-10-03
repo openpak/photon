@@ -48,6 +48,8 @@ and Phase 4 (anti-cheat).
 | [04-serialization.md](04-serialization.md) | GpBinary + serialize-view payload layouts | `generated/serialize_views.csv` |
 | [05-transport.md](05-transport.md) | Reliable-UDP command/packet framing | Photon3Unity3D enet layer (static) |
 | [06-fusion-session-join.md](06-fusion-session-join.md) | Fusion session join flow + GameList room-property contract | Outbound 0.6.0 decompile map |
+| [07-fusion-relay-transport.md](07-fusion-relay-transport.md) | Fusion relay transport carried in event 101 | black-box measurement, real-client harness |
+| [08-fusion-shared-simulation.md](08-fusion-shared-simulation.md) | Fusion 2 Shared-mode simulation: replication, structs, master, leave | black-box measurement, real-client harness |
 
 ## Generated tables
 

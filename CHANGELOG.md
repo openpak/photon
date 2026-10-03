@@ -3,6 +3,32 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased
+
+**Fusion is hosted by our own code, and the server needs no retail assemblies.** The Shared-mode host
+that linked the retail `Fusion.Runtime.dll` (behind a hand-written Unity stub and a Cecil patch) is
+replaced by a clean-room implementation specified in `docs/protocol/07-fusion-relay-transport.md` and
+`08-fusion-shared-simulation.md`. The released image is complete on its own.
+
+- feat(fusion): **clean-room relay transport** (`OpenPak.Server.LoadBalancing/Fusion`) for the event-101
+  packets: Connect/Accepted/NotifyData, acks, fragmentation and reliability, per room and per peer.
+- feat(fusion): **clean-room Shared-mode simulation** replaces the retail host: object and struct
+  replication, master election, RPC and internal-message relay, spawn and despawn. Wired
+  unconditionally in `ListenersHostedService`.
+- fix(fusion): **a leaver's objects are destroyed** (or lose their state authority when they are not
+  meant to be destroyed), instead of staying in the room for the others.
+- fix(fusion): **the Photon Leave event names the new master**, in step with `RuntimeConfig`.
+- fix(fusion): `FusionRelayProtocol` packet-type constants corrected.
+- feat(config): `Server.Fusion.SceneAuthorityMasterClient` (default off) gives SceneInfo/PhysicsInfo to the
+  master client instead of None; see `docs/configuration.md`.
+- chore(fusion): removed `OpenPak.Server.Fusion` (the DLL-backed host), `OpenPak.Server.Fusion.UnityStub`,
+  `tools/fusion-patcher`, the `FusionAvailable`/`FUSION_LIBS` build switch and `server/fusion-libs/`.
+  `release.yml` no longer stages libs from the runner, so a missing copy can no longer fail a release.
+  `OPENPAK_FUSION_PAGE_KB` no longer exists (no heap blocks). The harnesses that need the retail DLLs
+  as test instruments moved to the workspace's `scratch/`.
+- docs: `docs/fusion-shared-server.md` rewritten for the clean-room host; the Fusion version for Outbound
+  is 2.0.8 (build 2.0.8.1402), not 2.1.x.
+
 ## v0.10.0 — 2026-09-28
 
 **A second player can join a ClientServer session.** Moving Out 2's joiner reached the room for the

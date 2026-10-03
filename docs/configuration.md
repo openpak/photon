@@ -153,14 +153,12 @@ the title being hosted rather than to the server:
 | Internal key for that API | `OPENPAK_INTERNAL_KEY` | `<shared secret>` |
 | Photon AppId → title id | `OPENPAK_PHOTON_TITLES` | `cffbe809-…=0100ED9024EB8000,a956fef2-…=0100C4C00E73E000` |
 | Title id for a room whose AppId is unmapped | `OPENPAK_TITLE_ID` | `0100ED9024EB8000` (Outbound) |
-| Fusion heap block size, KB | `OPENPAK_FUSION_PAGE_KB` | `128` (default; `32`/`64`/`256` also valid) |
 
 One server hosts several games, and each dials it with its own Photon AppId, so a room is filed
 under whichever title `OPENPAK_PHOTON_TITLES` maps that AppId to (param 224, read at Authenticate;
 comparison is case-insensitive). `OPENPAK_TITLE_ID` is the fallback for a client that sends no AppId
 or an unmapped one. Room presence is published only when `OPENPAK_BAAS_URL` is set and the room
-resolves to a title — publishing under the wrong title id would file rooms against another game. `OPENPAK_FUSION_PAGE_KB`
-must be large enough to hold one player object (Outbound's is 37 KB, so the 32 KB SDK default fails).
+resolves to a title — publishing under the wrong title id would file rooms against another game.
 `OPENPAK_INTERNAL_KEY` still falls back to `OPENPAK_INTERNAL_KEY`. `OPENPAK_BAAS_URL` has no
 fallback on purpose: it points at nx-baas's game API (`POST /internal/photon-room`), not at the old
 account server, so a rig still setting `OPENPAK_ACCOUNT_URL` stops publishing instead of posting

@@ -1,7 +1,7 @@
 # OpenPak.Server — Photon-compatible game server
 
 OpenPak's server for Unity games on Photon: a clean-room implementation of Photon's
-transport and LoadBalancing protocol, plus a headless host for Photon Fusion's own
+transport and LoadBalancing protocol, plus a clean-room host for Photon Fusion's own
 Shared-mode simulation. Self-host the titles you own instead of depending on Photon Cloud.
 
 Titles it currently serves:
@@ -38,28 +38,17 @@ are exactly what this endpoint exists to tell apart. The website's status page r
 
 ## Building the image
 
-**By the release workflow, with the libs from the runner.** The Fusion Shared-mode host links
-Photon Fusion's own assemblies, which are not redistributable and are therefore not in this
-repository: `server/fusion-libs/` must exist in the build context. The self-hosted runner keeps a
-copy outside the repo (`~/.local/share/openpak/fusion-libs`, or `FUSION_LIBS_DIR`), and
-`release.yml` copies it in before building — and **fails** if it is missing, because without the
-libs the build still succeeds and silently yields the solo-host path with no Fusion relay. So a
-`v*.*.*` tag is the deploy, like every other OpenPak service.
+**By the release workflow.** The image needs nothing beyond the repository: the Fusion Shared-mode
+host is our own code (`OpenPak.Server.LoadBalancing/Fusion`), with no retail assemblies to stage.
+`release.yml` builds and pushes it, so a `v*.*.*` tag is the deploy, like every other OpenPak service.
 
-A hand build from a workstation that has the libs in `server/fusion-libs/` still works:
+A hand build from a workstation works the same way:
 
 ```sh
 podman build --platform linux/amd64,linux/arm64 --manifest ghcr.io/openpak/photon:build .
 podman manifest push --all ghcr.io/openpak/photon:build docker://ghcr.io/openpak/photon:latest
 ssh <deploy host> 'podman pull ghcr.io/openpak/photon:latest &&
                    systemctl --user restart openpak-photon'   # drops live games
-```
-
-Check the image really carries the relay before pushing — eight files, both arches:
-
-```sh
-podman unshare sh -c 'ls "$(podman image mount <image-id>)"/app' |
-  grep -cE "^(Fusion\.|Photon3Unity3D|OpenPak\.Server\.Fusion\.dll|libnanosockets)"
 ```
 
 ## Status

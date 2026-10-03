@@ -118,11 +118,11 @@ than a known failure — recorded because it is the only field we invent rather 
 
 ## Fusion 1.x is a different protocol registry (2026-09-27, measured against the 1.1.12 SDK)
 
-The map below was transcribed from **Fusion 2.1.2**. Moving Out 2 runs **Fusion 1.1.8**, and the
+The map below was transcribed from the **Fusion 2.x** SDK (Outbound ships **2.0.8**, build 2.0.8.1402). Moving Out 2 runs **Fusion 1.1.8**, and the
 message ids are not the same. Decompiled from the Fusion 1.1.12 SDK (`scratch/fusion/libs-1.1.12`,
 `src-1.1.12`):
 
-| id | Fusion 1.1.x | Fusion 2.1.x |
+| id | Fusion 1.1.x | Fusion 2.x |
 |---|---|---|
 | 1-7 | Join, NetworkConfigSync, ReflexiveInfo, Disconnect, Start, Snapshot, HostMigration | same |
 | 8 | **DummyTrafficSync** | **PlayerRefMapping** |
