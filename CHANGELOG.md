@@ -3,7 +3,7 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased
+## v0.11.0 — 2026-10-03
 
 **Fusion is hosted by our own code, and the server needs no retail assemblies.** The Shared-mode host
 that linked the retail `Fusion.Runtime.dll` (behind a hand-written Unity stub and a Cecil patch) is
