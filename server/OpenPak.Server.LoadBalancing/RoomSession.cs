@@ -36,6 +36,8 @@ public sealed class RoomSession
     // reconnecting actor renders the world afresh.
     private readonly Dictionary<int, HashSet<int>> _deliveredSpawns = new();
 
+    /// <summary>The room's registry key (<see cref="RoomRegistry.KeyFor"/>), which equals its name for a
+    /// client that sent no AppId/AppVersion. Show <see cref="RoomRegistry.PublicName"/> of it.</summary>
     public string RoomName { get; }
 
     /// <summary>

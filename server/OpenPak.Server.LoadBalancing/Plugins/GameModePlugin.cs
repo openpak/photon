@@ -31,7 +31,7 @@ public sealed class GameModePlugin : IServerPlugin
 
     private static void AssignTeam(RoomActorContext ctx, GameModeRegistry modes, RealmService? realms, RoomRegistry? rooms)
     {
-        var mode = GameModeRegistry.Parse(realms?.Get(ctx.RoomName)?.Mode);
+        var mode = GameModeRegistry.Parse(realms?.Get(RoomRegistry.PublicName(ctx.RoomName))?.Mode);
         modes.SetMode(ctx.RoomName, mode);
         if (mode == GameMode.FreeForAll) return;
 
@@ -43,6 +43,6 @@ public sealed class GameModePlugin : IServerPlugin
             { PhotonCodes.Param.Properties, teamProp },
             { PhotonCodes.Param.TargetActorNr, ctx.Actor },
         }));
-        Log.Info("GameMode", $"\"{ctx.RoomName}\" [{mode}] assigned actor {ctx.Actor} to team {team}");
+        Log.Info("GameMode", $"\"{RoomRegistry.PublicName(ctx.RoomName)}\" [{mode}] assigned actor {ctx.Actor} to team {team}");
     }
 }

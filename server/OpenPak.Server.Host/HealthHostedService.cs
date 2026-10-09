@@ -142,7 +142,7 @@ public sealed class HealthHostedService : BackgroundService
         }
         report.ApplyTo(_rooms, _nodes);
         if (report.Identity is { Length: > 0 } identity && _publisher is not null)
-            _ = _publisher.PublishAsync(identity, report.Room);
+            _ = _publisher.PublishAsync(identity, report.Room, report.AppId);
         status = 200;
         return JsonSerializer.Serialize(new { ok = true });
     }

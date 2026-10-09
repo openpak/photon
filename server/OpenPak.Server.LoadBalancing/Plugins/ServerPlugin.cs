@@ -1,6 +1,7 @@
 namespace OpenPak.Server.LoadBalancing.Plugins;
 
-/// <summary>Context handed to a plugin's actor join/leave hook.</summary>
+/// <summary>Context handed to a plugin's actor join/leave hook. <c>RoomName</c> is the room's registry key
+/// (<see cref="RoomRegistry.KeyFor"/>); show <see cref="RoomRegistry.PublicName"/> of it.</summary>
 public sealed record RoomActorContext(string RoomName, int Actor, RoomSession Session);
 
 /// <summary>

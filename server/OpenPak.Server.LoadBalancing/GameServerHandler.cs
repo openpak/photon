@@ -7,9 +7,14 @@ using OpenPak.Server.Data;
 
 namespace OpenPak.Server.LoadBalancing;
 
-/// <summary>Per-peer in-room state stashed on PeerConnection.Tag once a peer joins a room.</summary>
-public sealed record PeerRoomState(string RoomName, int Actor)
+/// <summary>Per-peer in-room state stashed on PeerConnection.Tag once a peer joins a room.
+/// <paramref name="RoomKey"/> is the room's registry key (<see cref="RoomRegistry.KeyFor"/>): every
+/// registry, session, plugin and Fusion lookup goes by it.</summary>
+public sealed record PeerRoomState(string RoomKey, int Actor)
 {
+    /// <summary>The room's public name, for logs and anything else shown to people.</summary>
+    public string RoomName => RoomRegistry.PublicName(RoomKey);
+
     /// <summary>Set once we've answered a Fusion Join Request with a Confirmation, cleared once the
     /// matching Start has been sent. A real Photon Cloud server sends Start only after the client's
     /// own NetworkConfigSync arrives (confirmed via a live capture) — sending it immediately after
@@ -152,7 +157,7 @@ public sealed class GameServerHandler : IOperationHandler
     {
         if (peer.Tag is not PeerRoomState state) return;
         peer.Tag = null; // make a later eNet disconnect idempotent
-        var session = _registry.Session(state.RoomName);
+        var session = _registry.Session(state.RoomKey);
         // Notify remaining actors that this actor left (event 254, ActorNr = leaver). The master is the
         // lowest actor (RoomMasterClientId), so when it leaves the event also names the next one, as
         // Photon's does — a Fusion Shared client takes IsSharedModeMasterClient from exactly that.
@@ -161,11 +166,11 @@ public sealed class GameServerHandler : IOperationHandler
         if (remaining.Length > 0 && state.Actor < remaining.Min()) leave.Parameters[PLeaveMasterClientId] = remaining.Min();
         session.RelayFrom(state.Actor, leave);
         session.Leave(state.Actor);
-        var left = _registry.Find(state.RoomName);
+        var left = _registry.Find(state.RoomKey);
         left?.RemoveActor(state.Actor);
         if (left is not null) _roomChanged?.Invoke(left, null);
-        _fusion?.PlayerLeft(state.RoomName, state.Actor);
-        _lifecycle?.OnLeft(state.RoomName, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
+        _fusion?.PlayerLeft(state.RoomKey, state.Actor);
+        _lifecycle?.OnLeft(state.RoomKey, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
@@ -185,7 +190,7 @@ public sealed class GameServerHandler : IOperationHandler
         {
             var requestedRoom = request.Parameters.TryGetValue(PRoomName, out var requested)
                 ? requested as string : null;
-            if (requestedRoom == already.RoomName && _registry.Find(already.RoomName) is { } existingRoom)
+            if (requestedRoom == already.RoomName && _registry.Find(already.RoomKey) is { } existingRoom)
             {
                 // Fusion may repeat its create-if-missing JoinGame before processing the first
                 // response. Treat the same peer entering the same room as an idempotent retry.
@@ -207,15 +212,16 @@ public sealed class GameServerHandler : IOperationHandler
             return;
         }
 
-        var (response, join) = EnterRoom(request, ExtractJoinPassword(request));
+        var (response, join) = EnterRoom(request, ExtractJoinPassword(request), peer);
         peer.SendResponse(response);
         if (response.ReturnCode != 0) return;
 
         // Room name is client-supplied: take it only if it's actually a string (never coerce/NRE a null).
         var roomName = request.Parameters.TryGetValue(PRoomName, out var rn) && rn is string rns ? rns : "room";
+        var roomKey = RoomRegistry.KeyFor(peer.AppId, peer.AppVersion, roomName);
         var actor = join.Parameters.TryGetValue(PActorNr, out var an) && an is int ai ? ai : 0;
         var topology = request.Parameters.TryGetValue(PFusionTopology, out var topo) && topo is string topoText ? topoText : null;
-        var session = _registry.Session(roomName);
+        var session = _registry.Session(roomKey);
         // The room's topology is its creator's. A joiner inherits it rather than stating it.
         if (session.Count == 0 || session.FusionTopology is null)
         {
@@ -223,7 +229,7 @@ public sealed class GameServerHandler : IOperationHandler
             session.FusionHostActor = actor;
         }
         topology ??= session.FusionTopology;
-        peer.Tag = new PeerRoomState(roomName, actor) { FusionTopology = topology };
+        peer.Tag = new PeerRoomState(roomKey, actor) { FusionTopology = topology };
         if (topology is not null)
         {
             Log.Info("GameServer", $"\"{roomName}\" actor={actor} Fusion topology \"{topology}\" host={session.FusionHostActor}");
@@ -233,17 +239,17 @@ public sealed class GameServerHandler : IOperationHandler
         session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
         peer.RaiseEvent(join);             // and give the newcomer its own join
         session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
-        _lifecycle?.OnJoined(roomName, actor, session);   // plugins (e.g. game modes) react to the join
+        _lifecycle?.OnJoined(roomKey, actor, session);   // plugins (e.g. game modes) react to the join
         // Fusion hosts enter through JoinGame with create-if-missing rather than Photon CreateGame.
         // Actor 1 is the room creator in either flow; later joiners must not overwrite its presence.
         if (actor == 1) _roomCreated?.Invoke(peer, roomName);
-        if (_registry.Find(roomName) is { } changed) _roomChanged?.Invoke(changed, actor == 1 ? peer : null);
+        if (_registry.Find(roomKey) is { } changed) _roomChanged?.Invoke(changed, actor == 1 ? peer : null);
     }
 
     private void HandleSetProperties(PeerConnection peer, OperationRequest request)
     {
         var prs = peer.Tag as PeerRoomState;
-        peer.SendResponse(SetProperties(prs?.RoomName, prs?.Actor, request));
+        peer.SendResponse(SetProperties(prs?.RoomKey, prs?.Actor, request));
     }
 
     /// <summary>The permission level to run a chat "/command" at. The account level is honored for a peer that
@@ -313,7 +319,7 @@ public sealed class GameServerHandler : IOperationHandler
                 && request.Parameters.TryGetValue(PActorList, out var listed) && listed is int[] targets
                 && Array.Exists(targets, t => t != 0))
             {
-                var session = _registry.Session(state.RoomName);
+                var session = _registry.Session(state.RoomKey);
                 var relayed = new EventData(ec, new() { { PActorNr, state.Actor }, { PData, data } });
                 foreach (var target in targets)
                     if (target != 0 && target != state.Actor)
@@ -333,8 +339,8 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.RaiseEvent(ServerFusionEvent(ec, confirmation));
                     // Tell the hosted Fusion server (if any) this peer's actor -> stable UniqueId mapping
                     // before its relay Connect (event 101) arrives, or the sim answers that Connect "Waiting".
-                    _fusion?.PlayerJoined(state.RoomName, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor),
-                                          state.IsClientServerTopology, RoomMaxPlayers(state.RoomName));
+                    _fusion?.PlayerJoined(state.RoomKey, state.Actor, FusionProtocol.UniqueIdForActor(state.Actor),
+                                          state.IsClientServerTopology, RoomMaxPlayers(state.RoomKey));
                     // Defer Start until the client's own NetworkConfigSync arrives below — see
                     // PeerRoomState.PendingFusionJoin.
                     state.PendingFusionJoin = join;
@@ -349,7 +355,7 @@ public sealed class GameServerHandler : IOperationHandler
                     peer.RaiseEvent(ServerFusionEvent(ec, FusionProtocol.EncodeReflexiveInfo(
                         mine.ProtocolVersion, mine.Major, mine.Minor, mine.Build,
                         host, FusionProtocol.UniqueIdForActor(host))));
-                    if (_registry.Session(state.RoomName).PeerOf(host) is { Tag: PeerRoomState { FusionVersion: { } theirs } } hostPeer)
+                    if (_registry.Session(state.RoomKey).PeerOf(host) is { Tag: PeerRoomState { FusionVersion: { } theirs } } hostPeer)
                         hostPeer.RaiseEvent(ServerFusionEvent(ec, FusionProtocol.EncodeReflexiveInfo(
                             theirs.ProtocolVersion, theirs.Major, theirs.Minor, theirs.Build,
                             state.Actor, FusionProtocol.UniqueIdForActor(state.Actor))));
@@ -405,7 +411,7 @@ public sealed class GameServerHandler : IOperationHandler
             // shape of problem as the code-100 Join above. Best-effort/reverse-engineered — see
             // HANDOFF.md.
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayIn && _fusion is not null
-                     && _fusion.FeedRelay(state.RoomName, state.Actor, relayIn))
+                     && _fusion.FeedRelay(state.RoomKey, state.Actor, relayIn))
             {
                 // A Shared simulation hosts this room and took the packet: it runs the relay transport
                 // and replicates state between peers, emitting its own event-101 packets back through
@@ -424,7 +430,7 @@ public sealed class GameServerHandler : IOperationHandler
             }
             else if (ec == FusionRelayProtocol.DataEventCode && data is byte[] relayData
                      && FusionRelayProtocol.IsNotifyAcksPacket(relayData)
-                     && _registry.Session(state.RoomName).Count == 1)
+                     && _registry.Session(state.RoomKey).Count == 1)
             {
                 // Echo a solo Shared host's ack-only keepalives back: with no server simulation, these keep
                 // its relay connection from timing out (its own NotifyData is not echoed).
@@ -434,20 +440,20 @@ public sealed class GameServerHandler : IOperationHandler
             // too — don't relay it peer-to-peer either.
             if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode) return;
             // Not a server command: relay this gameplay event to the other actors in the room.
-            _registry.Session(state.RoomName).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
+            _registry.Session(state.RoomKey).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
     }
 
     /// <summary>The room's MaxPlayers game property (255) as its creator set it, or 0 when absent.</summary>
-    private int RoomMaxPlayers(string roomName) =>
-        _registry.Find(roomName)?.GameProperties.TryGetValue(PhotonCodes.RoomProperty.MaxPlayers, out var value) == true
+    private int RoomMaxPlayers(string roomKey) =>
+        _registry.Find(roomKey)?.GameProperties.TryGetValue(PhotonCodes.RoomProperty.MaxPlayers, out var value) == true
         && value is byte or short or int or long ? Convert.ToInt32(value) : 0;
 
     /// <summary>True for a peer that joined a ClientServer room somebody else made: a Fusion client,
     /// whose server is the room's host actor.</summary>
     private bool IsFusionClientOf(PeerRoomState state, out int host)
     {
-        host = _registry.Session(state.RoomName).FusionHostActor;
+        host = _registry.Session(state.RoomKey).FusionHostActor;
         return state.IsClientServerTopology && host != 0 && host != state.Actor;
     }
 
@@ -456,7 +462,7 @@ public sealed class GameServerHandler : IOperationHandler
     /// mapping for an actor is deterministic: PlayerRef == actor number, UniqueId == UniqueIdForActor(actor).</summary>
     private void BroadcastFusionPlayerRefMappings(PeerRoomState joined)
     {
-        var session = _registry.Session(joined.RoomName);
+        var session = _registry.Session(joined.RoomKey);
         foreach (var actor in session.Actors())
         {
             if (session.PeerOf(actor) is not { } otherPeer || otherPeer.Tag is not PeerRoomState os) continue;
@@ -516,8 +522,9 @@ public sealed class GameServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
-        if (peer is not null && r.Parameters.TryGetValue(PhotonCodes.Param.ApplicationId, out var app) && app is string appId)
-            peer.AppId = appId;
+        // A new connection, re-authenticated with the token alone: the token carries the AppId/AppVersion
+        // the client gave the Name Server (or a LAN-mode Master), which place its rooms in its own build's.
+        if (peer is not null) (peer.AppId, peer.AppVersion) = RoomRegistry.AppOf(r);
 
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
@@ -528,6 +535,8 @@ public sealed class GameServerHandler : IOperationHandler
             // Bind the identity the Name Server proved (or asserted) onto this connection. Anti-cheat/admin
             // gating trusts it only when Verified (a Steam ticket validated upstream).
             if (peer is not null) { peer.SteamId = ident.UserId; peer.IsVerified = ident.Verified; }
+            if (peer is not null && (ident.AppId is not null || ident.AppVersion is not null))
+                (peer.AppId, peer.AppVersion) = (ident.AppId, ident.AppVersion);
             return new OperationResponse(OpAuthenticate, 0, null, new());
         }
 
@@ -536,7 +545,9 @@ public sealed class GameServerHandler : IOperationHandler
             : new OperationResponse(OpAuthenticate, -1, "Authentication token required", new());
     }
 
-    public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r, string? joinPassword)
+    /// <param name="peer">The joining connection: its AppId + AppVersion pick which build's room of this
+    /// name it enters. Null (tests) is the empty namespace.</param>
+    public (OperationResponse Response, EventData Join) EnterRoom(OperationRequest r, string? joinPassword, PeerConnection? peer = null)
     {
         // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
         var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : "room";
@@ -558,7 +569,7 @@ public sealed class GameServerHandler : IOperationHandler
             return (new OperationResponse(r.OperationCode, -5, "Wrong password", new()), new EventData(EvJoin, new()));
         }
 
-        var room = _registry.GetOrCreate(name);
+        var room = _registry.GetOrCreate(RoomRegistry.KeyFor(peer?.AppId, peer?.AppVersion, name));
 
         // Enforce the realm's capacity (MaxPlayers <= 0 means unlimited, so a misconfigured realm can't
         // lock everyone out). Without realms configured (tests) the room is open.
@@ -632,9 +643,9 @@ public sealed class GameServerHandler : IOperationHandler
     /// properties), key Properties(251) = the changed hashtable. The change is relayed reliably:
     /// appearance is not a position stream and must not be dropped.
     /// </summary>
-    public OperationResponse SetProperties(string? roomName, int? senderActor, OperationRequest req)
+    public OperationResponse SetProperties(string? roomKey, int? senderActor, OperationRequest req)
     {
-        var room = roomName is not null ? _registry.Find(roomName) : null;
+        var room = roomKey is not null ? _registry.Find(roomKey) : null;
         if (room is not null && req.Parameters.TryGetValue(PProperties, out var p) && p is IDictionary props)
         {
             // Player properties carry an explicit ActorNr; absent means the shared game properties.
@@ -652,12 +663,12 @@ public sealed class GameServerHandler : IOperationHandler
                     { PProperties, props },
                     { PTargetActorNr, target },
                 });
-                _registry.Session(roomName!).RelayFrom(sender, ev);   // reliable: appearance must not drop
+                _registry.Session(roomKey!).RelayFrom(sender, ev);   // reliable: appearance must not drop
             }
         }
         else
         {
-            Log.Warn("GameServer", $"SetProperties: unresolved room (\"{roomName}\") or missing Properties(251)");
+            Log.Warn("GameServer", $"SetProperties: unresolved room (\"{(roomKey is null ? null : RoomRegistry.PublicName(roomKey))}\") or missing Properties(251)");
         }
         return new OperationResponse(OpSetProperties, 0, null, new());
     }

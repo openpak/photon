@@ -169,10 +169,12 @@ public sealed class ListenersHostedService : BackgroundService
             var roomMaps = new Dictionary<string, string>();
             foreach (var realm in _config.Realms)
             {
-                _registry.GetOrCreate(realm.Name);
-                _registry.Modes.SetMode(realm.Name, GameModeRegistry.Parse(realm.Mode));   // record the mode so bots are assigned + damage is filtered
-                if (NavmeshMapName(realm.ExtraJson) is { } mapName) roomMaps[realm.Name] = mapName;
-                var session = _registry.Session(realm.Name);
+                // Soak bots belong to no game build: the realm's room for clients that send no AppId/AppVersion.
+                var key = RoomRegistry.KeyFor(null, null, realm.Name);
+                _registry.GetOrCreate(key);
+                _registry.Modes.SetMode(key, GameModeRegistry.Parse(realm.Mode));   // record the mode so bots are assigned + damage is filtered
+                if (NavmeshMapName(realm.ExtraJson) is { } mapName) roomMaps[key] = mapName;
+                var session = _registry.Session(key);
                 for (int n = 0; n < s.Bots.AutoSpawnPerRealm; n++) _bots.RequestSpawn(session, _botIds.Next());
             }
             _bots.RoomMaps = roomMaps;

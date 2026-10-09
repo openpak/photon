@@ -69,7 +69,7 @@ public class FederationTests
     [Fact]
     public void ReportFromRegistryKeepsOnlyLobbySafeValues()
     {
-        var room = new Room { Name = "X" };
+        var room = new Room { Name = "X", Key = "X" };
         room.AddActor();
         room.SetProperties(null, new System.Collections.Hashtable { ["version"] = "1", ["blob"] = new byte[] { 1 }, [(byte)253] = true });
         var r = RoomReport.From("au-sydney", room, "bsdid:abc");

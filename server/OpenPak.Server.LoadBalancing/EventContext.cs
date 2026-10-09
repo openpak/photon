@@ -9,6 +9,9 @@ namespace OpenPak.Server.LoadBalancing;
 /// </summary>
 public sealed class EventContext
 {
+    /// <summary>The room's registry key (<see cref="RoomRegistry.KeyFor"/>): per-room state is keyed by it,
+    /// so builds of different versions that share a room name never share state. Show
+    /// <see cref="RoomRegistry.PublicName"/> of it.</summary>
     public string RoomName { get; }
     public int SenderActor { get; }
     public EventData Event { get; }

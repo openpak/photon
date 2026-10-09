@@ -103,6 +103,9 @@ public sealed class NameServerHandler : IOperationHandler
 
     private void HandleAuthenticate(PeerConnection peer, OperationRequest request)
     {
+        // The only hop where a client names its game build; Respond seals both into the token so the
+        // Master and Game servers (which see only the token) keep its rooms with that build's.
+        (peer.AppId, peer.AppVersion) = RoomRegistry.AppOf(request);
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var validId = SteamId.IsValidIndividual(claimed) ? claimed! : null;
 
@@ -210,7 +213,8 @@ public sealed class NameServerHandler : IOperationHandler
     {
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var steamId = SteamId.IsValidIndividual(claimed) ? claimed! : Guid.NewGuid().ToString();
-        return BuildSuccess(steamId, verified: false, _loopbackMasterAddress);
+        var (appId, appVersion) = RoomRegistry.AppOf(request);
+        return BuildSuccess(steamId, verified: false, _loopbackMasterAddress, appId, appVersion);
     }
 
     /// <summary>Resolves the account, rejects bans, binds the identity onto the peer, and sends the success
@@ -218,7 +222,7 @@ public sealed class NameServerHandler : IOperationHandler
     private void Respond(PeerConnection peer, string steamId, bool verified)
     {
         var master = TrustedNetwork.IsLoopback(peer.Remote) ? _loopbackMasterAddress : _masterAddress;
-        var resp = BuildSuccess(steamId, verified, master);
+        var resp = BuildSuccess(steamId, verified, master, peer.AppId, peer.AppVersion);
         if (resp.ReturnCode == 0)
         {
             peer.SteamId = steamId;
@@ -230,7 +234,8 @@ public sealed class NameServerHandler : IOperationHandler
 
     /// <summary>Resolves the account (rejecting bans) and builds the success response with a token carrying the
     /// <paramref name="verified"/> flag. No peer side effects — shared by the sync and async paths.</summary>
-    private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress)
+    private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress,
+                                           string? appId = null, string? appVersion = null)
     {
         var account = steamId.StartsWith("openpak:", StringComparison.Ordinal)
             ? null
@@ -243,7 +248,7 @@ public sealed class NameServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             { PAddress, masterAddress },
-            { PSecret, AuthToken.Mint(steamId, verified, _secret) },
+            { PSecret, AuthToken.Mint(steamId, verified, _secret, appId, appVersion) },
             { PUserId, steamId },
         });
     }

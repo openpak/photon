@@ -32,6 +32,11 @@ public sealed class PeerConnection
     /// omits it.</summary>
     public string? AppId { get; set; }
 
+    /// <summary>The AppVersion this connection authenticated with (param 220). Rooms are kept apart per
+    /// (AppId, AppVersion), as Photon Cloud does, so two builds of one game never meet. Null when the
+    /// client omits it.</summary>
+    public string? AppVersion { get; set; }
+
     /// <summary>True once a Steam game-server ticket proved this identity (see the auth flow). Admin/anti-cheat
     /// gating trusts the SteamID/level ONLY when this is true; an asserted or anonymous-LAN identity is not.</summary>
     public bool IsVerified { get; set; }

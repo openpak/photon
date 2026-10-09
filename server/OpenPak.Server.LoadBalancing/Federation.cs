@@ -171,7 +171,13 @@ public sealed class NodeDirectory
 public sealed class RoomReport
 {
     public string Node { get; set; } = "";
+    /// <summary>The room's public name.</summary>
     public string Room { get; set; } = "";
+    /// <summary>The AppId and AppVersion the room's clients authenticated with, which place it in
+    /// its game build's namespace at home too (<see cref="RoomRegistry.KeyFor"/>). A report without
+    /// them is a room of clients that sent none.</summary>
+    public string? AppId { get; set; }
+    public string? AppVersion { get; set; }
     public List<int> Actors { get; set; } = new();
     public Dictionary<string, object?> GameProperties { get; set; } = new();
     /// <summary>The creator's identity ("nex:..." / "bsdid:..."), on the first report only, so home
@@ -180,7 +186,10 @@ public sealed class RoomReport
 
     public static RoomReport From(string node, Room room, string? identity)
     {
-        var report = new RoomReport { Node = node, Room = room.Name, Identity = identity };
+        var report = new RoomReport
+        {
+            Node = node, Room = room.Name, AppId = room.AppId, AppVersion = room.AppVersion, Identity = identity,
+        };
         lock (room.ActorNumbers) report.Actors.AddRange(room.ActorNumbers);
         foreach (var kv in room.GameProperties)
             if (kv.Key is string k && kv.Value is string or int or long or bool or double)
@@ -193,7 +202,8 @@ public sealed class RoomReport
     /// Numbers come back as int (what Fusion's RoomInfo parser unboxes).</summary>
     public void ApplyTo(RoomRegistry registry, NodeDirectory nodes)
     {
-        var room = registry.GetOrCreate(Room);
+        var key = RoomRegistry.KeyFor(AppId, AppVersion, Room);
+        var room = registry.GetOrCreate(key);
         lock (room.ActorNumbers)
         {
             room.ActorNumbers.Clear();
@@ -214,7 +224,7 @@ public sealed class RoomReport
             if (v is not null) props[kv.Key] = v;
         }
         if (props.Count > 0) room.SetProperties(null, props);
-        if (Actors.Count > 0) nodes.PinRoom(Room, Node); else nodes.UnpinRoom(Room);
+        if (Actors.Count > 0) nodes.PinRoom(key, Node); else nodes.UnpinRoom(key);
     }
 }
 

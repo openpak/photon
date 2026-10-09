@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using OpenPak.Photon;
 using OpenPak.Server.Core;
 
 namespace OpenPak.Server.LoadBalancing;
@@ -6,7 +7,18 @@ namespace OpenPak.Server.LoadBalancing;
 /// <summary>An in-memory game room and its membership. Persistence is out of scope for Phase 1.</summary>
 public sealed class Room
 {
+    /// <summary>The name the client gave the room: what clients, presence, federation and logs see.</summary>
     public required string Name { get; init; }
+
+    /// <summary>The registry key: <see cref="Name"/> inside its (AppId, AppVersion) namespace. See
+    /// <see cref="RoomRegistry.KeyFor"/>.</summary>
+    public required string Key { get; init; }
+
+    /// <summary>The Photon AppId (param 224) of the clients this room belongs to; empty when they sent none.</summary>
+    public string AppId { get; init; } = "";
+
+    /// <summary>The AppVersion (param 220) of the clients this room belongs to; empty when they sent none.</summary>
+    public string AppVersion { get; init; } = "";
     public Dictionary<byte, object> Properties { get; } = new();
     public List<int> ActorNumbers { get; } = new();
     private int _nextActor;
@@ -109,20 +121,66 @@ public sealed class RoomRegistry
     /// <summary>The shared game-mode/team state, so the bot soak and game-mode plugin share one map.</summary>
     public GameModeRegistry Modes => _modes;
 
-    public Room GetOrCreate(string name) => _rooms.GetOrAdd(name, n => new Room { Name = n });
-    public Room? Find(string name) => _rooms.TryGetValue(name, out var r) ? r : null;
+    /// <summary>
+    /// The registry key for a room, which is what keeps game versions apart. Real Photon Cloud keeps
+    /// every (AppId, AppVersion) pair in its own world: rooms, lobbies and room lists never cross it, so
+    /// two builds of one game with the same room name are two rooms. Every registry, session, plugin and
+    /// Fusion lookup goes by this key; the room's public <see cref="Room.Name"/> is unchanged.
+    ///
+    /// A client that sends neither value keys by its bare name, exactly as before versions counted (and
+    /// as configured realms and the bot soak still do). Otherwise the key is
+    /// <c>[appId/appVersion] name</c>, readable in a log line that missed <see cref="PublicName"/>. A bare
+    /// name never starts with '[', and the delimiters inside an AppId ('/', ']') or AppVersion (']') become
+    /// '_', which real values never contain, so the key parses back unambiguously. Both values are
+    /// client-asserted: this separates versions, it does not secure them.
+    /// </summary>
+    public static string KeyFor(string? appId, string? appVersion, string name)
+    {
+        appId = (appId ?? "").Replace('/', '_').Replace(']', '_');
+        appVersion = (appVersion ?? "").Replace(']', '_');
+        if (appId.Length == 0 && appVersion.Length == 0 && !name.StartsWith('[')) return name;
+        return $"[{appId}/{appVersion}] {name}";
+    }
+
+    /// <summary>The AppId (param 224) and AppVersion (param 220) an Authenticate request carries, each null
+    /// when absent or not a string.</summary>
+    public static (string? AppId, string? AppVersion) AppOf(OperationRequest request) => (
+        request.Parameters.TryGetValue(PhotonCodes.Param.ApplicationId, out var appId) ? appId as string : null,
+        request.Parameters.TryGetValue(PhotonCodes.Param.AppVersion, out var appVersion) ? appVersion as string : null);
+
+    /// <summary>The public room name inside a key from <see cref="KeyFor"/>, for anything shown to people.</summary>
+    public static string PublicName(string key) => ParseKey(key).Name;
+
+    private static (string AppId, string AppVersion, string Name) ParseKey(string key)
+    {
+        if (!key.StartsWith('[')) return ("", "", key);
+        int close = key.IndexOf("] ", StringComparison.Ordinal);
+        if (close < 0) return ("", "", key);
+        var space = key[1..close];
+        int slash = space.IndexOf('/');
+        if (slash < 0) return ("", "", key);
+        return (space[..slash], space[(slash + 1)..], key[(close + 2)..]);
+    }
+
+    public Room GetOrCreate(string key) => _rooms.GetOrAdd(key, k =>
+    {
+        var (appId, appVersion, name) = ParseKey(k);
+        return new Room { Key = k, Name = name, AppId = appId, AppVersion = appVersion };
+    });
+    public Room? Find(string key) => _rooms.TryGetValue(key, out var r) ? r : null;
     public IReadOnlyCollection<Room> All => (IReadOnlyCollection<Room>)_rooms.Values;
 
-    /// <summary>Resolves an operator-typed room/realm name to the canonical stored name, tolerating dash
+    /// <summary>Resolves an operator-typed room/realm name to the key of the room it names, tolerating dash
     /// variants (ASCII hyphen vs Unicode en/em-dash — the live room name carries an em-dash a console code
-    /// page can't type), case, and whitespace. Returns the canonical name, or null if none matches. Console
+    /// page can't type), case, and whitespace. Matches the public name (or an exact key). When builds of
+    /// different versions share a name, the first match wins. Returns null if none matches. Console
     /// commands should resolve through this before <see cref="Find"/>/<see cref="FindSession"/>.</summary>
     public string? ResolveName(string input)
     {
         if (_rooms.ContainsKey(input)) return input;             // exact, fast path
         var want = Normalize(input);
-        foreach (var name in _rooms.Keys)
-            if (Normalize(name) == want) return name;
+        foreach (var room in _rooms.Values)
+            if (Normalize(room.Name) == want) return room.Key;
         return null;
 
         static string Normalize(string s)
@@ -139,19 +197,20 @@ public sealed class RoomRegistry
         }
     }
 
-    /// <summary>Room names known to the registry (snapshot), for inspection commands.</summary>
+    /// <summary>Keys of the rooms known to the registry (snapshot), for inspection commands. A key is the
+    /// room's name unless its clients sent an AppId/AppVersion; show <see cref="PublicName"/> of it.</summary>
     public IReadOnlyCollection<string> RoomNames => _rooms.Keys.ToArray();
 
     /// <summary>The relay session for a room WITHOUT creating one — for inspection that must not
     /// materialize empty sessions. Returns null if no session exists yet.</summary>
-    public RoomSession? FindSession(string name) => _sessions.TryGetValue(name, out var s) ? s : null;
+    public RoomSession? FindSession(string key) => _sessions.TryGetValue(key, out var s) ? s : null;
 
     /// <summary>The relay session for a room, created on first use. Its chain is a single interceptor that
     /// defers to the live relay policy (the plugin manager) on every event, so toggling / loading /
     /// unloading plugins takes effect without rebuilding the session. With no policy it is pure
     /// pass-through — the vanilla relay.</summary>
-    public RoomSession Session(string name) =>
-        _sessions.GetOrAdd(name, n =>
+    public RoomSession Session(string key) =>
+        _sessions.GetOrAdd(key, n =>
         {
             IEventInterceptor relay = _relayPolicy is null
                 ? new PassthroughInterceptor()

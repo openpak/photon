@@ -72,7 +72,7 @@ public sealed class MasterServerHandler : IOperationHandler
                 // under this code", which blocked it from ever proceeding to CreateGame. Only the default
                 // (unnamed) lobby gets our realm list; a named lobby gets an empty one.
                 bool isDefaultLobby = !req.Parameters.ContainsKey(PLobbyName);
-                peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent() : BuildFusionSessionLobbyEvent(req));
+                peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent(peer) : BuildFusionSessionLobbyEvent(req, peer));
             }, SessionStatus.Authenticated)
             .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated)
             .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated);
@@ -85,8 +85,9 @@ public sealed class MasterServerHandler : IOperationHandler
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {
-        if (peer is not null && r.Parameters.TryGetValue(PhotonCodes.Param.ApplicationId, out var app) && app is string appId)
-            peer.AppId = appId;
+        // A client sent through the Name Server re-authenticates here with its token alone; the token carries
+        // the AppId/AppVersion it gave there. One that comes here first (LAN mode) sends them itself.
+        if (peer is not null) (peer.AppId, peer.AppVersion) = RoomRegistry.AppOf(r);
 
         // Full Name Server flow: a token is present and must validate. Recover the identity (SteamID + whether
         // a Steam ticket proved it) and reject banned accounts.
@@ -97,6 +98,8 @@ public sealed class MasterServerHandler : IOperationHandler
             if (_accounts?.Find(ident.UserId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
             if (peer is not null) { peer.SteamId = ident.UserId; peer.IsVerified = ident.Verified; }
+            if (peer is not null && (ident.AppId is not null || ident.AppVersion is not null))
+                (peer.AppId, peer.AppVersion) = (ident.AppId, ident.AppVersion);
             return new OperationResponse(OpAuthenticate, 0, null, new());
         }
 
@@ -109,7 +112,8 @@ public sealed class MasterServerHandler : IOperationHandler
         if (peer is not null) { peer.SteamId = userId; peer.IsVerified = false; }
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
-            { PSecret, AuthToken.Mint(userId, _secret) },   // hand back a token for the Game hop (unverified)
+            // hand back a token for the Game hop (unverified), carrying this client's build for its rooms there
+            { PSecret, AuthToken.Mint(userId, verified: false, _secret, peer?.AppId, peer?.AppVersion) },
             { PhotonCodes.Param.UserId, userId },
         });
     }
@@ -124,12 +128,14 @@ public sealed class MasterServerHandler : IOperationHandler
     /// lobby's name exists, advertise it: the host's own stored GameProperties (scene/vehicleType/
     /// version/knownPlayers/MaxPlayers…) plus the well-known open/visible/count keys Fusion reads.
     /// </summary>
-    private EventData BuildFusionSessionLobbyEvent(OperationRequest req)
+    private EventData BuildFusionSessionLobbyEvent(OperationRequest req, PeerConnection? peer)
     {
         var rooms = new Dictionary<string, object>();
         if (req.Parameters.TryGetValue(PLobbyName, out var lobbyObj) && lobbyObj is string lobbyName)
         {
-            var room = _registry.Find(lobbyName);
+            // Only a session of the joiner's own AppId + AppVersion: another build's room of the same
+            // name is not listed, as on Photon Cloud.
+            var room = _registry.Find(RoomRegistry.KeyFor(peer?.AppId, peer?.AppVersion, lobbyName));
             if (room is not null)
             {
                 // Fusion's Photon Realtime RoomInfo parser unboxes the well-known numeric
@@ -178,16 +184,18 @@ public sealed class MasterServerHandler : IOperationHandler
     /// The lobby room list (event 230, param 222 = { roomName -> properties }), built from all
     /// enabled+visible realms. Each entry mixes well-known byte props with the custom string props
     /// the in-game room-browser slot hard-casts (PVP:bool, HackDifficultyIncrease:int, Password:string);
-    /// omitting those makes the slot throw and the room silently fails to render.
+    /// omitting those makes the slot throw and the room silently fails to render. Player counts are
+    /// those of the realm's room in the asking peer's own AppId + AppVersion.
     /// </summary>
-    public EventData BuildGameListEvent()
+    public EventData BuildGameListEvent(PeerConnection? peer = null)
     {
         var rooms = new Dictionary<string, object>();
         foreach (var realm in _realms?.ListVisible() ?? new List<Realm>())
         {
             // Real joined players, plus (only if the operator opted in) the live bots in that realm — so a
             // bot-stocked realm can look populated in the browser without inflating it when undesired.
-            int players = (_registry.Find(realm.Name)?.ActorNumbers.Count ?? 0) + (_lobbyBotCount?.Invoke(realm.Name) ?? 0);
+            var key = RoomRegistry.KeyFor(peer?.AppId, peer?.AppVersion, realm.Name);
+            int players = (_registry.Find(key)?.ActorNumbers.Count ?? 0) + (_lobbyBotCount?.Invoke(key) ?? 0);
             // PUN's RoomInfo reads PlayerCount/MaxPlayers as a BYTE, so the wire can't represent >255: a raw
             // (byte) cast WRAPS (256 -> 0, corrupting the browser slot). Clamp instead, so a large or
             // uncapped realm shows a saturated "255" rather than a garbage count. (A single match that big
@@ -216,11 +224,14 @@ public sealed class MasterServerHandler : IOperationHandler
     {
         // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
         var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : $"Room-{Guid.NewGuid():N}";
-        var existed = _registry.Find(name) is { ActorNumbers.Count: > 0 };
-        _registry.GetOrCreate(name);
+        // The room lives in the peer's AppId + AppVersion: a client of another build asking for the same
+        // name gets a room of its own. The client is still told the plain name.
+        var key = RoomRegistry.KeyFor(peer?.AppId, peer?.AppVersion, name);
+        var existed = _registry.Find(key) is { ActorNumbers.Count: > 0 };
+        _registry.GetOrCreate(key);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {
-            { PAddress, GameAddressFor(name, existed, peer?.SteamId) },
+            { PAddress, GameAddressFor(key, existed, peer?.SteamId) },
             { PRoomName, name },
         });
     }
@@ -229,6 +240,7 @@ public sealed class MasterServerHandler : IOperationHandler
     /// Where a room is served from. A room that already has people in it is wherever it is: a joiner
     /// goes there whatever their own country. A new room goes to the node for the creator's country,
     /// or home when there is none. Home's own address is the only one ever handed out without regions.
+    /// <paramref name="room"/> is the room's registry key.
     /// </summary>
     public string GameAddressFor(string room, bool existed, string? userId)
     {
@@ -241,7 +253,7 @@ public sealed class MasterServerHandler : IOperationHandler
             return _gameAddress;
         }
         _nodes.PinRoom(room, region.Id);
-        Log.Info("Federation", $"room \"{room}\" placed on {region.Id} ({region.Country})");
+        Log.Info("Federation", $"room \"{RoomRegistry.PublicName(room)}\" placed on {region.Id} ({region.Country})");
         return region.PhotonAddress;
     }
 }
