@@ -103,6 +103,9 @@ the server log under `[Arena]`.)
 - Per-(plugin, room) interceptor instances are created lazily and kept while the plugin is loaded, so
   per-room state (movement history, rate windows) survives toggling *other* plugins; they're dropped only
   when the plugin itself is unloaded.
+- `RoomName` in `EventContext`, `RoomActorContext` and `RoomSession` is the room's **registry key**: the
+  name inside its client build's (AppId, AppVersion) namespace (`RoomRegistry.KeyFor`). Key per-room state
+  by it, so two builds sharing a room name never share state; print `RoomRegistry.PublicName(key)`.
 - The Game role fires `OnJoined`/`OnLeft` to the manager, which dispatches to enabled plugins (this is how
   `gamemodes` assigns teams on join without that logic living in the core handler).
 

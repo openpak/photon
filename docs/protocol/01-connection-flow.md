@@ -30,6 +30,13 @@ the sanitized raw sequence.
 
 - `220` **AppVersion / GameVersion** — string. Acts as a compatibility gate: clients with a
   different value are matched into separate virtual app instances.
+  This server does the same. A client sends `224` and `220` only to the Name Server (on the
+  Master and Game servers it re-authenticates with the token alone), so the token carries both;
+  every room lookup (CreateGame, JoinGame, the session-code lobby, the realm
+  list's player counts, the Game-server join) goes through `RoomRegistry.KeyFor(appId, appVersion,
+  name)`. Two builds with the same room name get two rooms; the client, presence and federation still
+  see the plain name. A client that sends neither value keys by the bare name. Authentication is
+  never refused over a version.
 - `224` **ApplicationId** — the Photon Cloud AppId (GUID). *Credential; redacted in repo.*
 - `210` **Region** — e.g. `"us/*"`.
 - `221` **Secret / Token** — opaque base64 returned by the Name Server and replayed to the

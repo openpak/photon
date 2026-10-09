@@ -3,6 +3,30 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.12.0 — 2026-10-09
+
+**Game versions are kept apart, as on Photon Cloud.** Rooms used to be keyed by name alone, so two builds
+of one game that picked the same room name or session code landed in the same room. Every room is now
+keyed by (AppId, AppVersion, name): two builds never see or join each other's rooms, and two clients of
+the same build behave exactly as before. Authentication is never refused over a version.
+
+- feat(lb): **rooms are keyed by the client's AppId (224) and AppVersion (220)** through
+  `RoomRegistry.KeyFor`: Master CreateGame/JoinGame, the Fusion session-code lobby, the realm list's player
+  counts and the Game-server join all resolve the room in the client's own build. A client that sends
+  neither keeps the bare name as its key. The room's public name is unchanged for the client, nx-baas
+  presence, federation, the admin console and logs (`RoomRegistry.PublicName`).
+- feat(lb): **the token carries AppId and AppVersion.** Live Outbound and Moving Out 2 sessions name
+  their build only to the Name Server and re-authenticate on the Master and Game servers with the token
+  alone, so neither role ever saw param 224 or 220. The Name Server (and the LAN-mode Master) now seal
+  both into the token; the old two-field token still validates.
+- fix(account): **room presence is filed under the right title.** `PhotonTitles` mapped AppIds to titles,
+  but the Game server never had an AppId (see above), so every room was published under the default
+  title. It now has the one from the token.
+- feat(federation): `RoomReport` carries `AppId`/`AppVersion`, so home files a node's room in its build.
+- refactor(console): room commands resolve through `RoomRegistry.ResolveName` (public names, dash/case
+  tolerant); `rooms` shows each room's AppVersion. The duplicate resolver in `ServerCommands` is gone.
+- docs: `docs/protocol/01-connection-flow.md` and `docs/plugins.md` (plugin `RoomName` is the registry key).
+
 ## v0.11.0 — 2026-10-03
 
 **Fusion is hosted by our own code, and the server needs no retail assemblies.** The Shared-mode host
