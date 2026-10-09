@@ -55,7 +55,7 @@ internal sealed class BotControlCommands
         var realm = _rooms.ResolveName(typed);
         if (realm is null) return $"no such room: {typed}";
         int n = _bots.CountIn(realm);
-        return $"{realm}: {n} bot(s)";
+        return $"{RoomRegistry.PublicName(realm)}: {n} bot(s)";
     }
 
     [ConsoleCommand("despawn", Usage = "<realm> [count|all]", MinParts = 2, MinLevel = PlayerLevel.Admin)]
@@ -68,7 +68,7 @@ internal sealed class BotControlCommands
         var realm = _rooms.ResolveName(typed);
         if (realm is null) return $"no such room: {typed}";
         _admin.Enqueue(() => _bots.Despawn(realm, max));
-        return $"queued despawn of {label} bot(s) in \"{realm}\" (runs next tick)";
+        return $"queued despawn of {label} bot(s) in \"{RoomRegistry.PublicName(realm)}\" (runs next tick)";
     }
 
     [ConsoleCommand("botspawn", Usage = "<realm> <count>", MinParts = 3, MinLevel = PlayerLevel.Admin)]
@@ -85,7 +85,7 @@ internal sealed class BotControlCommands
         _rooms.GetOrCreate(realm);
         for (int i = 0; i < count; i++)
             _bots.RequestSpawn(_rooms.Session(realm), _botIds.Next());
-        return $"queued {count} bot spawn(s) for \"{realm}\" (runs on next listener tick)";
+        return $"queued {count} bot spawn(s) for \"{RoomRegistry.PublicName(realm)}\" (runs on next listener tick)";
     }
 
     [ConsoleCommand("botsmart", Usage = "<on|off>", MinParts = 2, MinLevel = PlayerLevel.Admin)]

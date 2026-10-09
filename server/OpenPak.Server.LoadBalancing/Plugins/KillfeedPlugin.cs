@@ -87,7 +87,7 @@ internal sealed class KillfeedInterceptor : IEventInterceptor
         if (!_state.MarkDead(ctx.RoomName, victim)) return RelayVerdict.Forward(ctx.Event);   // already dead -> debounce
 
         _bus?.PublishDeath(new DeathNotice(ctx.RoomName, victim));
-        Log.Info("Killfeed", $"\"{ctx.RoomName}\": actor {victim} was eliminated");
+        Log.Info("Killfeed", $"\"{RoomRegistry.PublicName(ctx.RoomName)}\": actor {victim} was eliminated");
         return RelayVerdict.Originate(ctx.Event, new List<EventData> { ServerRpc.Chat(victim, $"☠ Actor {victim} was eliminated") });
     }
 }

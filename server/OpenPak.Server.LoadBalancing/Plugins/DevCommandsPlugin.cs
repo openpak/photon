@@ -58,7 +58,7 @@ internal sealed class DevCommands
         if (realm is null) return $"no such realm: {typed}";
 
         var alive = _worlds.For(realm).Alive();
-        if (alive.Count == 0) return $"\"{realm}\": no alive entities tracked";
+        if (alive.Count == 0) return $"\"{RoomRegistry.PublicName(realm)}\": no alive entities tracked";
         return FormatEntities(realm, alive);
     }
 
@@ -89,8 +89,8 @@ internal sealed class DevCommands
             : alive.ToList();
 
         var filterNote = kindFilter is { Length: > 0 } ? $" matching \"{kindFilter}\"" : "";
-        if (matches.Count == 0) return $"\"{realm}\": no alive entities{filterNote}";
-        return $"\"{realm}\": {matches.Count} entit{(matches.Count == 1 ? "y" : "ies")}{filterNote}\n" + FormatEntities(realm, matches, includeHeader: false);
+        if (matches.Count == 0) return $"\"{RoomRegistry.PublicName(realm)}\": no alive entities{filterNote}";
+        return $"\"{RoomRegistry.PublicName(realm)}\": {matches.Count} entit{(matches.Count == 1 ? "y" : "ies")}{filterNote}\n" + FormatEntities(realm, matches, includeHeader: false);
     }
 
     [ConsoleCommand("roster", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
@@ -102,10 +102,10 @@ internal sealed class DevCommands
 
         var session = _rooms.FindSession(realm);
         var actors = session?.Actors() ?? System.Array.Empty<int>();
-        if (actors.Count == 0) return $"\"{realm}\": no actors connected";
+        if (actors.Count == 0) return $"\"{RoomRegistry.PublicName(realm)}\": no actors connected";
 
         var sb = new StringBuilder();
-        sb.Append($"\"{realm}\": {actors.Count} actor(s)");
+        sb.Append($"\"{RoomRegistry.PublicName(realm)}\": {actors.Count} actor(s)");
         foreach (var actor in actors.OrderBy(a => a))
         {
             var peer = session?.PeerOf(actor);
@@ -121,7 +121,9 @@ internal sealed class DevCommands
     {
         var text = AfterArg(line, 0);   // search text may contain spaces
         var matches = _rooms.RoomNames
+            .Select(RoomRegistry.PublicName)
             .Where(n => n.Contains(text, StringComparison.OrdinalIgnoreCase))
+            .Distinct()
             .OrderBy(n => n)
             .ToList();
         if (matches.Count == 0) return $"no realms matching \"{text}\"";
@@ -144,7 +146,7 @@ internal sealed class DevCommands
     private static string FormatEntities(string realm, IReadOnlyList<RoomWorldState.Entity> entities, bool includeHeader = true)
     {
         var sb = new StringBuilder();
-        if (includeHeader) sb.Append($"\"{realm}\": {entities.Count} alive entit{(entities.Count == 1 ? "y" : "ies")}");
+        if (includeHeader) sb.Append($"\"{RoomRegistry.PublicName(realm)}\": {entities.Count} alive entit{(entities.Count == 1 ? "y" : "ies")}");
 
         int shown = 0;
         foreach (var e in entities.OrderBy(e => e.ViewId))

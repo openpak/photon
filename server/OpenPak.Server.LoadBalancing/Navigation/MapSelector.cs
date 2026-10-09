@@ -122,7 +122,7 @@ public sealed class MapSelector
         {
             var prev = rs.Chosen;
             rs.Chosen = bestName; rs.ChosenYOffset = bestOffset;
-            Log.Info("Maps", $"room \"{room}\" map = {bestName} (Y offset {bestOffset:F0}u, {bestHits}/{rs.Samples} samples)" +
+            Log.Info("Maps", $"room \"{RoomRegistry.PublicName(room)}\" map = {bestName} (Y offset {bestOffset:F0}u, {bestHits}/{rs.Samples} samples)" +
                              (prev is null ? "" : recalibrated ? " — recalibrated" : $" — changed from {prev}"));
         }
     }

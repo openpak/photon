@@ -29,7 +29,7 @@ public sealed class DamageValidationInterceptor : IEventInterceptor
 
         FlaggedCount++;
         var detail = float.IsFinite(dmg) ? $"{dmg:F1} (> max {_maxDamage:F0})" : $"non-finite ({dmg})";
-        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{ctx.RoomName}\" dealt suspicious damage " +
+        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" dealt suspicious damage " +
                               $"{detail} via {info.Value.Method ?? "<shortcut rpc>"} " +
                               $"-> {(_enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);

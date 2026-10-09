@@ -106,7 +106,7 @@ internal sealed class ModerationCommands
     {
         if (Resolve(line, out var realm, out var actor) is { } err) return err;
         _state.Mute(realm, actor);
-        return $"muted {realm}#{actor} (their RPCs are dropped at the relay)";
+        return $"muted {RoomRegistry.PublicName(realm)}#{actor} (their RPCs are dropped at the relay)";
     }
 
     [ConsoleCommand("unmute", Usage = "<realm> <actor>", MinParts = 3, MinLevel = PlayerLevel.Mod)]
@@ -114,7 +114,7 @@ internal sealed class ModerationCommands
     {
         if (Resolve(line, out var realm, out var actor) is { } err) return err;
         _state.Unmute(realm, actor);
-        return $"unmuted {realm}#{actor}";
+        return $"unmuted {RoomRegistry.PublicName(realm)}#{actor}";
     }
 
     [ConsoleCommand("freeze", Usage = "<realm> <actor>", MinParts = 3, MinLevel = PlayerLevel.Mod)]
@@ -122,7 +122,7 @@ internal sealed class ModerationCommands
     {
         if (Resolve(line, out var realm, out var actor) is { } err) return err;
         _state.Freeze(realm, actor);
-        return $"froze {realm}#{actor} (their position stream is dropped at the relay)";
+        return $"froze {RoomRegistry.PublicName(realm)}#{actor} (their position stream is dropped at the relay)";
     }
 
     [ConsoleCommand("unfreeze", Usage = "<realm> <actor>", MinParts = 3, MinLevel = PlayerLevel.Mod)]
@@ -130,7 +130,7 @@ internal sealed class ModerationCommands
     {
         if (Resolve(line, out var realm, out var actor) is { } err) return err;
         _state.Unfreeze(realm, actor);
-        return $"unfroze {realm}#{actor}";
+        return $"unfroze {RoomRegistry.PublicName(realm)}#{actor}";
     }
 
     [ConsoleCommand("modlist", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
@@ -141,8 +141,8 @@ internal sealed class ModerationCommands
         if (realm is null) return $"no such room: {typed}";
         var muted = _state.MutedIn(realm);
         var frozen = _state.FrozenIn(realm);
-        if (muted.Count == 0 && frozen.Count == 0) return $"\"{realm}\": no muted or frozen actors";
-        return $"\"{realm}\": muted=[{string.Join(",", muted)}] frozen=[{string.Join(",", frozen)}]";
+        if (muted.Count == 0 && frozen.Count == 0) return $"\"{RoomRegistry.PublicName(realm)}\": no muted or frozen actors";
+        return $"\"{RoomRegistry.PublicName(realm)}\": muted=[{string.Join(",", muted)}] frozen=[{string.Join(",", frozen)}]";
     }
 
     // --- helpers ---------------------------------------------------------------------------------

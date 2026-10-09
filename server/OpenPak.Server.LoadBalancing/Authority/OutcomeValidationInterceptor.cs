@@ -46,7 +46,7 @@ public sealed class OutcomeValidationInterceptor : IEventInterceptor
         if (!rejected) return RelayVerdict.Forward(ctx.Event);   // accepted: no rule could fault it
 
         System.Threading.Interlocked.Increment(ref _flaggedCount);
-        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{ctx.RoomName}\" outcome rejected: {reason} " +
+        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" outcome rejected: {reason} " +
                               $"(via {rpc.Method ?? "<shortcut rpc>"}) -> {(_enforce ? "DROPPED" : "forwarded (log-only)")}");
 
         return _enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);

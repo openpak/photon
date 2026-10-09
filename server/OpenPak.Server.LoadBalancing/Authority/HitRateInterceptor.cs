@@ -53,7 +53,7 @@ public sealed class HitRateInterceptor : IEventInterceptor
 
         if (reason is null) return RelayVerdict.Forward(ctx.Event);
         FlaggedCount++;
-        Log.Warn("Authority", $"actor {actor} in \"{ctx.RoomName}\" combat rate: {reason} " +
+        Log.Warn("Authority", $"actor {actor} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" combat rate: {reason} " +
                               $"-> {(_opt.Enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _opt.Enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);
     }

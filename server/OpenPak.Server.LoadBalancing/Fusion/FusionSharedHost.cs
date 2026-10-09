@@ -58,7 +58,7 @@ public sealed class FusionSharedHost : IFusionSessionHost
     {
         if (clientServer)
         {
-            Log.Debug(Cat, $"\"{room}\" actor {actor} is ClientServer: relayed peer to peer, no hosted simulation");
+            Log.Debug(Cat, $"\"{RoomRegistry.PublicName(room)}\" actor {actor} is ClientServer: relayed peer to peer, no hosted simulation");
             return;
         }
         var id = uniqueId.ToArray();
@@ -70,7 +70,7 @@ public sealed class FusionSharedHost : IFusionSessionHost
                     _send(room, target, datagram, reliable || datagram.Length > MaxUnreliableDatagramBytes), _clock(),
                     maxPlayers > 0 ? _options with { MaxPlayers = maxPlayers } : _options);
                 _rooms[room] = entry = new Entry(created, UdpListener.Current);
-                Log.Debug(Cat, $"\"{room}\" Shared simulation created");
+                Log.Debug(Cat, $"\"{RoomRegistry.PublicName(room)}\" Shared simulation created");
             }
             entry.Pending.Add(r => r.Register(actor, id));
         }

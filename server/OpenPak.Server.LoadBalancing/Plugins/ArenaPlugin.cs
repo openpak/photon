@@ -146,7 +146,7 @@ internal sealed class ArenaMatch
     private void Announce(string room, int actor, string text)
     {
         _rooms?.FindSession(room)?.SendToAll(ServerRpc.Chat(actor, text));
-        Log.Info("Arena", $"\"{room}\": {text}");
+        Log.Info("Arena", $"\"{RoomRegistry.PublicName(room)}\": {text}");
     }
 
     private string ScoreLine(string room) => $"Team A {_state.Score(room, 0)} – Team B {_state.Score(room, 1)}";

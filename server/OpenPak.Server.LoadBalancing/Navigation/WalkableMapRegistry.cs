@@ -43,13 +43,13 @@ public sealed class WalkableMapRegistry
             {
                 using var fs = File.OpenRead(path);
                 var map = WalkableMap.Load(fs);
-                Log.Info("Walkmap", $"loaded {map.Count} walkable cell(s) for \"{room}\" from {Path.GetFileName(path)}");
+                Log.Info("Walkmap", $"loaded {map.Count} walkable cell(s) for \"{RoomRegistry.PublicName(room)}\" from {Path.GetFileName(path)}");
                 return map;
             }
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException)
         {
-            Log.Warn("Walkmap", $"could not load walkable map for \"{room}\" ({ex.GetType().Name}); starting fresh");
+            Log.Warn("Walkmap", $"could not load walkable map for \"{RoomRegistry.PublicName(room)}\" ({ex.GetType().Name}); starting fresh");
         }
         return new WalkableMap(_cellSize);
     }
@@ -64,12 +64,12 @@ public sealed class WalkableMapRegistry
             Directory.CreateDirectory(_dir);
             var path = PathFor(room);
             using (var fs = File.Create(path)) map.Save(fs);
-            Log.Info("Walkmap", $"saved {map.Count} walkable cell(s) for \"{room}\" to {Path.GetFileName(path)}");
+            Log.Info("Walkmap", $"saved {map.Count} walkable cell(s) for \"{RoomRegistry.PublicName(room)}\" to {Path.GetFileName(path)}");
             return true;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            Log.Warn("Walkmap", $"could not save walkable map for \"{room}\" ({ex.GetType().Name})");
+            Log.Warn("Walkmap", $"could not save walkable map for \"{RoomRegistry.PublicName(room)}\" ({ex.GetType().Name})");
             return false;
         }
     }

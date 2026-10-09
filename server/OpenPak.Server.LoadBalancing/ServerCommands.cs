@@ -33,14 +33,16 @@ public sealed class ServerCommands
     [ConsoleCommand("rooms", MinLevel = PlayerLevel.Mod)]
     private string Rooms(CommandLine line)
     {
-        var names = _rooms.RoomNames;
-        if (names.Count == 0) return "(no rooms)";
+        var rooms = _rooms.All;
+        if (rooms.Count == 0) return "(no rooms)";
         // Operator view: always break out real players vs bots, independent of the lobby CountInLobby toggle.
-        return string.Join('\n', names.OrderBy(n => n).Select(n =>
+        // Rooms of different game builds can share a name; the build's AppVersion tells them apart.
+        return string.Join('\n', rooms.OrderBy(r => r.Name).ThenBy(r => r.AppVersion).Select(r =>
         {
-            int players = _rooms.FindSession(n)?.Count ?? 0;
-            int bots = _bots.CountIn(n);
-            return bots > 0 ? $"{n} ({players} + {bots} bots)" : $"{n} ({players})";
+            int players = _rooms.FindSession(r.Key)?.Count ?? 0;
+            int bots = _bots.CountIn(r.Key);
+            var version = r.AppVersion.Length > 0 ? $" [{r.AppVersion}]" : "";
+            return bots > 0 ? $"{r.Name}{version} ({players} + {bots} bots)" : $"{r.Name}{version} ({players})";
         }));
     }
 
@@ -48,16 +50,16 @@ public sealed class ServerCommands
     private string Room(CommandLine line)
     {
         var name = Arg(line, 1);
-        var room = _rooms.Find(name);
+        var room = _rooms.ResolveName(name) is { } key ? _rooms.Find(key) : null;
         if (room is null) return $"no such room: {name}";
-        var actors = _rooms.FindSession(name)?.Actors() ?? System.Array.Empty<int>();
-        return $"room \"{name}\": actors=[{string.Join(",", actors)}]\nproperties: {PhotonNames.Value(SnapshotProps(room))}";
+        var actors = _rooms.FindSession(room.Key)?.Actors() ?? System.Array.Empty<int>();
+        return $"room \"{room.Name}\": actors=[{string.Join(",", actors)}]\nproperties: {PhotonNames.Value(SnapshotProps(room))}";
     }
 
     [ConsoleCommand("getprop", Usage = "<room>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
     private string GetProp(CommandLine line)
     {
-        var room = _rooms.Find(Arg(line, 1));
+        var room = _rooms.ResolveName(Arg(line, 1)) is { } key ? _rooms.Find(key) : null;
         return room is null ? $"no such room: {Arg(line, 1)}" : PhotonNames.Value(SnapshotProps(room));
     }
 
@@ -85,10 +87,11 @@ public sealed class ServerCommands
     private string Say(CommandLine line)
     {
         var room = Arg(line, 1);
+        var key = _rooms.ResolveName(room);
         var text = AfterArg(line, 1);
-        if (_rooms.Find(room) is null) return $"no such room: {room}";
+        if (key is null) return $"no such room: {room}";
         var ev = ChatCommandHandler.ServerMessageEvent(text);
-        _admin.Enqueue(() => _rooms.FindSession(room)?.SendToAll(ev));
+        _admin.Enqueue(() => _rooms.FindSession(key)?.SendToAll(ev));
         return $"queued broadcast to \"{room}\": {text}";
     }
 
@@ -96,11 +99,12 @@ public sealed class ServerCommands
     private string Tell(CommandLine line)
     {
         var room = Arg(line, 1);
+        var key = _rooms.ResolveName(room);
         if (!int.TryParse(Arg(line, 2), out var actor)) return "actor must be a number.";
         var text = AfterArg(line, 2);
-        if (_rooms.Find(room) is null) return $"no such room: {room}";
+        if (key is null) return $"no such room: {room}";
         var ev = ChatCommandHandler.ServerMessageEvent(text);
-        _admin.Enqueue(() => _rooms.FindSession(room)?.SendToActor(actor, ev));
+        _admin.Enqueue(() => _rooms.FindSession(key)?.SendToActor(actor, ev));
         return $"queued message to {room}#{actor}: {text}";
     }
 
@@ -110,13 +114,13 @@ public sealed class ServerCommands
         var name = Arg(line, 1);
         var key = Arg(line, 2);
         object value = ParseValue(AfterArg(line, 2));
-        if (_rooms.Find(name) is null) return $"no such room: {name}";
+        if (_rooms.ResolveName(name) is not { } roomKey) return $"no such room: {name}";
         _admin.Enqueue(() =>
         {
-            var room = _rooms.Find(name);
+            var room = _rooms.Find(roomKey);
             if (room is null) return;
             room.SetProperties(null, new Dictionary<object, object> { { key, value } });   // shared game prop
-            _rooms.FindSession(name)?.SendToAll(new EventData(PhotonCodes.Event.PropertiesChanged, new()
+            _rooms.FindSession(roomKey)?.SendToAll(new EventData(PhotonCodes.Event.PropertiesChanged, new()
             {
                 { PhotonCodes.Param.Properties, new Dictionary<object, object> { { key, value } } },
                 { PhotonCodes.Param.TargetActorNr, 0 },   // 0 = shared game properties
@@ -131,10 +135,11 @@ public sealed class ServerCommands
     private string Kick(CommandLine line)
     {
         var room = Arg(line, 1);
+        var key = _rooms.ResolveName(room);
         if (!int.TryParse(Arg(line, 2), out var actor)) return "actor must be a number.";
         var reason = line.Parts.Count > 3 ? AfterArg(line, 2) : "Kicked by an administrator.";
-        if (_rooms.Find(room) is null) return $"no such room: {room}";
-        _admin.Enqueue(() => _rooms.FindSession(room)?.Kick(actor, reason));
+        if (key is null) return $"no such room: {room}";
+        _admin.Enqueue(() => _rooms.FindSession(key)?.Kick(actor, reason));
         return $"queued kick of {room}#{actor}";
     }
 
@@ -142,15 +147,16 @@ public sealed class ServerCommands
     private string Raise(CommandLine line)
     {
         var room = Arg(line, 1);
+        var key = _rooms.ResolveName(room);
         if (!byte.TryParse(Arg(line, 2), out var code)) return "eventCode must be 0-255.";
-        if (_rooms.Find(room) is null) return $"no such room: {room}";
+        if (key is null) return $"no such room: {room}";
         // Generic "send any direct packet": an arbitrary event code to the whole room, with an optional
         // string payload under Data(245). Admin authority deliberately bypasses the client reserved-code
         // rule (the server may originate any event); use for protocol debugging / scripted manipulation.
         var ev = line.Parts.Count > 3
             ? new EventData(code, new() { { PhotonCodes.Param.Data, AfterArg(line, 2) } })
             : new EventData(code, new());
-        _admin.Enqueue(() => _rooms.FindSession(room)?.SendToAll(ev));
+        _admin.Enqueue(() => _rooms.FindSession(key)?.SendToAll(ev));
         return $"queued raw event {code} ({PhotonNames.Event(code)}) to \"{room}\"";
     }
 
@@ -158,9 +164,10 @@ public sealed class ServerCommands
     private string Bot(CommandLine line)
     {
         var realm = AfterArg(line, 0);   // realm name may contain spaces
-        _rooms.GetOrCreate(realm);
-        _bots.RequestSpawn(_rooms.Session(realm), _botIds.Next());
-        return $"queued bot spawn for \"{realm}\" (runs on next listener tick)";
+        var key = _rooms.ResolveName(realm) ?? realm;   // a live room by that name, else a new one
+        _rooms.GetOrCreate(key);
+        _bots.RequestSpawn(_rooms.Session(key), _botIds.Next());
+        return $"queued bot spawn for \"{RoomRegistry.PublicName(key)}\" (runs on next listener tick)";
     }
 
     [ConsoleCommand("summon", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Admin)]
@@ -174,14 +181,14 @@ public sealed class ServerCommands
         // Resolve tolerantly: the live game's room name uses a Unicode em-dash ("Black Ice — Co-op"), which
         // can't be typed through a console whose input code page is legacy OEM. Match dash-variant/case/space-
         // insensitively so a plain-ASCII "Black Ice - Co-op" still finds it.
-        var realm = ResolveRoomName(typed);
+        var realm = _rooms.ResolveName(typed);
         if (realm is null) return $"no such room: {typed}";
         _admin.Enqueue(() =>
         {
             int n = _bots.SummonAll(realm);
-            if (n < 0) Log.Warn("Bots", $"summon \"{realm}\": no player position known yet (is someone in the realm?)");
+            if (n < 0) Log.Warn("Bots", $"summon \"{RoomRegistry.PublicName(realm)}\": no player position known yet (is someone in the realm?)");
         });
-        return $"queued summon of all bots to the player in \"{realm}\" (runs on next listener tick)";
+        return $"queued summon of all bots to the player in \"{RoomRegistry.PublicName(realm)}\" (runs on next listener tick)";
     }
 
     [ConsoleCommand("walkmap", Usage = "<realm>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
@@ -192,51 +199,21 @@ public sealed class ServerCommands
         // listener thread (where the map is written each tick) so the read/save can't race the recorder.
         if (_bots.Walkable is null) return "walkable mapping is not enabled on this server.";
         var typed = AfterArg(line, 0);
-        var realm = ResolveRoomName(typed) ?? typed;   // record/report under the live room name when known
+        var realm = _rooms.ResolveName(typed) ?? typed;   // record/report under the live room name when known
         _admin.Enqueue(() =>
         {
             var map = _bots.Walkable.For(realm);
             var b = map.Bounds();
             _bots.Walkable.Save(realm);
-            Log.Info("Walkmap", $"\"{realm}\": {map.Count} cells (cell {map.CellSize:F0}u) " +
+            Log.Info("Walkmap", $"\"{RoomRegistry.PublicName(realm)}\": {map.Count} cells (cell {map.CellSize:F0}u) " +
                                 $"X[{b.minX:F0},{b.maxX:F0}] Y[{b.minY:F0},{b.maxY:F0}] Z[{b.minZ:F0},{b.maxZ:F0}]");
         });
-        return $"queued walkmap report+save for \"{realm}\" (runs on next tick; see the [Walkmap] log line)";
+        return $"queued walkmap report+save for \"{RoomRegistry.PublicName(realm)}\" (runs on next tick; see the [Walkmap] log line)";
     }
 
     // --- helpers ---------------------------------------------------------------------------------
 
     private static string Arg(CommandLine line, int index) => index < line.Parts.Count ? line.Parts[index] : "";
-
-    /// <summary>Maps an operator-typed realm/room name to an actual registry key, tolerating dash variants
-    /// (ASCII hyphen vs Unicode en/em-dash), case, and whitespace. Lets a plain-ASCII name match a room whose
-    /// real name carries a Unicode dash the console code page can't represent. Returns the canonical stored
-    /// name, or null if none matches.</summary>
-    private string? ResolveRoomName(string input)
-    {
-        if (_rooms.Find(input) is not null) return input;        // exact, fast path
-        var want = NormalizeRoomName(input);
-        foreach (var name in _rooms.RoomNames)
-            if (NormalizeRoomName(name) == want) return name;
-        return null;
-    }
-
-    private static string NormalizeRoomName(string s)
-    {
-        var sb = new System.Text.StringBuilder(s.Length);
-        bool prevSpace = false;
-        foreach (var ch in s.Trim())
-        {
-            char c = ch is '‐' or '‑' or '‒' or '–' or '—' or '―' ? '-' : ch;
-            if (char.IsWhiteSpace(c))
-            {
-                if (prevSpace) continue;   // collapse runs of whitespace
-                prevSpace = true; sb.Append(' ');
-            }
-            else { prevSpace = false; sb.Append(char.ToLowerInvariant(c)); }
-        }
-        return sb.ToString();
-    }
 
     /// <summary>Everything after the token at <paramref name="index"/> (so trailing text can contain spaces).</summary>
     private static string AfterArg(CommandLine line, int index)

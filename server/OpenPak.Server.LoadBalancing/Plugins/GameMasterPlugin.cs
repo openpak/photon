@@ -63,7 +63,7 @@ internal sealed class GameMasterCommands
         // GAP: in-game acceptance of server-originated damage RPC unconfirmed — verify against the live master client (docs/protocol/live-verification.md).
         var ev = DamageData.BuildTakeDamageRpc(viewId, amount);
         _admin.Enqueue(() => _rooms.FindSession(realm)?.SendToAll(ev));
-        return $"queued damage {amount} to {realm}#view{viewId}";
+        return $"queued damage {amount} to {RoomRegistry.PublicName(realm)}#view{viewId}";
     }
 
     [ConsoleCommand("kill", Usage = "<realm> <viewId>", MinParts = 3, MinLevel = PlayerLevel.Admin)]
@@ -74,7 +74,7 @@ internal sealed class GameMasterCommands
         // GAP: in-game acceptance of server-originated kill (TakeDamage) RPC unconfirmed — verify against the live master client (docs/protocol/live-verification.md).
         var ev = DamageData.BuildTakeDamageRpc(viewId, KillDamage);
         _admin.Enqueue(() => _rooms.FindSession(realm)?.SendToAll(ev));
-        return $"queued kill of {realm}#view{viewId}";
+        return $"queued kill of {RoomRegistry.PublicName(realm)}#view{viewId}";
     }
 
     [ConsoleCommand("xp", Usage = "<realm> <viewId> <amount>", MinParts = 4, MinLevel = PlayerLevel.Admin)]
@@ -87,7 +87,7 @@ internal sealed class GameMasterCommands
         // GAP: in-game acceptance of server-originated xp/AddBuff RPC unconfirmed — verify against the live master client (docs/protocol/live-verification.md).
         var ev = Rpc(viewId, "AddBuffRPC", new object[] { 1, amount, 30f, 0, 1.5f, 0 });
         _admin.Enqueue(() => _rooms.FindSession(realm)?.SendToAll(ev));
-        return $"queued xp/buff {amount} to {realm}#view{viewId}";
+        return $"queued xp/buff {amount} to {RoomRegistry.PublicName(realm)}#view{viewId}";
     }
 
     [ConsoleCommand("destroy", Usage = "<realm> <viewId>", MinParts = 3, MinLevel = PlayerLevel.Admin)]
@@ -102,7 +102,7 @@ internal sealed class GameMasterCommands
             { PhotonCodes.Param.Data, new Dictionary<object, object> { { (byte)0, viewId } } },
         });
         _admin.Enqueue(() => _rooms.FindSession(realm)?.SendToAll(ev));
-        return $"queued destroy of {realm}#view{viewId}";
+        return $"queued destroy of {RoomRegistry.PublicName(realm)}#view{viewId}";
     }
 
     // --- helpers ---------------------------------------------------------------------------------
@@ -122,7 +122,7 @@ internal sealed class GameMasterCommands
         if (!int.TryParse(Arg(line, 2), out viewId)) { error = "viewId must be a number."; return false; }
         if (_worlds.Find(realm)?.Knows(viewId) != true)
         {
-            error = $"view not found: {realm}#view{viewId} (the server has not observed that entity)";
+            error = $"view not found: {RoomRegistry.PublicName(realm)}#view{viewId} (the server has not observed that entity)";
             return false;
         }
         return true;
