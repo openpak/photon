@@ -58,7 +58,7 @@ public sealed class AccountRoomPublisher
             if (!response.IsSuccessStatusCode)
                 Log.Warn("Account", $"Room presence publish failed: HTTP {(int)response.StatusCode}");
             else
-                Log.Info("Account", $"Published {titleId} room {room}");
+                Log.Info("Account", $"Published {titleId} room {Redact.Room(room)}");
         }
         catch (Exception ex)
         {

@@ -71,7 +71,7 @@ internal sealed class SpawnGuardInterceptor : IEventInterceptor
             return RelayVerdict.Forward(ctx.Event);
 
         ProtectedCount++;
-        Log.Info("SpawnGuard", $"\"{RoomRegistry.PublicName(ctx.RoomName)}\": dropped damage from actor {ctx.SenderActor} to spawn-protected actor {targetActor}");
+        Log.Info("SpawnGuard", $"{Redact.Room(ctx.RoomName)}: dropped damage from actor {ctx.SenderActor} to spawn-protected actor {targetActor}");
         return RelayVerdict.Drop();
     }
 }

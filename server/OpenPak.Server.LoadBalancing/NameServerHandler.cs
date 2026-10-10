@@ -139,18 +139,18 @@ public sealed class NameServerHandler : IOperationHandler
         // Fail closed for public until the operator sets a real secret. (Security review C1.)
         if (_secret == ServerOptions.DefaultSecret)
         {
-            Log.Warn("NameServer", $"{peer.Remote} public auth refused: Server.Secret is the shipped default — " +
+            Log.Warn("NameServer", $"{peer.PeerTag} public auth refused: Server.Secret is the shipped default — " +
                                    "a verified identity would be forgeable. Set a strong Server.Secret.");
             peer.SendResponse(Fail("Server is not configured for public authentication")); return;
         }
         if (validId is null)
         {
-            Log.Warn("NameServer", $"{peer.Remote} public auth without a valid SteamID -> rc=-1");
+            Log.Warn("NameServer", $"{peer.PeerTag} public auth without a valid SteamID -> rc=-1");
             peer.SendResponse(Fail("A valid SteamID is required")); return;
         }
         if (!(request.Parameters.TryGetValue(PTicket, out var tk) && tk is byte[] ticket && ticket.Length > 0))
         {
-            Log.Warn("NameServer", $"{peer.Remote} public auth without a Steam ticket -> rc=-1");
+            Log.Warn("NameServer", $"{peer.PeerTag} public auth without a Steam ticket -> rc=-1");
             peer.SendResponse(Fail("A Steam auth ticket is required")); return;
         }
         if (!ulong.TryParse(validId, out var sid64))
@@ -158,7 +158,7 @@ public sealed class NameServerHandler : IOperationHandler
             peer.SendResponse(Fail("A valid SteamID is required")); return;
         }
 
-        Log.Info("NameServer", $"{peer.Remote} validating Steam ticket for {validId} ({ticket.Length}B)...");
+        Log.Info("NameServer", $"{peer.PeerTag} validating Steam ticket for {Redact.Tag(validId)} ({ticket.Length}B)...");
         _ = ValidateAndRespond(peer, ticket, sid64);
     }
 
@@ -174,12 +174,12 @@ public sealed class NameServerHandler : IOperationHandler
         {
             if (result.Outcome == SteamAuthOutcome.Verified)
             {
-                Log.Info("NameServer", $"{peer.Remote} Steam VERIFIED as {result.SteamId} -> rc=0");
+                Log.Info("NameServer", $"{peer.PeerTag} Steam VERIFIED as {Redact.Tag(result.SteamId)} -> rc=0");
                 Respond(peer, result.SteamId.ToString(), verified: true);
             }
             else
             {
-                Log.Warn("NameServer", $"{peer.Remote} Steam validation {result.Outcome} ({result.Reason}) -> rc=-1");
+                Log.Warn("NameServer", $"{peer.PeerTag} Steam validation {result.Outcome} ({result.Reason}) -> rc=-1");
                 peer.SendResponse(Fail("Steam ticket validation failed"));
             }
         });
@@ -195,7 +195,7 @@ public sealed class NameServerHandler : IOperationHandler
         {
             if (banned)
             {
-                Log.Warn("NameServer", $"{peer.Remote} OpenPak account BANNED -> rc=-3");
+                Log.Warn("NameServer", $"{peer.PeerTag} OpenPak account BANNED -> rc=-3");
                 peer.SendResponse(new OperationResponse(OpAuthenticate, -3, "Account banned", new()));
                 return;
             }
@@ -242,7 +242,7 @@ public sealed class NameServerHandler : IOperationHandler
             : _accounts.ResolveOrCreate(steamId, steamId);
         if (account?.IsBanned == true)
         {
-            Log.Warn("NameServer", $"{steamId} is BANNED -> rc=-3");
+            Log.Warn("NameServer", $"{Redact.Tag(steamId)} is BANNED -> rc=-3");
             return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
         }
         return new OperationResponse(OpAuthenticate, 0, null, new()

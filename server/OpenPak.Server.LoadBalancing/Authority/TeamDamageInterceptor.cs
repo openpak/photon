@@ -31,7 +31,7 @@ public sealed class TeamDamageInterceptor : IEventInterceptor
             return RelayVerdict.Forward(ctx.Event);
 
         DroppedCount++;
-        Log.Info("GameMode", $"{_modes.ModeOf(ctx.RoomName)} in \"{RoomRegistry.PublicName(ctx.RoomName)}\": dropped disallowed damage " +
+        Log.Info("GameMode", $"{_modes.ModeOf(ctx.RoomName)} in {Redact.Room(ctx.RoomName)}: dropped disallowed damage " +
                              $"from actor {ctx.SenderActor} to actor {targetActor} (friendly-fire/PvE rule)");
         return RelayVerdict.Drop();
     }

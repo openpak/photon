@@ -26,7 +26,7 @@ public static class StartupInitializer
 
         using var ctx = dbf.CreateDbContext();
         var accounts = new AccountService(ctx);
-        Log.Info("HOST", $"One-time bootstrap code: {accounts.EnsureBootstrapCode()}");
+        Log.Info("HOST", "A one-time bootstrap code is ready; read it with the 'code' console command.");
 
         var realms = new RealmService(ctx);
         var motd = new MotdService(ctx);

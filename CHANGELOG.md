@@ -3,6 +3,23 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.12.1 — 2026-10-10
+
+**Logs carry no personal data.** Account and Steam ids, Photon user ids, auth tokens, nicknames, room names
+and passwords, chat text and client addresses no longer reach the log at any level. Where two lines must be
+matched up, they carry a tag instead: `~` and six hex digits, a keyed hash with a key drawn per process. The
+same value gets the same tag within one run; nothing can be reversed, and tags do not match across restarts.
+
+- feat(log): `Redact` (in Core) gives every log site its safe form: `Tag` for ids and tokens, `Room` for room
+  names and registry keys, `Peer` for client addresses, `Url` without query strings, `Scrub` for addresses in
+  exception and socket texts. Packet and parameter dumps show only their shape (key names, lengths, types).
+- fix(log): the full packet and parameter dumps are off by default. `PHOTON_TRACE_BODIES=1` turns them back on,
+  for a developer machine only.
+- fix(log): the one-time bootstrap code is no longer logged; read it with the `code` console command. A failed
+  console command logs its name, not its arguments.
+- test(log): `LogPrivacyTests` drives real Name and Game traffic at Trace level and searches the log file and the
+  console for the sentinel values.
+
 ## v0.12.0 — 2026-10-09
 
 **Game versions are kept apart, as on Photon Cloud.** Rooms used to be keyed by name alone, so two builds

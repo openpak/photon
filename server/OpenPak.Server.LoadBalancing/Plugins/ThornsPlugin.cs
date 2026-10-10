@@ -70,7 +70,7 @@ internal sealed class ThornsInterceptor : IEventInterceptor
         var reflectRpc = DamageData.BuildTakeDamageRpc(attacker * MaxViewIdsPerActor + AvatarViewSlot, reflected);
 
         ReflectedCount++;
-        Log.Info("Thorns", $"\"{RoomRegistry.PublicName(ctx.RoomName)}\": reflected {reflected:0.#} ({percent}% of {dmg:0.#}) from actor {target} back to attacker {attacker}");
+        Log.Info("Thorns", $"{Redact.Room(ctx.RoomName)}: reflected {reflected:0.#} ({percent}% of {dmg:0.#}) from actor {target} back to attacker {attacker}");
         return RelayVerdict.Originate(ctx.Event, new[] { reflectRpc });
     }
 }

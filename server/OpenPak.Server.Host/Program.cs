@@ -135,7 +135,7 @@ static void RegisterCrashHandlers()
     AppDomain.CurrentDomain.UnhandledException += (_, e) =>
     {
         Log.Error("FATAL", $"Unhandled exception (terminating={e.IsTerminating}): " +
-                           $"{(e.ExceptionObject as Exception)?.ToString() ?? e.ExceptionObject?.ToString()}");
+                           Redact.Scrub($"{(e.ExceptionObject as Exception)?.ToString() ?? e.ExceptionObject?.ToString()}"));
         Log.Flush();
     };
     TaskScheduler.UnobservedTaskException += (_, e) =>

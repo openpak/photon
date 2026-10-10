@@ -73,7 +73,7 @@ public static class Log
 
     /// <summary>Logs an exception with its type, message, and full stack at Error.</summary>
     public static void Exception(string cat, string context, Exception ex) =>
-        Write(LogLevel.Error, cat, $"{context}: {ex.GetType().Name}: {ex.Message}\n{ex}");
+        Write(LogLevel.Error, cat, Redact.Scrub($"{context}: {ex.GetType().Name}: {ex.Message}\n{ex}"));
 
     /// <summary>True when the given level would be emitted — guard expensive formatting with this.</summary>
     public static bool Enabled(LogLevel level) => level >= Level;

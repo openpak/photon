@@ -20,7 +20,7 @@ public sealed class RegionsRefreshService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (string.IsNullOrWhiteSpace(_config.Federation.RegionsUrl) || _config.Federation.IsNode) return;
-        Log.Info("Federation", $"regions from {_config.Federation.RegionsUrl}");
+        Log.Info("Federation", $"regions from {Redact.Url(_config.Federation.RegionsUrl)}");
         while (!stoppingToken.IsCancellationRequested)
         {
             await _nodes.RefreshAsync(stoppingToken);

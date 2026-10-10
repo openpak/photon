@@ -186,7 +186,7 @@ public sealed class ServerCommands
         _admin.Enqueue(() =>
         {
             int n = _bots.SummonAll(realm);
-            if (n < 0) Log.Warn("Bots", $"summon \"{RoomRegistry.PublicName(realm)}\": no player position known yet (is someone in the realm?)");
+            if (n < 0) Log.Warn("Bots", $"summon {Redact.Room(realm)}: no player position known yet (is someone in the realm?)");
         });
         return $"queued summon of all bots to the player in \"{RoomRegistry.PublicName(realm)}\" (runs on next listener tick)";
     }
@@ -205,7 +205,7 @@ public sealed class ServerCommands
             var map = _bots.Walkable.For(realm);
             var b = map.Bounds();
             _bots.Walkable.Save(realm);
-            Log.Info("Walkmap", $"\"{RoomRegistry.PublicName(realm)}\": {map.Count} cells (cell {map.CellSize:F0}u) " +
+            Log.Info("Walkmap", $"{Redact.Room(realm)}: {map.Count} cells (cell {map.CellSize:F0}u) " +
                                 $"X[{b.minX:F0},{b.maxX:F0}] Y[{b.minY:F0},{b.maxY:F0}] Z[{b.minZ:F0},{b.maxZ:F0}]");
         });
         return $"queued walkmap report+save for \"{RoomRegistry.PublicName(realm)}\" (runs on next tick; see the [Walkmap] log line)";

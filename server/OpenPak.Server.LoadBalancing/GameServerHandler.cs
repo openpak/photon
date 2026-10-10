@@ -204,10 +204,10 @@ public sealed class GameServerHandler : IOperationHandler
                     { PGameProperties, gameProperties },
                     { PActorProperties, new Dictionary<byte, object>() },
                 }));
-                Log.Debug("GameServer", $"{peer.Remote} repeated join for \"{already.RoomName}\" actor={already.Actor}");
+                Log.Debug("GameServer", $"{peer.PeerTag} repeated join for {Redact.Room(already.RoomName)} actor={already.Actor}");
                 return;
             }
-            Log.Warn("GameServer", $"{peer.Remote} tried to join while already in \"{already.RoomName}\" -> rc=-7");
+            Log.Warn("GameServer", $"{peer.PeerTag} tried to join while already in {Redact.Room(already.RoomName)} -> rc=-7");
             peer.SendResponse(new OperationResponse(request.OperationCode, -7, "Already in a room", new()));
             return;
         }
@@ -232,7 +232,7 @@ public sealed class GameServerHandler : IOperationHandler
         peer.Tag = new PeerRoomState(roomKey, actor) { FusionTopology = topology };
         if (topology is not null)
         {
-            Log.Info("GameServer", $"\"{roomName}\" actor={actor} Fusion topology \"{topology}\" host={session.FusionHostActor}");
+            Log.Info("GameServer", $"{Redact.Room(roomName)} actor={actor} Fusion topology \"{topology}\" host={session.FusionHostActor}");
         }
         peer.Status = SessionStatus.InRoom;
         session.Join(actor, peer);
@@ -288,7 +288,7 @@ public sealed class GameServerHandler : IOperationHandler
             // let it spoof another player joining/leaving or changing properties. Drop the attempt.
             if (!IsClientRaisable(ec))
             {
-                Log.Warn("GameServer", $"actor {state.Actor} in \"{state.RoomName}\" tried to raise reserved " +
+                Log.Warn("GameServer", $"actor {state.Actor} in {Redact.Room(state.RoomName)} tried to raise reserved " +
                                        $"server event {PhotonNames.Event(ec)} -> dropped");
                 return;
             }
@@ -359,7 +359,7 @@ public sealed class GameServerHandler : IOperationHandler
                         hostPeer.RaiseEvent(ServerFusionEvent(ec, FusionProtocol.EncodeReflexiveInfo(
                             theirs.ProtocolVersion, theirs.Major, theirs.Minor, theirs.Build,
                             state.Actor, FusionProtocol.UniqueIdForActor(state.Actor))));
-                    Log.Info("GameServer", $"\"{state.RoomName}\" Fusion client actor={state.Actor} introduced to host actor={host}");
+                    Log.Info("GameServer", $"{Redact.Room(state.RoomName)} Fusion client actor={state.Actor} introduced to host actor={host}");
                 }
                 else if (state.PendingFusionJoin is { } pending && FusionProtocol.PeekMessageId(payload) == FusionProtocol.MsgIdNetworkConfigSync)
                 {
@@ -552,7 +552,7 @@ public sealed class GameServerHandler : IOperationHandler
         // Room name is client-supplied: accept only a real string, never coerce a wrong type or NRE a null.
         var name = r.Parameters.TryGetValue(PRoomName, out var n) && n is string ns ? ns : "room";
         var realm = _realms?.Get(name);
-        Log.Debug("GameServer", $"EnterRoom name=\"{name}\" realm={(realm is null ? "<none>" : $"{realm.Name} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
+        Log.Debug("GameServer", $"EnterRoom name={Redact.Room(name)} realm={(realm is null ? "<none>" : $"{Redact.Room(realm.Name)} enabled={realm.IsEnabled} pwd={(realm.Password.Length > 0)}")}");
 
         // A room name that matches a configured realm must be enabled (and password-gated below).
         // A room name that DOESN'T match any realm is a dynamic/ad-hoc room — e.g. a Fusion client's
@@ -560,12 +560,12 @@ public sealed class GameServerHandler : IOperationHandler
         // is let through open, same as when no realms are configured at all (tests).
         if (realm is not null && !realm.IsEnabled)
         {
-            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": realm disabled -> rc=-4");
+            Log.Warn("GameServer", $"EnterRoom rejected {Redact.Room(name)}: realm disabled -> rc=-4");
             return (new OperationResponse(r.OperationCode, -4, "No such realm", new()), new EventData(EvJoin, new()));
         }
         if (realm is not null && realm.Password.Length > 0 && joinPassword != realm.Password)
         {
-            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": wrong password -> rc=-5");
+            Log.Warn("GameServer", $"EnterRoom rejected {Redact.Room(name)}: wrong password -> rc=-5");
             return (new OperationResponse(r.OperationCode, -5, "Wrong password", new()), new EventData(EvJoin, new()));
         }
 
@@ -575,12 +575,12 @@ public sealed class GameServerHandler : IOperationHandler
         // lock everyone out). Without realms configured (tests) the room is open.
         if (realm is not null && realm.MaxPlayers > 0 && room.ActorNumbers.Count >= realm.MaxPlayers)
         {
-            Log.Warn("GameServer", $"EnterRoom rejected \"{name}\": full ({room.ActorNumbers.Count}/{realm.MaxPlayers}) -> rc=-6");
+            Log.Warn("GameServer", $"EnterRoom rejected {Redact.Room(name)}: full ({room.ActorNumbers.Count}/{realm.MaxPlayers}) -> rc=-6");
             return (new OperationResponse(r.OperationCode, -6, "Room full", new()), new EventData(EvJoin, new()));
         }
 
         int actor = room.AddActor();
-        Log.Info("GameServer", $"EnterRoom \"{name}\" actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
+        Log.Info("GameServer", $"EnterRoom {Redact.Room(name)} actor={actor} occupants=[{string.Join(",", room.ActorNumbers)}]");
 
         // Persist the CREATOR's incoming GameProperties (248) so the Master lobby's GameList can
         // advertise the custom props Fusion filters candidate sessions by — scene, vehicleType,
@@ -611,7 +611,7 @@ public sealed class GameServerHandler : IOperationHandler
 
         var motdText = _motd?.Resolve(realm);
         if (!string.IsNullOrWhiteSpace(motdText)) gameProps["motd"] = motdText!;
-        Log.Debug("GameServer", $"EnterRoom gameProps={PhotonNames.Value(gameProps)} motd={(motdText is null ? "<none>" : $"\"{motdText}\"")}");
+        Log.Debug("GameServer", $"EnterRoom gameProps={Redact.Value(gameProps)} motd={(motdText is null ? "<none>" : $"\"{motdText}\"")}");
 
         var response = new OperationResponse(r.OperationCode, 0, null, new()
         {
@@ -668,7 +668,7 @@ public sealed class GameServerHandler : IOperationHandler
         }
         else
         {
-            Log.Warn("GameServer", $"SetProperties: unresolved room (\"{(roomKey is null ? null : RoomRegistry.PublicName(roomKey))}\") or missing Properties(251)");
+            Log.Warn("GameServer", $"SetProperties: unresolved room ({Redact.Room(roomKey)}) or missing Properties(251)");
         }
         return new OperationResponse(OpSetProperties, 0, null, new());
     }

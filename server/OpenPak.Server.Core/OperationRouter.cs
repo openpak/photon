@@ -44,14 +44,14 @@ public sealed class OperationRouter
     {
         if (!_table.TryGetValue(request.OperationCode, out var entry))
         {
-            Log.Warn(_role, $"{peer.Remote} unhandled {PhotonNames.Op(request.OperationCode)} " +
-                            $"[{PhotonNames.Params(request.Parameters)}] -> rc=-2");
+            Log.Warn(_role, $"{peer.PeerTag} unhandled {PhotonNames.Op(request.OperationCode)} " +
+                            $"[{Redact.Params(request.Parameters)}] -> rc=-2");
             peer.SendResponse(new OperationResponse(request.OperationCode, -2, _unknownMessage, new()));
             return;
         }
 
         if (peer.Status < entry.Required)
-            Log.Warn(_role, $"{peer.Remote} {PhotonNames.Op(request.OperationCode)} arrived before " +
+            Log.Warn(_role, $"{peer.PeerTag} {PhotonNames.Op(request.OperationCode)} arrived before " +
                             $"{entry.Required} (peer status={peer.Status}) -> processed (log-only)");
 
         entry.Handler(peer, request);

@@ -78,7 +78,7 @@ public sealed class ConsoleHostedService : BackgroundService
                     : $"unknown command. type 'help'.";
                 if (!string.IsNullOrEmpty(output)) Console.WriteLine(output);
             }
-            catch (Exception ex) { Log.Exception("CONSOLE", $"command '{line}' failed", ex); }
+            catch (Exception ex) { Log.Exception("CONSOLE", $"command '{line.Split(' ', 2)[0]}' failed", ex); }
         }
     }
 }

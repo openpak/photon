@@ -43,6 +43,6 @@ public sealed class GameModePlugin : IServerPlugin
             { PhotonCodes.Param.Properties, teamProp },
             { PhotonCodes.Param.TargetActorNr, ctx.Actor },
         }));
-        Log.Info("GameMode", $"\"{RoomRegistry.PublicName(ctx.RoomName)}\" [{mode}] assigned actor {ctx.Actor} to team {team}");
+        Log.Info("GameMode", $"{Redact.Room(ctx.RoomName)} [{mode}] assigned actor {ctx.Actor} to team {team}");
     }
 }

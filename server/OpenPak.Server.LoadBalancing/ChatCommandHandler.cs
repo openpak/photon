@@ -70,7 +70,7 @@ public sealed class ChatCommandHandler
         var isChat = method == "ReceiveChatMessage" || (method is null && isShortcutRpc);
         if (!isChat) return null;
 
-        Log.Info("GameServer", $"chat command intercepted: \"{text}\" (room=\"{roomName}\", " +
+        Log.Info("GameServer", $"chat command intercepted ({text.Length} chars) (room={Redact.Room(roomName)}, " +
                                $"method={(method ?? "<shortcut>")}, level={callerLevel})");
 
         var line = text[1..].Trim();                                  // strip the leading '/'

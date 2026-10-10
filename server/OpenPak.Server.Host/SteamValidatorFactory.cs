@@ -26,7 +26,7 @@ public static class SteamValidatorFactory
         }
         catch (System.Exception ex)
         {
-            Log.Warn("Steam", $"Steam game-server init failed ({ex.GetType().Name}: {ex.Message}); " +
+            Log.Warn("Steam", $"Steam game-server init failed ({ex.GetType().Name}: {Redact.Scrub(ex.Message)}); " +
                               "falling back to Null validator — public peers will fail closed.");
             return new NullSteamTicketValidator();
         }

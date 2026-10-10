@@ -20,6 +20,8 @@ public sealed class PeerConnection
     private DiffieHellmanCryptoProvider? _crypto;
 
     public IPEndPoint Remote { get; }
+    /// <summary>Log-safe stand-in for <see cref="Remote"/>: logs never carry a client address.</summary>
+    public string PeerTag => Redact.Peer(Remote);
     /// <summary>Per-peer slot for role handlers to stash state (e.g. authenticated userId).</summary>
     public object? Tag { get; set; }
 
@@ -92,7 +94,7 @@ public sealed class PeerConnection
         {
             if (cmd.CommandType == NCommand.Connect)
             {
-                Log.Info(_role, $"{Remote} eNet CONNECT");
+                Log.Info(_role, $"{PeerTag} eNet CONNECT");
                 _handler.OnConnect(this);
             }
             if (cmd.CommandType == NCommand.Disconnect)
@@ -100,7 +102,7 @@ public sealed class PeerConnection
                 // The client is telling us it's leaving. We don't tear down transport state yet
                 // (Phase 1), but record it — a Disconnect here vs. a silent timeout are very
                 // different failure modes when diagnosing "kicked out of the game".
-                Log.Info(_role, $"{Remote} eNet DISCONNECT received");
+                Log.Info(_role, $"{PeerTag} eNet DISCONNECT received");
                 _handler.OnDisconnect(this);
             }
         }
@@ -117,7 +119,7 @@ public sealed class PeerConnection
     {
         if (!WireMessage.TryPeekType(payload, out var type, out var encrypted))
         {
-            Log.Warn(_role, $"{Remote} dropped non-Photon payload ({payload.Length}B: {PhotonNames.Hex(payload, 32)})");
+            Log.Warn(_role, $"{PeerTag} dropped non-Photon payload ({payload.Length}B: {Redact.Hex(payload, 32)})");
             return;
         }
 
@@ -125,7 +127,7 @@ public sealed class PeerConnection
         // 2-byte InitResponse back before it proceeds to encryption + authentication.
         if (type == WireMessage.Init)
         {
-            Log.Info(_role, $"{Remote} Init -> InitResponse");
+            Log.Info(_role, $"{PeerTag} Init -> InitResponse");
             SendRaw(WireMessage.InitResponseMessage());
             return;
         }
@@ -140,14 +142,14 @@ public sealed class PeerConnection
             // Deliberate boundary (nothing better): the GpBinary wire codec signals malformed/undecryptable
             // input by throwing, so we translate that to a log-and-drop here rather than letting one bad
             // datagram tear down the peer. Expected-failure paths in our own code use Result instead.
-            Log.Exception(_role, $"{Remote} dropped malformed {PhotonNames.MessageType(type)} message " +
+            Log.Exception(_role, $"{PeerTag} dropped malformed {PhotonNames.MessageType(type)} message " +
                                  $"(enc={encrypted}, {payload.Length}B)", ex);
             return;
         }
 
         if (msg is { MessageType: WireMessage.InternalOperationRequest, Code: 0 })
         {
-            Log.Info(_role, $"{Remote} InitEncryption -> deriving shared key");
+            Log.Info(_role, $"{PeerTag} InitEncryption -> deriving shared key");
             EstablishEncryption(msg.Parameters);
             return;
         }
@@ -157,13 +159,13 @@ public sealed class PeerConnection
         var hotPath = msg.MessageType == WireMessage.Operation && msg.Code == PhotonCodes.Op.RaiseEvent;
         if (hotPath)
         {
-            if (Log.Enabled(LogLevel.Debug)) Log.Debug(_role, $"{Remote} <- {PhotonNames.Op(msg.Code)} [{PhotonNames.Params(msg.Parameters)}]");
+            if (Log.Enabled(LogLevel.Debug)) Log.Debug(_role, $"{PeerTag} <- {PhotonNames.Op(msg.Code)} [{Redact.Params(msg.Parameters)}]");
         }
         else if (msg.MessageType == WireMessage.Operation)
-            Log.Info(_role, $"{Remote} <- {PhotonNames.Op(msg.Code)} [{PhotonNames.Params(msg.Parameters)}]");
+            Log.Info(_role, $"{PeerTag} <- {PhotonNames.Op(msg.Code)} [{Redact.Params(msg.Parameters)}]");
         else
-            Log.Info(_role, $"{Remote} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
-                            $"[{PhotonNames.Params(msg.Parameters)}]");
+            Log.Info(_role, $"{PeerTag} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
+                            $"[{Redact.Params(msg.Parameters)}]");
 
         try
         {
@@ -173,7 +175,7 @@ public sealed class PeerConnection
         {
             // A handler throwing on one operation must not kill the peer/listener silently. Log it
             // with the offending op so we can see exactly which message broke processing.
-            Log.Exception(_role, $"{Remote} handler threw on {PhotonNames.Op(msg.Code)}", ex);
+            Log.Exception(_role, $"{PeerTag} handler threw on {PhotonNames.Op(msg.Code)}", ex);
         }
     }
 
@@ -184,7 +186,7 @@ public sealed class PeerConnection
         // rather than throwing a KeyNotFound/InvalidCast out of an unchecked cast.
         if (!parameters.TryGetValue(1, out var raw) || raw is not byte[] clientPublicKey)   // PhotonCodes.ClientKey
         {
-            Log.Warn(_role, $"{Remote} InitEncryption without a valid ClientKey (param 1) — ignored");
+            Log.Warn(_role, $"{PeerTag} InitEncryption without a valid ClientKey (param 1) — ignored");
             return;
         }
 
@@ -194,7 +196,7 @@ public sealed class PeerConnection
         crypto.DeriveSharedKey(clientPublicKey);
         _crypto = crypto;
         var serverPublicKey = crypto.PublicKey;
-        Log.Info(_role, $"{Remote} shared key derived (clientKey {clientPublicKey.Length}B, serverKey {serverPublicKey.Length}B)");
+        Log.Info(_role, $"{PeerTag} shared key derived (clientKey {clientPublicKey.Length}B, serverKey {serverPublicKey.Length}B)");
         var response = new OperationResponse(0, 0, null, new() { { 1, serverPublicKey } }); // ServerKey
         SendRaw(WireMessage.Response(response, WireMessage.InternalOperationResponse));
     }
@@ -208,7 +210,7 @@ public sealed class PeerConnection
     {
         if (now - LastInboundUtc < quietFor || now - _lastPingSentUtc < quietFor) return;
         _lastPingSentUtc = now;
-        Log.Trace(_role, $"{Remote} -> keepalive Ping (quiet {(now - LastInboundUtc).TotalSeconds:F1}s)");
+        Log.Trace(_role, $"{PeerTag} -> keepalive Ping (quiet {(now - LastInboundUtc).TotalSeconds:F1}s)");
         _send(new[] { _enet.Ping() }, _enet.Challenge);
     }
 
@@ -226,8 +228,8 @@ public sealed class PeerConnection
         if (WantsDisconnect) return;
         WantsDisconnect = true;
         try { _send(new[] { _enet.Disconnect() }, _enet.Challenge); }
-        catch (Exception ex) { Log.Exception(_role, $"{Remote} disconnect send failed", ex); }
-        Log.Info(_role, $"{Remote} hard-disconnected (server kick)");
+        catch (Exception ex) { Log.Exception(_role, $"{PeerTag} disconnect send failed", ex); }
+        Log.Info(_role, $"{PeerTag} hard-disconnected (server kick)");
     }
 
     /// <summary>Notifies the role handler that this peer is being dropped (graceful quit or eviction).</summary>
@@ -235,9 +237,9 @@ public sealed class PeerConnection
 
     public void SendResponse(OperationResponse response)
     {
-        Log.Info(_role, $"{Remote} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
+        Log.Info(_role, $"{PeerTag} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
                         $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
-                        $"[{PhotonNames.Params(response.Parameters)}]");
+                        $"[{Redact.Params(response.Parameters)}]");
         OnResponse?.Invoke(response);
         SendRaw(WireMessage.Response(response, encrypt: _crypto is { IsInitialized: true } c ? c.Encrypt : null));
     }
@@ -263,7 +265,7 @@ public sealed class PeerConnection
     public void RaiseEvent(EventData ev, bool unreliable)
     {
         if (Log.Enabled(LogLevel.Debug))
-            Log.Debug(_role, $"{Remote} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{PhotonNames.Params(ev.Parameters)}]");
+            Log.Debug(_role, $"{PeerTag} -> raise {PhotonNames.Event(ev.Code)} ({(unreliable ? "unreliable" : "reliable")}) [{Redact.Params(ev.Parameters)}]");
         OnRaised?.Invoke(ev);
         OnRaisedClassified?.Invoke(ev, unreliable);
         // Fusion's high-frequency session events (code 100 "protocol package" and 101 "relay data")

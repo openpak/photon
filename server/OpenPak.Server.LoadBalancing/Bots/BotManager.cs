@@ -100,7 +100,7 @@ public sealed class BotManager
         if (Modes is not null && Modes.ModeOf(session.RoomName) != GameMode.FreeForAll)
         {
             int team = Modes.AssignTeam(session.RoomName, bot.Actor);
-            Log.Info("Bots", $"bot {bot.Actor} joined \"{RoomRegistry.PublicName(session.RoomName)}\" on team {team}");
+            Log.Info("Bots", $"bot {bot.Actor} joined {Redact.Room(session.RoomName)} on team {team}");
         }
         return bot;
     }
@@ -196,7 +196,7 @@ public sealed class BotManager
             session.RelayFrom(bot.Actor, BuildPositionEvent(bot.ViewId, new BotPositionUpdate(x, y, z)), unreliable: true);
             n++;
         }
-        if (n > 0) Log.Info("Bots", $"summoned {n} bot(s) to the player in \"{RoomRegistry.PublicName(room)}\"");
+        if (n > 0) Log.Info("Bots", $"summoned {n} bot(s) to the player in {Redact.Room(room)}");
         return n;
     }
 
@@ -232,7 +232,7 @@ public sealed class BotManager
             _countByRoom.AddOrUpdate(room, 0, (_, n) => n > 0 ? n - 1 : 0);
             removed++;
         }
-        if (removed > 0) Log.Info("Bots", $"despawned {removed} bot(s) from \"{RoomRegistry.PublicName(room)}\"");
+        if (removed > 0) Log.Info("Bots", $"despawned {removed} bot(s) from {Redact.Room(room)}");
         return removed;
     }
 
@@ -264,7 +264,7 @@ public sealed class BotManager
             if (!e.HasPosition || !string.Equals(e.Kind, "Player", System.StringComparison.OrdinalIgnoreCase)) continue;
             map ??= walk.For(room);
             if (map.Record(e.X, e.Y, e.Z) && map.Count % 50 == 0)
-                Log.Info("Walkmap", $"\"{RoomRegistry.PublicName(room)}\" mapped {map.Count} walkable cells");
+                Log.Info("Walkmap", $"{Redact.Room(room)} mapped {map.Count} walkable cells");
         }
     }
 

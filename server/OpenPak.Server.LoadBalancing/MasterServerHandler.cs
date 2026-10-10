@@ -253,7 +253,7 @@ public sealed class MasterServerHandler : IOperationHandler
             return _gameAddress;
         }
         _nodes.PinRoom(room, region.Id);
-        Log.Info("Federation", $"room \"{RoomRegistry.PublicName(room)}\" placed on {region.Id} ({region.Country})");
+        Log.Info("Federation", $"room {Redact.Room(room)} placed on {region.Id} ({region.Country})");
         return region.PhotonAddress;
     }
 }

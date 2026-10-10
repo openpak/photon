@@ -25,7 +25,7 @@ public sealed class EventRateInterceptor : IEventInterceptor
         if (meter.Count(now) <= _opt.MaxEventsPerWindow) return RelayVerdict.Forward(ctx.Event);
 
         FlaggedCount++;
-        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" event flood: {meter.Count(now)} " +
+        Log.Warn("Authority", $"actor {ctx.SenderActor} in {Redact.Room(ctx.RoomName)} event flood: {meter.Count(now)} " +
                               $"in {_opt.RateWindowSeconds:F1}s (> {_opt.MaxEventsPerWindow}) " +
                               $"-> {(_opt.Enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _opt.Enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);

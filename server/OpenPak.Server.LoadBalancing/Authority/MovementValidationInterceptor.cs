@@ -72,7 +72,7 @@ public sealed class MovementValidationInterceptor : IEventInterceptor
 
         if (reason is null) return RelayVerdict.Forward(ctx.Event);
         FlaggedCount++;
-        Log.Warn("Authority", $"actor {ctx.SenderActor} view {p.ViewId} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" {reason} " +
+        Log.Warn("Authority", $"actor {ctx.SenderActor} view {p.ViewId} in {Redact.Room(ctx.RoomName)} {reason} " +
                               $"-> {(_enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);
     }

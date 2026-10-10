@@ -34,7 +34,7 @@ public sealed class ViewOwnershipInterceptor : IEventInterceptor
         if (owner == 0 || owner == ctx.SenderActor) return RelayVerdict.Forward(ctx.Event);
 
         FlaggedCount++;
-        Log.Warn("Authority", $"actor {ctx.SenderActor} in \"{RoomRegistry.PublicName(ctx.RoomName)}\" acted on view {vid} owned by " +
+        Log.Warn("Authority", $"actor {ctx.SenderActor} in {Redact.Room(ctx.RoomName)} acted on view {vid} owned by " +
                               $"actor {owner} -> {(_enforce ? "DROPPED" : "forwarded (log-only)")}");
         return _enforce ? RelayVerdict.Drop() : RelayVerdict.Forward(ctx.Event);
     }

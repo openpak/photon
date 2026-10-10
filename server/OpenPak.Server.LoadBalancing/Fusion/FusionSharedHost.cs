@@ -58,7 +58,7 @@ public sealed class FusionSharedHost : IFusionSessionHost
     {
         if (clientServer)
         {
-            Log.Debug(Cat, $"\"{RoomRegistry.PublicName(room)}\" actor {actor} is ClientServer: relayed peer to peer, no hosted simulation");
+            Log.Debug(Cat, $"{Redact.Room(room)} actor {actor} is ClientServer: relayed peer to peer, no hosted simulation");
             return;
         }
         var id = uniqueId.ToArray();
@@ -70,7 +70,7 @@ public sealed class FusionSharedHost : IFusionSessionHost
                     _send(room, target, datagram, reliable || datagram.Length > MaxUnreliableDatagramBytes), _clock(),
                     maxPlayers > 0 ? _options with { MaxPlayers = maxPlayers } : _options);
                 _rooms[room] = entry = new Entry(created, UdpListener.Current);
-                Log.Debug(Cat, $"\"{RoomRegistry.PublicName(room)}\" Shared simulation created");
+                Log.Debug(Cat, $"{Redact.Room(room)} Shared simulation created");
             }
             entry.Pending.Add(r => r.Register(actor, id));
         }
@@ -107,14 +107,14 @@ public sealed class FusionSharedHost : IFusionSessionHost
             foreach (var action in work)
             {
                 try { action(entry.Room); }
-                catch (Exception ex) { Log.Exception(Cat, $"\"{entry.Room.Name}\" queued action failed", ex); }
+                catch (Exception ex) { Log.Exception(Cat, $"{Redact.Room(entry.Room.Name)} queued action failed", ex); }
             }
             try { entry.Room.Tick(_clock()); }
-            catch (Exception ex) { Log.Exception(Cat, $"\"{entry.Room.Name}\" tick failed", ex); }
+            catch (Exception ex) { Log.Exception(Cat, $"{Redact.Room(entry.Room.Name)} tick failed", ex); }
 
             lock (_gate)
                 if (entry.Room.IsEmpty && entry.Pending.Count == 0 && _rooms.Remove(entry.Room.Name))
-                    Log.Debug(Cat, $"\"{entry.Room.Name}\" Shared simulation closed: no players");
+                    Log.Debug(Cat, $"{Redact.Room(entry.Room.Name)} Shared simulation closed: no players");
         }
     }
 }

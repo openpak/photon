@@ -187,7 +187,7 @@ public sealed class ListenersHostedService : BackgroundService
         if (fed.IsNode)
         {
             // Game role only: matchmaking is home's. Name/Master listeners never open here.
-            Log.Info("HOST", $"Region node {fed.NodeId}: Game {s.Ports.GameServer}{(gameAlt != null ? $"/{s.Ports.GameServerAlt}" : "")}, reporting to {fed.HomeUrl}");
+            Log.Info("HOST", $"Region node {fed.NodeId}: Game {s.Ports.GameServer}{(gameAlt != null ? $"/{s.Ports.GameServerAlt}" : "")}, reporting to {Redact.Url(fed.HomeUrl)}");
             try
             {
                 var nodeTasks = new List<Task> { game.RunAsync(stoppingToken) };

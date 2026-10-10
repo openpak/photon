@@ -114,7 +114,7 @@ public sealed partial class FusionSharedRoom
                 if (attempted == 0 && _now - _lastFitWarning >= 10)
                 {
                     _lastFitWarning = _now;
-                    Log.Warn(Cat, $"\"{Name}\" object {_worldObjects[index].Id} ({_worldObjects[index].WordCount} words) does not fit a packet to actor {player.Actor}");
+                    Log.Warn(Cat, $"{Redact.Room(Name)} object {_worldObjects[index].Id} ({_worldObjects[index].WordCount} words) does not fit a packet to actor {player.Actor}");
                 }
                 break;
             }
@@ -192,6 +192,6 @@ public sealed partial class FusionSharedRoom
         }
         // Lost reliable messages go back to the head of the queue in their original order and sequences.
         for (var i = packet.Messages.Count - 1; i >= 0; i--) player.Outgoing.AddFirst(packet.Messages[i]);
-        if (Log.Enabled(LogLevel.Trace)) Log.Trace(Cat, $"\"{Name}\" packet {packet.Stamp} to actor {player.Actor} lost: {packet.Objects.Count} records, {packet.Messages.Count} messages requeued");
+        if (Log.Enabled(LogLevel.Trace)) Log.Trace(Cat, $"{Redact.Room(Name)} packet {packet.Stamp} to actor {player.Actor} lost: {packet.Objects.Count} records, {packet.Messages.Count} messages requeued");
     }
 }

@@ -62,7 +62,7 @@ public sealed partial class FusionSharedRoom
         {
             // Records already applied stay applied, as in the SDK; the rest of the packet is lost.
             _malformed++;
-            Log.Debug(Cat, $"\"{Name}\" malformed packet from actor {player.Actor} at bit {reader.BitPosition}: {ex.Message}");
+            Log.Debug(Cat, $"{Redact.Room(Name)} malformed packet from actor {player.Actor} at bit {reader.BitPosition}: {Redact.Scrub(ex.Message)}");
         }
         // Messages are handled after the packet's records, so one may refer to an object created beside it.
         foreach (var message in _packetMessages)
@@ -122,11 +122,11 @@ public sealed partial class FusionSharedRoom
         if (!_objects.TryGetValue(id, out var obj) || obj.IsStruct || id < FirstServerId) return;
         if (ResolveAuthority(obj.StateAuthority) != player.PlayerRaw)
         {
-            Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} may not destroy {id} (authority {obj.StateAuthority})");
+            Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} may not destroy {id} (authority {obj.StateAuthority})");
             return;
         }
         Destroy(obj);
-        Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} destroyed {id}");
+        Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} destroyed {id}");
     }
 
     /// <summary>One object record (spec §4.6, §9.2), parsed in full before anything is applied.</summary>
@@ -157,7 +157,7 @@ public sealed partial class FusionSharedRoom
         var valid = ReadChangedWords(reader, full ? FusionObject.HeaderWords - 1 : 0, wordCount, transform);
         if (!valid)
         {
-            Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} record for {id} has a word outside {wordCount}: discarded");
+            Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} record for {id} has a word outside {wordCount}: discarded");
             return;
         }
 
@@ -176,7 +176,7 @@ public sealed partial class FusionSharedRoom
         }
         if (ResolveAuthority(obj.StateAuthority) != player.PlayerRaw)
         {
-            if (Log.Enabled(LogLevel.Trace)) Log.Trace(Cat, $"\"{Name}\" actor {player.Actor} is not the authority of {id} ({obj.StateAuthority}): record dropped");
+            if (Log.Enabled(LogLevel.Trace)) Log.Trace(Cat, $"{Redact.Room(Name)} actor {player.Actor} is not the authority of {id} ({obj.StateAuthority}): record dropped");
             return;
         }
         if (header is not null)
@@ -231,7 +231,7 @@ public sealed partial class FusionSharedRoom
             : null;
         if (refusal is not null)
         {
-            Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} object {id} refused: {refusal}");
+            Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} object {id} refused: {refusal}");
             return;
         }
 
@@ -241,7 +241,7 @@ public sealed partial class FusionSharedRoom
         var authority = header[FusionObject.StateAuthorityWord];
         if (authority != player.PlayerRaw && authority != FusionObject.PlayerMasterClient)
         {
-            Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} created {id} with authority {authority}: made its own");
+            Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} created {id} with authority {authority}: made its own");
             header[FusionObject.StateAuthorityWord] = player.PlayerRaw;
         }
         var obj = new FusionObject(id, wordCount) { Creator = player.Actor };
@@ -256,7 +256,7 @@ public sealed partial class FusionSharedRoom
         obj.WriteRecordBody(probe, full: true, since: 0, interestFlags: 3);
         if (probe.ByteCount > MaxFullRecordBytes)
         {
-            Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} object {id} refused: its full record is {probe.ByteCount} bytes");
+            Log.Warn(Cat, $"{Redact.Room(Name)} actor {player.Actor} object {id} refused: its full record is {probe.ByteCount} bytes");
             return;
         }
         _objects.Add(id, obj);
@@ -273,7 +273,7 @@ public sealed partial class FusionSharedRoom
             other.PendingDestroys.Remove(id);
             other.Objects[id] = new ObjectSendState(other == player ? ObjectSendStatus.CreatedConfirmed : ObjectSendStatus.CreatedUnconfirmed);
         }
-        Log.Debug(Cat, $"\"{Name}\" actor {player.Actor} created {id}: type {header[FusionObject.TypeWord]}/{header[FusionObject.TypeWord + 1]} " +
+        Log.Debug(Cat, $"{Redact.Room(Name)} actor {player.Actor} created {id}: type {header[FusionObject.TypeWord]}/{header[FusionObject.TypeWord + 1]} " +
                        $"words {wordCount} flags {header[FusionObject.FlagsWord]} authority {header[FusionObject.StateAuthorityWord]}");
     }
 
@@ -323,7 +323,7 @@ public sealed partial class FusionSharedRoom
         }
         if ((message.Flags & SimMessageFlags.TargetServer) != 0)
         {
-            Log.Debug(Cat, $"\"{Name}\" message for the server from actor {source.Actor} ignored (flags {message.Flags})");
+            Log.Debug(Cat, $"{Redact.Room(Name)} message for the server from actor {source.Actor} ignored (flags {message.Flags})");
             return;
         }
 
@@ -347,7 +347,7 @@ public sealed partial class FusionSharedRoom
                 ? $"obj={BitConverter.ToUInt32(payload, 0)} beh={BitConverter.ToUInt16(payload, 4)} method={BitConverter.ToUInt16(payload, 6)}"
                 : "raw";
             var target = (message.Flags & SimMessageFlags.TargetPlayer) != 0 ? $"player {message.Target}" : "all";
-            Log.Debug(Cat, $"\"{Name}\" rpc from actor {source.Actor} target={target} flags={message.Flags & ~SimMessageFlags.Remote} {rpc} size={payload.Length} fwd={forwarded}");
+            Log.Debug(Cat, $"{Redact.Room(Name)} rpc from actor {source.Actor} target={target} flags={message.Flags & ~SimMessageFlags.Remote} {rpc} size={payload.Length} fwd={forwarded}");
         }
     }
 
@@ -381,13 +381,13 @@ public sealed partial class FusionSharedRoom
                 var objectId = BitConverter.ToUInt32(payload, 4);
                 if (_objects.TryGetValue(source.PlayerDataId, out var playerData))
                     playerData.Set(FusionObject.HeaderWords + 1, (int)objectId, NextStamp);
-                Log.Debug(Cat, $"\"{Name}\" actor {source.Actor} player object -> {objectId}");
+                Log.Debug(Cat, $"{Redact.Room(Name)} actor {source.Actor} player object -> {objectId}");
                 break;
             case 3 or 7:   // SharedModeSetAlwaysInterested / SetAreaOfInterest: every object already reaches everyone (§14)
-                Log.Debug(Cat, $"\"{Name}\" internal {type} from actor {source.Actor} ignored: no area of interest");
+                Log.Debug(Cat, $"{Redact.Room(Name)} internal {type} from actor {source.Actor} ignored: no area of interest");
                 break;
             default:
-                Log.Debug(Cat, $"\"{Name}\" internal message {type} ({payload.Length} bytes) from actor {source.Actor} dropped");
+                Log.Debug(Cat, $"{Redact.Room(Name)} internal message {type} ({payload.Length} bytes) from actor {source.Actor} dropped");
                 break;
         }
     }
@@ -411,6 +411,6 @@ public sealed partial class FusionSharedRoom
             next = FusionObject.PlayerNone;
 
         if (next != raw) obj.Set(FusionObject.StateAuthorityWord, next, NextStamp);
-        Log.Debug(Cat, $"\"{Name}\" actor {source.Actor} {(acquire ? "requests" : "releases")} {id}: authority {raw} -> {next}");
+        Log.Debug(Cat, $"{Redact.Room(Name)} actor {source.Actor} {(acquire ? "requests" : "releases")} {id}: authority {raw} -> {next}");
     }
 }

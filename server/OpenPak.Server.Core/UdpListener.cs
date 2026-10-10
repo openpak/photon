@@ -63,6 +63,9 @@ public sealed class UdpListener
         _inRoomDeadTimeout = timings.InRoomDeadTimeout;
     }
 
+    /// <summary>The UDP port the listener is bound to (the real one when constructed with port 0).</summary>
+    public int LocalPort => ((IPEndPoint)_socket.Client.LocalEndPoint!).Port;
+
     public async Task RunAsync(CancellationToken ct)
     {
         Log.Info(_name, $"listening on UDP :{((IPEndPoint)_socket.Client.LocalEndPoint!).Port}");
@@ -102,8 +105,8 @@ public sealed class UdpListener
                     {
                         // A single bad datagram must never take the listener down — but we now log the
                         // full exception (was: one-line message) so a mid-session failure is visible.
-                        Log.Exception(_name, $"drop datagram from {result.RemoteEndPoint} " +
-                                             $"({result.Buffer.Length}B: {PhotonNames.Hex(result.Buffer, 64)})", ex);
+                        Log.Exception(_name, $"drop datagram from {Redact.Peer(result.RemoteEndPoint)} " +
+                                             $"({result.Buffer.Length}B: {Redact.Hex(result.Buffer, 64)})", ex);
                     }
                 }
                 else timer = null;   // timed out → fall through to tick / maintenance
@@ -148,7 +151,7 @@ public sealed class UdpListener
             {
                 if (!_peers.Remove(ep, out var peer)) continue;
                 var why = peer.WantsDisconnect ? "kicked" : $"no inbound for {EvictionGrace(peer.Status).TotalSeconds:F0}s+";
-                Log.Info(_name, $"evicting peer {ep} ({why}); {_peers.Count} remain");
+                Log.Info(_name, $"evicting peer {Redact.Peer(ep)} ({why}); {_peers.Count} remain");
                 peer.NotifyDisconnect();
             }
 
@@ -160,8 +163,8 @@ public sealed class UdpListener
 
     private void Process(byte[] datagram, IPEndPoint from)
     {
-        Log.Trace(_name, $"RECV {from} {datagram.Length}B: {PhotonNames.Hex(datagram, 128)}");
-        if (datagram.Length < PhotonHeader.Size) { Log.Debug(_name, $"runt datagram from {from} ({datagram.Length}B)"); return; }
+        Log.Trace(_name, $"RECV {Redact.Peer(from)} {datagram.Length}B: {Redact.Hex(datagram, 128)}");
+        if (datagram.Length < PhotonHeader.Size) { Log.Debug(_name, $"runt datagram from {Redact.Peer(from)} ({datagram.Length}B)"); return; }
         var header = PhotonHeader.ReadFrom(datagram);
         Log.Trace(_name, $"  header peer={header.PeerId} crc={header.CrcEnabled} cmds={header.CommandCount} " +
                          $"srvTime={header.ServerTime} challenge={header.Challenge}");
@@ -182,7 +185,7 @@ public sealed class UdpListener
         {
             peer = new PeerConnection(_name, from, _handler, (cmds, challenge) => Send(from, cmds, challenge));
             _peers[from] = peer;
-            Log.Info(_name, $"new peer {from} (total {_peers.Count})");
+            Log.Info(_name, $"new peer {Redact.Peer(from)} (total {_peers.Count})");
         }
         peer.HandlePacket(header, commands);
     }
@@ -222,14 +225,14 @@ public sealed class UdpListener
             if (Log.Enabled(LogLevel.Trace))
             {
                 var kinds = string.Join("+", commands.Select(c => PhotonNames.Command(c.CommandType)));
-                Log.Trace(_name, $"SEND {to} {sent}B [{kinds}] challenge={challenge}: {PhotonNames.Hex(packet, 128)}");
+                Log.Trace(_name, $"SEND {Redact.Peer(to)} {sent}B [{kinds}] challenge={challenge}: {Redact.Hex(packet, 128)}");
             }
         }
         catch (Exception ex)
         {
             // If the server ever stops replying mid-session the client times out and reconnects;
             // a send failure is the prime suspect, so surface it loudly rather than letting it bubble.
-            Log.Exception(_name, $"SEND to {to} failed ({packet.Length}B)", ex);
+            Log.Exception(_name, $"SEND to {Redact.Peer(to)} failed ({packet.Length}B)", ex);
         }
     }
 }

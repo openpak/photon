@@ -77,7 +77,7 @@ public sealed partial class FusionSharedRoom
         _peer.NotifyDelivered += (connection, token) => OnPacketResolved(connection, token, delivered: true);
         _peer.NotifyLost += (connection, token) => OnPacketResolved(connection, token, delivered: false);
         // Reliable data for the server has no consumer in a relay; player-to-player data is proxied by the peer (§13).
-        _peer.ReliableReceived += (connection, id, _) => Log.Debug(Cat, $"\"{Name}\" reliable data for the server from actor {connection.Actor} key ignored ({id.TotalLength} bytes)");
+        _peer.ReliableReceived += (connection, id, _) => Log.Debug(Cat, $"{Redact.Room(Name)} reliable data for the server from actor {connection.Actor} key ignored ({id.TotalLength} bytes)");
 
         var sceneAuthority = _options.SceneAuthorityMasterClient ? FusionObject.PlayerMasterClient : FusionObject.PlayerNone;
         _runtimeConfig = CreateStruct(RuntimeConfigId, 9, 0, 0, FusionObject.PlayerNone);
@@ -134,7 +134,7 @@ public sealed partial class FusionSharedRoom
         _arrival = Math.Max(now - _start, 0);
         if (_players.TryGetValue(actor, out var player)) player.LastReceived = _arrival;
         try { _peer.Receive(actor, datagram); }
-        catch (Exception ex) { Log.Exception(Cat, $"\"{Name}\" datagram from actor {actor} failed", ex); }
+        catch (Exception ex) { Log.Exception(Cat, $"{Redact.Room(Name)} datagram from actor {actor} failed", ex); }
     }
 
     /// <summary>
@@ -160,7 +160,7 @@ public sealed partial class FusionSharedRoom
             foreach (var player in _players.Values.ToArray())
             {
                 try { SendPacket(player); }
-                catch (Exception ex) { Log.Exception(Cat, $"\"{Name}\" packet to actor {player.Actor} failed", ex); }
+                catch (Exception ex) { Log.Exception(Cat, $"{Redact.Room(Name)} packet to actor {player.Actor} failed", ex); }
             }
         }
         foreach (var (actor, departed) in _departing.ToArray())
@@ -173,7 +173,7 @@ public sealed partial class FusionSharedRoom
         if (_now - _lastLog >= 1 && Log.Enabled(LogLevel.Debug))
         {
             _lastLog = _now;
-            Log.Debug(Cat, $"\"{Name}\" tick={_tick} players={_players.Count}/{_registered.Count} objects={_worldObjects.Count} " +
+            Log.Debug(Cat, $"{Redact.Room(Name)} tick={_tick} players={_players.Count}/{_registered.Count} objects={_worldObjects.Count} " +
                            $"master={_runtimeConfig.Words[FusionObject.HeaderWords + 6]} received={_received} sent={_sent} relayed={_relayed} malformed={_malformed}");
         }
     }
@@ -198,7 +198,7 @@ public sealed partial class FusionSharedRoom
         var word = FusionObject.HeaderWords + 6;
         if (_runtimeConfig.Words[word] == master) return;
         _runtimeConfig.Set(word, master, NextStamp);
-        Log.Debug(Cat, $"\"{Name}\" master client -> player {master}");
+        Log.Debug(Cat, $"{Redact.Room(Name)} master client -> player {master}");
     }
 
     private FusionObject CreateStruct(uint id, int bodyWords, int type, int typeKind, int stateAuthority)
@@ -228,7 +228,7 @@ public sealed partial class FusionSharedRoom
 
         foreach (var obj in _objects.Values) player.Objects[obj.Id] = new ObjectSendState(ObjectSendStatus.CreatedUnconfirmed);
         _players[connection.Actor] = player;
-        Log.Debug(Cat, $"\"{Name}\" actor {connection.Actor} joined as player {player.PlayerRaw}, PlayerData {playerData.Id}, counter {connection.Counter}, {_worldObjects.Count} objects to send");
+        Log.Debug(Cat, $"{Redact.Room(Name)} actor {connection.Actor} joined as player {player.PlayerRaw}, PlayerData {playerData.Id}, counter {connection.Counter}, {_worldObjects.Count} objects to send");
     }
 
     /// <summary>
@@ -251,7 +251,7 @@ public sealed partial class FusionSharedRoom
     /// <summary>A server-initiated disconnect: cleaned up at once, not given the goodbye grace.</summary>
     private void Kick(FusionSimPlayer player, string why)
     {
-        Log.Warn(Cat, $"\"{Name}\" actor {player.Actor} disconnected: {why}");
+        Log.Warn(Cat, $"{Redact.Room(Name)} actor {player.Actor} disconnected: {why}");
         _kicking = true;
         try { _peer.Disconnect(player.Connection); }
         finally { _kicking = false; }
@@ -276,7 +276,7 @@ public sealed partial class FusionSharedRoom
                 released++;
             }
         }
-        Log.Debug(Cat, $"\"{Name}\" actor {leaver.Actor} left ({reason}): {destroyed} objects destroyed, {released} released");
+        Log.Debug(Cat, $"{Redact.Room(Name)} actor {leaver.Actor} left ({reason}): {destroyed} objects destroyed, {released} released");
     }
 
     /// <summary>Destroys an object (spec §8.5): its words go now, each connection that knows it is told.</summary>

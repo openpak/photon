@@ -60,7 +60,7 @@ public sealed class HealthHostedService : BackgroundService
         {
             // A server that cannot open its health port must still serve games:
             // this is diagnostics, not the product.
-            Log.Error("HEALTH", $"cannot listen on {_port}: {e.Message}");
+            Log.Error("HEALTH", $"cannot listen on {_port}: {Redact.Scrub(e.Message)}");
             return;
         }
         Log.Info("HEALTH", $"listening on {_port} (/health, /players)");
@@ -79,7 +79,7 @@ public sealed class HealthHostedService : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Warn("HEALTH", $"accept failed: {e.Message}");
+                Log.Warn("HEALTH", $"accept failed: {Redact.Scrub(e.Message)}");
                 continue;
             }
             try
@@ -88,7 +88,7 @@ public sealed class HealthHostedService : BackgroundService
             }
             catch (Exception e)
             {
-                Log.Warn("HEALTH", $"request failed: {e.Message}");
+                Log.Warn("HEALTH", $"request failed: {Redact.Scrub(e.Message)}");
             }
         }
     }

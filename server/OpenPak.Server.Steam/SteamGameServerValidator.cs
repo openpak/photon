@@ -93,7 +93,7 @@ public sealed class SteamGameServerValidator : ISteamTicketValidator, IDisposabl
         // borrowed license never receives admin trust (security review H1).
         if (ownerId.Value != steamId.Value)
         {
-            tcs.TrySetResult(SteamAuthResult.Rejected($"borrowed license (owner {ownerId.Value} != player {steamId.Value})"));
+            tcs.TrySetResult(SteamAuthResult.Rejected("borrowed license (owner differs from player)"));
             return;
         }
         tcs.TrySetResult(SteamAuthResult.Verified(steamId.Value));
@@ -102,7 +102,7 @@ public sealed class SteamGameServerValidator : ISteamTicketValidator, IDisposabl
     private static void SafeEndSession(ulong steamId)
     {
         try { SteamServer.EndAuthSession(steamId); }
-        catch (Exception ex) { Log.Warn("Steam", $"EndAuthSession({steamId}) threw: {ex.GetType().Name}"); }
+        catch (Exception ex) { Log.Warn("Steam", $"EndAuthSession({Redact.Tag(steamId)}) threw: {ex.GetType().Name}"); }
     }
 
     public void Dispose()
