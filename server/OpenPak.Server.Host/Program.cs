@@ -95,7 +95,7 @@ builder.Services.AddSingleton(sp =>
     var c = sp.GetRequiredService<ServerConfig>();
     string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
     return new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.RegionsUrl,
-                             env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"));
+                             env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"));
 });
 builder.Services.AddHostedService<OpenPak.Server.Host.RegionsRefreshService>();
 // Health/players over TCP: the only thing outside this process that can tell a

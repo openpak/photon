@@ -36,7 +36,7 @@ public sealed class HealthHostedService : BackgroundService
         _secret = config.Server.Secret;
         string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
         _publisher = config.Federation.IsNode ? null
-            : new AccountRoomPublisher(new HttpClient(), env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY"), env("OPENPAK_TITLE_ID"),
+            : new AccountRoomPublisher(new HttpClient(), env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"), env("OPENPAK_TITLE_ID"),
                                         PhotonTitles.Parse(env("OPENPAK_PHOTON_TITLES")));
         // Port 0 disables it. The default matches the container's published
         // health port; a LAN server that wants nothing listening sets 0.
