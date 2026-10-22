@@ -1,4 +1,4 @@
-# earlier room presence bridge — implementation plan
+# Friend-feed room presence bridge — implementation plan
 
 1. Add a bounded in-memory mapping from derived identity to nx2 credential.
 2. Extract `openpak` from Photon client-auth parameters at the Name Server.

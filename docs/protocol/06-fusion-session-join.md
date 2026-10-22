@@ -3,7 +3,7 @@
 How Outbound's client joins a friend's session, reconstructed from the game's
 own decompiled code (not from live captures), so the server can be built to
 match without guessing. Source: the full IL2CPP decompile map of Outbound 0.6.0
-(`/mnt/media/research/outbound/decomp`, built per
+(`<research catalogue>/outbound/decomp`, built per
 `legacy-docs/IL2CPP-GHIDRA-WORKFLOW.md` Step 5). All RVAs below are
 `.text`-relative (== `dump.cs` `RVA:` comments).
 

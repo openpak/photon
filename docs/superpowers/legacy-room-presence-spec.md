@@ -1,9 +1,9 @@
-# earlier room presence bridge — specification
+# Friend-feed room presence bridge — specification
 
 ## Goal
 
 Make an Outbound room hosted through this Photon server joinable from the
-earlier friend feed for both emulator and real Switch clients.
+account friend feed for both emulator and real Switch clients.
 
 ## Behaviour
 

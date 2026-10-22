@@ -159,8 +159,8 @@ under whichever title `OPENPAK_PHOTON_TITLES` maps that AppId to (param 224, rea
 comparison is case-insensitive). `OPENPAK_TITLE_ID` is the fallback for a client that sends no AppId
 or an unmapped one. Room presence is published only when `OPENPAK_BAAS_URL` is set and the room
 resolves to a title — publishing under the wrong title id would file rooms against another game.
-`OPENPAK_INTERNAL_KEY` still falls back to `OPENPAK_INTERNAL_KEY`. `OPENPAK_BAAS_URL` has no
-fallback on purpose: it points at nx-baas's game API (`POST /internal/photon-room`), not at the old
+`OPENPAK_INTERNAL_KEY` still falls back to the older variable name `OPENPAK_INTERNAL_KEY`. `OPENPAK_BAAS_URL` has no
+fallback on purpose: it points at nx-baas's game API (`POST /internal/photon-room`), not at the earlier
 account server, so a rig still setting `OPENPAK_ACCOUNT_URL` stops publishing instead of posting
 this shape somewhere that does not understand it.
 
