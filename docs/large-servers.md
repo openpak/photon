@@ -37,7 +37,7 @@ Nothing caps the *server* at 8.
   authority). That's an in-match client concern, not a connection block.
 
 **An unmodified client joins a >8 realm fine.** The optional client mod
-`OpenPak.BigLobby` (a PC client mod, kept only in the frozen `earlier-photon` copy) is a **smoothing/verification** aid, not a
+`OpenPak.BigLobby` (a PC client mod, kept only in an earlier copy of the Photon server) is a **smoothing/verification** aid, not a
 requirement: the client that *creates* a room still calls PUN with the game's small baked-in
 `RoomOptions.MaxPlayers` (~8), which the server ignores for the gate but which the creating client's own
 local PUN/HUD still believes — BigLobby raises that so the creating client's view matches the big realm.

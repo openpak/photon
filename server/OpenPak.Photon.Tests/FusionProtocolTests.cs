@@ -63,7 +63,7 @@ public class FusionProtocolTests
     // against real, unredirected Photon Cloud (a real "Host Session" that actually succeeded,
     // room code JWN7NE), for the exact same solo-host bootstrap our server needs to answer.
     // Decoded byte-for-byte (each consumes every bit but trailing byte-alignment padding) — see
-    // earlier-outbound/HANDOFF.md for the full capture/decode trail.
+    // the earlier Outbound server's HANDOFF.md for the full capture/decode trail.
     private static readonly byte[] RealCapturedConfirmation =
     {
         0x01, 0x0A, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0x00, 0x00, 0x00,

@@ -10,7 +10,7 @@ public class FusionRelayProtocolTests
     // FusionProtocolTests — room code JWN7NE). Right after Start, the client tries to Connect over
     // Fusion's separate low-level transport (event code 101, "DATA") to the server, actor 0; decoded field-for-field with an unsafe struct mirroring the real
     // [StructLayout(LayoutKind.Explicit)] NetCommandConnect/NetCommandAccepted layout from the
-    // decompiled Fusion.Sockets SDK — see earlier-outbound/HANDOFF.md.
+    // decompiled Fusion.Sockets SDK — see the earlier Outbound server's HANDOFF.md.
     private static readonly byte[] RealCapturedConnect = Convert.FromHexString("010100000000000000000000010000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000980CE9BAA728637B");
 
     private static readonly byte[] RealCapturedAccepted = Convert.FromHexString(

@@ -21,7 +21,7 @@ earn their keep on this target.
   `frida-trace -n "Black Ice.exe"`.
 
 ## Capture / analysis
-- **tshark/Wireshark**: UDP transport framing — see `tools/capture/capture.ps1` in the frozen `earlier-photon` copy (PC-side tooling, not carried over).
+- **tshark/Wireshark**: UDP transport framing — see `tools/capture/capture.ps1` in an earlier copy of the Photon server (PC-side tooling, not carried over).
 - **ilspycmd 8.2.0.7535** (global dotnet tool): static decompile to `<GAME>` DLLs ->
   `decompiled/` (analysis-only, gitignored).
 

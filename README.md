@@ -19,7 +19,7 @@ Titles it currently serves:
 - **Black Ice** (PC, Photon PUN) — the codebase's origin. Its multiplayer runs a
   *master-client authority* model where one player simulates the world for everyone, so
   moving authority to the server also kills client-side cheating. The PC-side client mods
-  and asset tooling are not in this repo; they live in the frozen `earlier-photon` copy.
+  and asset tooling are not in this repo; they live in an earlier copy of the Photon server.
 
 
 ## Health and player counts

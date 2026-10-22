@@ -9,7 +9,7 @@ namespace OpenPak.Photon;
 /// Photon/PUN — it's Fusion 2's private wire format (message-type byte, then a bit-packed body;
 /// see <see cref="FusionBitReader"/>/<see cref="FusionBitWriter"/>). Reverse-engineered by reading
 /// Photon's own decompiled Fusion.Sockets client SDK as a spec (never by loading/executing that
-/// proprietary DLL — see earlier-outbound/HANDOFF.md for the research trail) and reimplemented
+/// proprietary DLL — see the earlier Outbound server's HANDOFF.md for the research trail) and reimplemented
 /// here from scratch. Only the <c>Join</c> message (protocol id 1) is handled: enough to answer a
 /// solo host's own join request so its client-side session bootstrap can complete. The other nine
 /// message types (NetworkConfigSync, ReflexiveInfo, Disconnect, Start, Snapshot, HostMigration,
@@ -112,7 +112,7 @@ public static class FusionProtocol
     /// version and game mode. Field values (PeerMode=Client, JoinRequests=NetworkConfig, a non-null
     /// 8-byte UniqueId, empty not null CustomData) are copied exactly from a real Photon Cloud
     /// server's Confirmation, captured and decoded byte-for-byte against a live Steam session — see
-    /// earlier-outbound/HANDOFF.md. Requesting NetworkConfig makes the client send its own
+    /// the earlier Outbound server's HANDOFF.md. Requesting NetworkConfig makes the client send its own
     /// NetworkConfigSync (protocol id 2) back; we don't need to understand or reply to it (the real
     /// client's own handler for receiving one is a no-op) so it's left unimplemented and simply
     /// falls through the generic relay path untouched.

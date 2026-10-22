@@ -123,7 +123,7 @@ At startup the server loads `maps/level13.navmesh` (resolved next to the server 
 `OPENPAK_MAPS_DIR`). When that artifact exists the realm's smart bots snap every move onto the surface and
 route around walls via the navmesh; **when it is absent — or a realm declares no `navmesh` — bots behave
 exactly as before** (player-anchor, straight steps), so this is purely additive. The `.navmesh` artifacts
-are game-derived and were produced offline by the map extractor (frozen `earlier-photon` copy); they are **gitignored** and never
+are game-derived and were produced offline by the map extractor (earlier copy of the Photon server); they are **gitignored** and never
 committed (clean-room — see `docs/superpowers/specs/2026-06-01-map-navmesh-design.md`).
 
 ## Environment overrides

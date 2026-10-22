@@ -116,7 +116,7 @@ host runs the full Initialize* burst for players its save has not serialized and
 - Live (2026-09-06, night): fresh AND returning joins work repeatably — both players see each other,
   the joiner's character loads and it spawns beside the host. Needed items 6–7, the type-15 transport
   fix, and the knownPlayers rule above. Still to verify on screen: pickups (state-authority requests)
-  — see earlier-outbound/HANDOFF.md, dated sections.
+  — see the earlier Outbound server's HANDOFF.md, dated sections.
 - Rooms whose clients vanish without `OpLeave` keep ticking until `DeadTimeoutSeconds` evicts the
   peers (600 s in the test rig); several idle sims at once is the visible memory growth.
 - Clean-room host (2026-10): replaces the DLL host; a leaver's objects are now destroyed and the
