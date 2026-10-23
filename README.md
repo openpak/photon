@@ -126,6 +126,14 @@ contain, redistribute, or depend on the game's copyrighted binaries, assets, or
 decompiled source — those are analysis-only artifacts kept locally and excluded from
 version control. You must own a legitimate copy of Black Ice to use this software.
 
+## Origin
+
+This server began as a fork of **BlackIce.Server** by Black Ice Server (Nate), an
+independent Photon PUN server for the Unity game Black Ice, released under the GNU General
+Public License v3.0. Its history is kept in this repository with the original authorship.
+OpenPak's work since the port (2026-09-07) is AGPL-3.0-only; GPLv3 section 13 allows the
+combination, and the upstream-authored code remains available under the GPL-3.0.
+
 ## License
 
 AGPL-3.0-only — see `LICENSE`. Network use triggers section 13: if you run a
