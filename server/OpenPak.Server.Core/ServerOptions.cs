@@ -69,8 +69,19 @@ public sealed class ServerOptions
     /// <summary>The placeholder secret a fresh config ships with; running on it should be flagged.</summary>
     public const string DefaultSecret = "change-me-platform-secret";
 
-    /// <summary>HMAC key the Name/Master/Game roles sign and validate auth tokens with. Must be set per deployment.</summary>
+    /// <summary>The deployment's secret: guards the health port's internal routes, and, when
+    /// <see cref="TokenSigningKey"/> is unset, is what the auth-token signing key is derived from. Must be set
+    /// per deployment.</summary>
     public string Secret { get; set; } = DefaultSecret;
+
+    /// <summary>Home: base64 32-byte Ed25519 seed the Name Server signs auth tokens with. Unset = derived
+    /// from <see cref="Secret"/>, so a home-only server needs nothing new. The matching public key is logged
+    /// at start, for region nodes.</summary>
+    public string TokenSigningKey { get; set; } = "";
+
+    /// <summary>Region node: home's base64 32-byte Ed25519 public key. A node verifies tokens with it and
+    /// cannot mint one; it never holds home's secret.</summary>
+    public string TokenPublicKey { get; set; } = "";
 
     public ServerPorts Ports { get; set; } = new();
 
@@ -107,6 +118,13 @@ public sealed class ServerOptions
 
         if (string.IsNullOrWhiteSpace(Secret))
             errors.Add("Server.Secret must not be empty.");
+        foreach (var (name, value) in new[] { (nameof(TokenSigningKey), TokenSigningKey), (nameof(TokenPublicKey), TokenPublicKey) })
+        {
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            byte[]? raw = null;
+            try { raw = Convert.FromBase64String(value.Trim()); } catch (FormatException) { }
+            if (raw is not { Length: 32 }) errors.Add($"Server.{name} must be 32 bytes, base64.");
+        }
 
         var namedPorts = new List<(string name, int port)>
         {

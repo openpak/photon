@@ -26,7 +26,7 @@ public class BanLookupTests
     public async Task OnlyAForbiddenAnswerIsABan(HttpStatusCode status, bool banned)
     {
         var handler = new Answer(status);
-        var nodes = new NodeDirectory(new HttpClient(handler), null, "http://adapter", "k");
+        var nodes = new NodeDirectory(new HttpClient(handler), null, null, "http://adapter", "k");
 
         Assert.Equal(banned, await nodes.IsBannedAsync("bsdid:0011"));
         Assert.Equal("http://adapter/internal/photon-identity", handler.Seen!.RequestUri!.ToString());
@@ -36,7 +36,7 @@ public class BanLookupTests
     [Fact]
     public async Task NoAdapterBansNobody()
     {
-        var nodes = new NodeDirectory(new HttpClient(new Answer(HttpStatusCode.Forbidden)), null, null, null);
+        var nodes = new NodeDirectory(new HttpClient(new Answer(HttpStatusCode.Forbidden)), null, null, null, null);
         Assert.False(await nodes.IsBannedAsync("bsdid:0011"));
     }
 }

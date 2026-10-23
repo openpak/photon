@@ -39,6 +39,10 @@ public sealed class PeerConnection
     /// client omits it.</summary>
     public string? AppVersion { get; set; }
 
+    /// <summary>The Photon region the client asked the Name Server for (param 210, "sa/*" kept as "sa"),
+    /// carried in its token to the Master, which places a new room by it. Null when it sent none.</summary>
+    public string? Region { get; set; }
+
     /// <summary>True once a Steam game-server ticket proved this identity (see the auth flow). Admin/anti-cheat
     /// gating trusts the SteamID/level ONLY when this is true; an asserted or anonymous-LAN identity is not.</summary>
     public bool IsVerified { get; set; }

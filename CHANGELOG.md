@@ -3,6 +3,29 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## Unreleased
+
+**Rooms go to the region the player chose.** Home lists every region with a node in rotation under its
+real Photon token, the client's own ping (Automatic) or fixed choice picks one, and a new room is placed
+on that region's node; the Master and lobby stay at home. With no routing table or no nodes, nothing
+changes.
+
+- feat(lb): `GetRegions` lists `eu` (home) plus one real Photon token per region with a node, each at the
+  node's pingable address; test nodes only for an address that authenticated as an allow-listed account.
+- feat(lb): the Name Server reads param 210 (`"sa/*"`), never rejects it, and seals it into the token;
+  `GameAddressFor` places a new room by explicit region, then account country, then the fallback chain,
+  then home (`Routing.cs`, the C# twin of the account core's `pkg/routing`, same fixture).
+- feat(lb): the routing table comes from the account core (`Federation.RoutingUrl`/`RoutingKey`, or
+  `OPENPAK_ROUTING_URL`/`OPENPAK_ROUTING_KEY`); `Federation.RegionsUrl` is retired and ignored.
+- feat(core): every listener answers Photon's 13-byte region ping; a node runs a bare responder on
+  `Federation.PingPort` (5055) when its Game role listens elsewhere.
+- feat(auth): **tokens are Ed25519-signed.** Home signs (`Server.TokenSigningKey`, or a key derived from
+  `Server.Secret`), a node verifies with `Server.TokenPublicKey` and cannot mint. Tokens minted before this
+  release no longer validate; clients re-authenticate.
+- feat(fed): room reports carry the node's own key (`X-Node-Key`, home's `Federation.NodeKeys`), not the
+  shared secret.
+- fix(names): op 220 is GetRegions, 248 ChangeGroups.
+
 ## v0.12.1 — 2026-10-10
 
 **Logs carry no personal data.** Account and Steam ids, Photon user ids, auth tokens, nicknames, room names

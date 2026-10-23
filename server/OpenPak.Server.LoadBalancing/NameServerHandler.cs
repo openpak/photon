@@ -30,17 +30,15 @@ public sealed class NameServerHandler : IOperationHandler
                        PAuthenticationParams = PhotonCodes.Param.ClientAuthenticationParams;
     private static readonly TimeSpan ValidationTimeout = TimeSpan.FromSeconds(3);
 
-    // ponytail: single hardcoded region pointing back at this same NameServer instance. A
-    // client with no FixedRegion configured (e.g. Outbound) calls GetRegions before
-    // Authenticate; a real multi-region deployment would list several here instead.
-    // Using a real Photon region token ("eu") rather than a made-up one: Outbound's client
-    // showed "Region: Automatic" stuck spinning against a custom "nx" token, consistent with
-    // its auto-select logic only recognizing Photon's own known region codes.
+    // Home's own region, always listed first and always pointing at the home Master. A real Photon
+    // region token: Outbound's "Region: Automatic" spun forever against a made-up "nx", consistent with
+    // its auto-select only recognising Photon's own codes. Every other region is listed only under its
+    // real Photon token too (RoutingTable aliases), and only while a node serves it.
     private const string RegionToken = "eu";
 
     private readonly string _masterAddress;
     private readonly string _loopbackMasterAddress;
-    private readonly string _secret;
+    private readonly TokenKeys _keys;
     private readonly AccountService _accounts;
     private readonly ISteamTicketValidator _validator;
     private readonly Func<IPEndPoint, bool> _isLan;
@@ -61,13 +59,13 @@ public sealed class NameServerHandler : IOperationHandler
                              ISteamTicketValidator? validator = null, bool allowAnonymousLan = true,
                              Func<IPEndPoint, bool>? isLan = null, Action<Action>? post = null,
                              AccountIdentityRegistry? accountIdentities = null, NodeDirectory? nodes = null,
-                             string? loopbackMasterAddress = null)
+                             string? loopbackMasterAddress = null, TokenKeys? keys = null)
     {
         _masterAddress = masterAddress;
         // Loopback clients are handed a loopback master; the port comes from config (a modern
         // client's MasterServerAlt, e.g. 27001) rather than a constant. Defaults to the advertised one.
         _loopbackMasterAddress = loopbackMasterAddress ?? masterAddress;
-        _secret = secret;
+        _keys = keys ?? TokenKeys.FromSecret(secret);
         _accounts = accounts;
         _validator = validator ?? new NullSteamTicketValidator();
         _allowAnonymousLan = allowAnonymousLan;
@@ -80,18 +78,42 @@ public sealed class NameServerHandler : IOperationHandler
             .On(OpGetRegions, HandleGetRegions);
     }
 
-    private void HandleGetRegions(PeerConnection peer, OperationRequest request)
+    private void HandleGetRegions(PeerConnection peer, OperationRequest request) => peer.SendResponse(GetRegions(peer.Remote));
+
+    /// <summary>The GetRegions answer for a client at <paramref name="remote"/>.</summary>
+    public OperationResponse GetRegions(IPEndPoint remote)
     {
         // Hands off to the real Master Server address, same as Authenticate's PAddress below --
         // matches real Photon Cloud, which always names a genuinely different server/port here,
         // never the NameServer's own address. For LOOPBACK peers (local test clients) hand back
         // the loopback master so the client doesn't get routed to the real public Cloud.
-        var master = TrustedNetwork.IsLoopback(peer.Remote) ? _loopbackMasterAddress : _masterAddress;
-        peer.SendResponse(new OperationResponse(OpGetRegions, 0, null, new()
+        var master = TrustedNetwork.IsLoopback(remote) ? _loopbackMasterAddress : _masterAddress;
+        var tokens = new List<string> { RegionToken };
+        var addresses = new List<string> { master };
+        // Each region with a node in rotation, under its real Photon token, with an address the client can
+        // ping: with Region "Automatic" it pings them all and picks by its own latency. Test nodes only for
+        // an address that recently authenticated as an allow-listed account (GetRegions carries no identity).
+        // The Authenticate reply still names home's Master for every region: one global lobby.
+        if (_nodes is not null)
+            foreach (var (token, address) in _nodes.Adverts(_nodes.IsTesterAddress(remote.Address)))
+            {
+                tokens.Add(token);
+                addresses.Add(address);
+            }
+        return new OperationResponse(OpGetRegions, 0, null, new()
         {
-            { PRegion, new[] { RegionToken } },
-            { PAddress, new[] { master } },
-        }));
+            { PRegion, tokens.ToArray() },
+            { PAddress, addresses.ToArray() },
+        });
+    }
+
+    /// <summary>The region a client asked for (param 210, "sa/*" or a cached best region "sa"), as a bare
+    /// lower-case token, or null. Any value is accepted, never rejected: one we do not know resolves to home.</summary>
+    internal static string? RegionOf(OperationRequest request)
+    {
+        if (!request.Parameters.TryGetValue(PRegion, out var r) || r is not string s) return null;
+        var t = RoutingTable.NormalizeToken(s);
+        return t.Length is > 0 and <= 16 && t.All(char.IsAsciiLetterOrDigit) ? t : null;
     }
 
     private readonly bool _allowAnonymousLan;
@@ -106,6 +128,7 @@ public sealed class NameServerHandler : IOperationHandler
         // The only hop where a client names its game build; Respond seals both into the token so the
         // Master and Game servers (which see only the token) keep its rooms with that build's.
         (peer.AppId, peer.AppVersion) = RoomRegistry.AppOf(request);
+        peer.Region = RegionOf(request);
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var validId = SteamId.IsValidIndividual(claimed) ? claimed! : null;
 
@@ -124,7 +147,7 @@ public sealed class NameServerHandler : IOperationHandler
                     return;
                 }
                 // The Master needs the country by the time this peer creates a room; ask now.
-                _ = _nodes.PrefetchCountryAsync(userId, bsDid);
+                _ = _nodes.PrefetchCountryAsync(userId, bsDid, peer.Remote.Address);
                 _ = RespondUnlessBanned(peer, userId, bsDid, _nodes);
                 return;
             }
@@ -137,7 +160,7 @@ public sealed class NameServerHandler : IOperationHandler
         // the verified flag is signed with it, so a default secret (public in the GPLv3 source) lets anyone
         // forge a verified token and present it straight to Master/Game, bypassing this validation entirely.
         // Fail closed for public until the operator sets a real secret. (Security review C1.)
-        if (_secret == ServerOptions.DefaultSecret)
+        if (_keys.IsShippedDefault)
         {
             Log.Warn("NameServer", $"{peer.PeerTag} public auth refused: Server.Secret is the shipped default — " +
                                    "a verified identity would be forgeable. Set a strong Server.Secret.");
@@ -214,7 +237,7 @@ public sealed class NameServerHandler : IOperationHandler
         var claimed = request.Parameters.TryGetValue(PUserId, out var u) && u is string s ? s : null;
         var steamId = SteamId.IsValidIndividual(claimed) ? claimed! : Guid.NewGuid().ToString();
         var (appId, appVersion) = RoomRegistry.AppOf(request);
-        return BuildSuccess(steamId, verified: false, _loopbackMasterAddress, appId, appVersion);
+        return BuildSuccess(steamId, verified: false, _loopbackMasterAddress, appId, appVersion, RegionOf(request));
     }
 
     /// <summary>Resolves the account, rejects bans, binds the identity onto the peer, and sends the success
@@ -222,7 +245,7 @@ public sealed class NameServerHandler : IOperationHandler
     private void Respond(PeerConnection peer, string steamId, bool verified)
     {
         var master = TrustedNetwork.IsLoopback(peer.Remote) ? _loopbackMasterAddress : _masterAddress;
-        var resp = BuildSuccess(steamId, verified, master, peer.AppId, peer.AppVersion);
+        var resp = BuildSuccess(steamId, verified, master, peer.AppId, peer.AppVersion, peer.Region);
         if (resp.ReturnCode == 0)
         {
             peer.SteamId = steamId;
@@ -235,7 +258,7 @@ public sealed class NameServerHandler : IOperationHandler
     /// <summary>Resolves the account (rejecting bans) and builds the success response with a token carrying the
     /// <paramref name="verified"/> flag. No peer side effects — shared by the sync and async paths.</summary>
     private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress,
-                                           string? appId = null, string? appVersion = null)
+                                           string? appId = null, string? appVersion = null, string? region = null)
     {
         var account = steamId.StartsWith("openpak:", StringComparison.Ordinal)
             ? null
@@ -248,7 +271,7 @@ public sealed class NameServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             { PAddress, masterAddress },
-            { PSecret, AuthToken.Mint(steamId, verified, _secret, appId, appVersion) },
+            { PSecret, AuthToken.Mint(steamId, verified, _keys, appId, appVersion, region) },
             { PUserId, steamId },
         });
     }

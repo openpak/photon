@@ -5,6 +5,11 @@
     <ProjectReference Include="..\OpenPak.Server.Data\OpenPak.Server.Data.csproj" />
   </ItemGroup>
 
+  <!-- Ed25519 for auth tokens (TokenKeys): .NET 8 has no Ed25519 of its own. MIT licensed. -->
+  <ItemGroup>
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+
   <!-- Let the test project exercise the plugins' internal interceptors/state without making them public API. -->
   <ItemGroup>
     <InternalsVisibleTo Include="OpenPak.Server.Tests" />

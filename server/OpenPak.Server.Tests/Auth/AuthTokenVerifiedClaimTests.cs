@@ -30,7 +30,7 @@ public class AuthTokenVerifiedClaimTests
         var token = AuthToken.Mint("76561198000000000", false, Secret);   // body "76561198000000000|0"
         var forged = token.Replace("|0.", "|1.");                          // flip the flag, keep the old signature
         Assert.NotEqual(token, forged);
-        Assert.False(AuthToken.Validate(forged, Secret).IsOk);        // HMAC is over the body → mismatch
+        Assert.False(AuthToken.Validate(forged, Secret).IsOk);        // the signature is over the body → mismatch
     }
 
     [Fact]

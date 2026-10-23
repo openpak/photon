@@ -26,14 +26,14 @@ public sealed class HealthHostedService : BackgroundService
     private readonly RoomRegistry _rooms;
     private readonly int _port;
     private readonly NodeDirectory _nodes;
-    private readonly string _secret;
+    private readonly Dictionary<string, string> _nodeKeys;
     private readonly AccountRoomPublisher? _publisher;
 
     public HealthHostedService(RoomRegistry rooms, ServerConfig config, NodeDirectory nodes)
     {
         _rooms = rooms;
         _nodes = nodes;
-        _secret = config.Server.Secret;
+        _nodeKeys = config.Federation.NodeKeys ?? new();
         string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
         _publisher = config.Federation.IsNode ? null
             : new AccountRoomPublisher(new HttpClient(), env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"), env("OPENPAK_TITLE_ID"),
@@ -111,19 +111,17 @@ public sealed class HealthHostedService : BackgroundService
     }
 
     /// <summary>
-    /// A region node reporting one of its rooms. Authenticated with the shared token secret, which
-    /// the node holds anyway to validate the tokens home minted. Applied to the same registry the
+    /// A region node reporting one of its rooms, with its own report key (<c>Federation.NodeKeys</c>): a
+    /// report is accepted only for the node whose key it carries. Applied to the same registry the
     /// Master's lobby reads, so a room in Sydney is listed and joinable from anywhere.
     /// </summary>
     private string AcceptRoomReport(HttpListenerRequest req, out int status)
     {
-        var presented = req.Headers["X-Photon-Secret"] ?? "";
-        if (presented.Length != _secret.Length ||
-            !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
-                Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(_secret)))
+        var presented = req.Headers["X-Node-Key"] ?? "";
+        if (presented.Length == 0 || req.ContentLength64 > 64 * 1024)
         {
             status = 401;
-            return JsonSerializer.Serialize(new { error = "secret" });
+            return JsonSerializer.Serialize(new { error = "node key" });
         }
         RoomReport? report;
         try
@@ -140,11 +138,25 @@ public sealed class HealthHostedService : BackgroundService
             status = 400;
             return JsonSerializer.Serialize(new { error = "bad report" });
         }
+        if (!NodeKeyMatches(_nodeKeys, report.Node, presented))
+        {
+            status = 401;
+            return JsonSerializer.Serialize(new { error = "node key" });
+        }
         report.ApplyTo(_rooms, _nodes);
         if (report.Identity is { Length: > 0 } identity && _publisher is not null)
             _ = _publisher.PublishAsync(identity, report.Room, report.AppId);
         status = 200;
         return JsonSerializer.Serialize(new { ok = true });
+    }
+
+    /// <summary>True when <paramref name="presented"/> is the configured report key of <paramref name="node"/>.
+    /// No key configured for a node means its reports are refused.</summary>
+    public static bool NodeKeyMatches(IReadOnlyDictionary<string, string> keys, string node, string presented)
+    {
+        if (!keys.TryGetValue(node, out var want) || string.IsNullOrEmpty(want) || presented.Length != want.Length) return false;
+        return System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(presented), Encoding.UTF8.GetBytes(want));
     }
 
     /// <summary>

@@ -215,7 +215,7 @@ public class RoomsByAppVersionTests
         var report = RoomReport.From("au-sydney", nodeRoom, identity: null);
         Assert.Equal("Q35V9E", report.Room);   // what home is told the room is called
         var wire = JsonSerializer.Serialize(report);
-        JsonSerializer.Deserialize<RoomReport>(wire)!.ApplyTo(registry, new NodeDirectory(new HttpClient(), null, null, null));
+        JsonSerializer.Deserialize<RoomReport>(wire)!.ApplyTo(registry, new NodeDirectory(new HttpClient(), null, null, null, null));
 
         Assert.NotNull(registry.Find(RoomRegistry.KeyFor(Outbound, "1.1.7", "Q35V9E")));
         Assert.Null(registry.Find("Q35V9E"));

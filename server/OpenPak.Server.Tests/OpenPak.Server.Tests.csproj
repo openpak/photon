@@ -17,6 +17,12 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Region routing fixtures shared with the account core (pkg/routing). -->
+  <ItemGroup>
+    <None Include="RoutingCases.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="RoutingRegions.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\OpenPak.Server.LoadBalancing\OpenPak.Server.LoadBalancing.csproj" />
     <!-- The host, for the health endpoint's payload: it is the one piece of

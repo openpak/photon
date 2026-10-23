@@ -164,6 +164,9 @@ public sealed class UdpListener
     private void Process(byte[] datagram, IPEndPoint from)
     {
         Log.Trace(_name, $"RECV {Redact.Peer(from)} {datagram.Length}B: {Redact.Hex(datagram, 128)}");
+        // Photon's region ping (a client choosing the best region pings each one): answered before any
+        // peer state exists, exactly as it came. No real Photon packet has this shape (125 commands in 13 bytes).
+        if (RegionPing.IsPing(datagram)) { _socket.Send(datagram, datagram.Length, from); return; }
         if (datagram.Length < PhotonHeader.Size) { Log.Debug(_name, $"runt datagram from {Redact.Peer(from)} ({datagram.Length}B)"); return; }
         var header = PhotonHeader.ReadFrom(datagram);
         Log.Trace(_name, $"  header peer={header.PeerId} crc={header.CrcEnabled} cmds={header.CommandCount} " +

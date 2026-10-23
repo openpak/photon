@@ -28,6 +28,7 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly OpenPak.Server.LoadBalancing.Navigation.NavMeshRegistry _navs;
     private readonly OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator _steam;
     private readonly NodeDirectory _nodes;
+    private readonly TokenKeys _keys;
 
     // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<OpenPakDbContext> dbf,
@@ -36,8 +37,9 @@ public sealed class ListenersHostedService : BackgroundService
                                   OpenPak.Server.LoadBalancing.Authority.RoomWorldStateRegistry worlds,
                                   OpenPak.Server.LoadBalancing.Navigation.NavMeshRegistry navs,
                                   OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator steam,
-                                  NodeDirectory nodes)
+                                  NodeDirectory nodes, TokenKeys keys)
     {
+        _keys = keys;
         _steam = steam;
         _nodes = nodes;
         _config = config;
@@ -75,7 +77,7 @@ public sealed class ListenersHostedService : BackgroundService
                                   _steam, _config.AllowAnonymousLan,
                                   isLan: null, post: nameQueue.Enqueue,
                                   accountIdentities: accountIdentities, nodes: _nodes,
-                                  loopbackMasterAddress: $"127.0.0.1:{s.Ports.MasterServerAlt ?? s.Ports.MasterServer}");
+                                  loopbackMasterAddress: $"127.0.0.1:{s.Ports.MasterServerAlt ?? s.Ports.MasterServer}", keys: _keys);
         var name = new UdpListener("NameServer", s.Ports.NameServer, nameHandler, s.Listener);
         name.OnMaintenance = () => { while (nameQueue.TryDequeue(out var a)) a(); };
         // See ServerPorts.NameServerAlt: some clients try this port independently of GetRegions.
@@ -86,7 +88,7 @@ public sealed class ListenersHostedService : BackgroundService
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var masterHandler = new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
-                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount, _nodes);
+                                    _config.AllowAnonymousLan, accounts, realms, lobbyBotCount, _nodes, _keys);
         var master = new UdpListener("MasterServer", s.Ports.MasterServer, masterHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/GameServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -120,7 +122,7 @@ public sealed class ListenersHostedService : BackgroundService
 
         // A region node has no adapter to publish presence to; home does that from the room report.
         var fed = _config.Federation;
-        RoomReporter? reporter = fed.IsNode ? new RoomReporter(new HttpClient(), fed.HomeUrl, s.Secret, fed.NodeId) : null;
+        RoomReporter? reporter = fed.IsNode ? new RoomReporter(new HttpClient(), fed.HomeUrl, fed.ReportKey, fed.NodeId) : null;
         var gameHandler = new GameServerHandler(s.Secret, _registry, _config.AllowAnonymousLan, accounts, realms, motd, _plugins,
                                   chatCommands, _config.TrustLanAdmin, (peer, room) =>
                                   {
@@ -133,7 +135,7 @@ public sealed class ListenersHostedService : BackgroundService
                                       // turn the room into that player's friend presence.
                                       string? identity = creator?.SteamId is { } uid ? accountIdentities.Find(uid) : null;
                                       _ = reporter.ReportAsync(room, identity);
-                                  });
+                                  }, keys: _keys);
         var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -192,6 +194,9 @@ public sealed class ListenersHostedService : BackgroundService
             {
                 var nodeTasks = new List<Task> { game.RunAsync(stoppingToken) };
                 if (gameAlt != null) nodeTasks.Add(gameAlt.RunAsync(stoppingToken));
+                // Clients rate a region by pinging UDP 5055 of its host; answer there unless a listener does.
+                if (fed.PingPort > 0 && fed.PingPort != s.Ports.GameServer && fed.PingPort != s.Ports.GameServerAlt)
+                    nodeTasks.Add(RegionPing.RunResponderAsync(fed.PingPort, stoppingToken));
                 await Task.WhenAll(nodeTasks);
             }
             catch (OperationCanceledException) { }

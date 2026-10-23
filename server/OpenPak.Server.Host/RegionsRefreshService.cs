@@ -4,8 +4,8 @@ using OpenPak.Server.LoadBalancing;
 
 namespace OpenPak.Server.Host;
 
-/// <summary>Re-reads the region list once a minute. Nodes announce on the same cadence, so a node
-/// that appears or vanishes is seen here within two.</summary>
+/// <summary>Re-reads the routing table from the account core every 30 s. Nodes announce once a minute,
+/// so a node that appears or leaves rotation is seen here within about a minute and a half.</summary>
 public sealed class RegionsRefreshService : BackgroundService
 {
     private readonly NodeDirectory _nodes;
@@ -19,12 +19,12 @@ public sealed class RegionsRefreshService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (string.IsNullOrWhiteSpace(_config.Federation.RegionsUrl) || _config.Federation.IsNode) return;
-        Log.Info("Federation", $"regions from {Redact.Url(_config.Federation.RegionsUrl)}");
+        if (!_nodes.Enabled || _config.Federation.IsNode) return;
+        Log.Info("Federation", "routing table from the account core");
         while (!stoppingToken.IsCancellationRequested)
         {
             await _nodes.RefreshAsync(stoppingToken);
-            try { await Task.Delay(TimeSpan.FromMinutes(1), stoppingToken); }
+            try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
             catch (OperationCanceledException) { return; }
         }
     }

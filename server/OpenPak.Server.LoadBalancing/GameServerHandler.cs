@@ -83,7 +83,7 @@ public sealed class GameServerHandler : IOperationHandler
     private const byte PFusionTopology = 213;  // JoinGame: "Shared" or "ClientServer", Fusion's own key
     private const byte RoomMasterClientId = PhotonCodes.RoomProperty.MasterClientId;
 
-    private readonly string _secret;
+    private readonly TokenKeys _keys;
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
@@ -113,11 +113,14 @@ public sealed class GameServerHandler : IOperationHandler
                              AccountService? accounts = null, RealmService? realms = null, MotdService? motd = null,
                              IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
                              bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null,
-                             IFusionSessionHost? fusion = null, Action<Room, PeerConnection?>? roomChanged = null)
+                             IFusionSessionHost? fusion = null, Action<Room, PeerConnection?>? roomChanged = null,
+                             TokenKeys? keys = null)
     {
         _roomChanged = roomChanged;
         _fusion = fusion;
-        _secret = secret;
+        // A region node is given home's public key only (verify, never mint); home and tests derive the
+        // key from the shared secret when no explicit key is configured.
+        _keys = keys ?? TokenKeys.FromSecret(secret);
         _registry = registry;
         _realms = realms;
         _allowAnonymousLan = allowAnonymousLan;
@@ -528,7 +531,7 @@ public sealed class GameServerHandler : IOperationHandler
 
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.Validate(token, _secret).TryGet(out var ident))
+            if (!AuthToken.Validate(token, _keys).TryGet(out var ident))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(ident.UserId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());

@@ -1,0 +1,472 @@
+{
+  "home": "eu-west",
+  "regions": [
+    {
+      "code": "eu-west",
+      "name": "Europe (home)",
+      "countries": [
+        "GB",
+        "IE",
+        "FR",
+        "DE",
+        "NL",
+        "BE",
+        "LU",
+        "PT",
+        "ES",
+        "AD",
+        "MC",
+        "IT",
+        "SM",
+        "VA",
+        "MT",
+        "CH",
+        "LI",
+        "AT",
+        "DK",
+        "NO",
+        "SE",
+        "IS",
+        "FO",
+        "PL",
+        "CZ",
+        "SK",
+        "HU",
+        "SI",
+        "HR",
+        "BA",
+        "RS",
+        "ME",
+        "XK",
+        "MK",
+        "AL",
+        "GR",
+        "CY",
+        "BG",
+        "RO",
+        "MD",
+        "UA",
+        "GI",
+        "MA",
+        "DZ",
+        "TN"
+      ],
+      "aliases": {
+        "amongus": [
+          "eu"
+        ],
+        "gcp": [
+          "europe-west2",
+          "europe-central2",
+          "europe-west1",
+          "europe-west3",
+          "europe-west4"
+        ],
+        "photon": [
+          "eu"
+        ],
+        "playfab": [
+          "UkSouth",
+          "WestEurope",
+          "NorthEurope",
+          "FranceCentral"
+        ]
+      }
+    },
+    {
+      "code": "us-east",
+      "name": "North America East",
+      "countries": [
+        "US",
+        "CA",
+        "PR",
+        "VI",
+        "BS",
+        "CU",
+        "JM",
+        "HT",
+        "DO",
+        "TT",
+        "BB",
+        "AG",
+        "DM",
+        "GD",
+        "KN",
+        "LC",
+        "VC",
+        "BM",
+        "KY",
+        "TC",
+        "AW",
+        "CW",
+        "BZ",
+        "GT",
+        "SV",
+        "HN",
+        "NI",
+        "CR",
+        "PA",
+        "CO",
+        "VE",
+        "EC",
+        "GY",
+        "SR"
+      ],
+      "aliases": {
+        "amongus": [
+          "na"
+        ],
+        "gcp": [
+          "northamerica-northeast1",
+          "us-east1",
+          "us-east4",
+          "us-central1"
+        ],
+        "photon": [
+          "us",
+          "cae",
+          "ussc"
+        ],
+        "playfab": [
+          "EastUs",
+          "EastUs2",
+          "CentralUs",
+          "SouthCentralUs",
+          "NorthCentralUs"
+        ]
+      }
+    },
+    {
+      "code": "us-west",
+      "name": "North America West",
+      "countries": [
+        "MX"
+      ],
+      "fallback": [
+        "us-east"
+      ],
+      "aliases": {
+        "amongus": [
+          "na"
+        ],
+        "gcp": [
+          "us-west2",
+          "us-west1"
+        ],
+        "photon": [
+          "usw"
+        ],
+        "playfab": [
+          "WestUs",
+          "WestUs2",
+          "WestCentralUs"
+        ]
+      }
+    },
+    {
+      "code": "sa-east",
+      "name": "South America",
+      "countries": [
+        "BR",
+        "AR",
+        "CL",
+        "UY",
+        "PY",
+        "PE",
+        "BO"
+      ],
+      "fallback": [
+        "us-east"
+      ],
+      "aliases": {
+        "amongus": [
+          "na"
+        ],
+        "gcp": [
+          "southamerica-east1",
+          "southamerica-west1"
+        ],
+        "photon": [
+          "sa"
+        ],
+        "playfab": [
+          "BrazilSouth"
+        ]
+      }
+    },
+    {
+      "code": "ap-southeast",
+      "name": "Southeast Asia",
+      "countries": [
+        "SG",
+        "MY",
+        "TH",
+        "VN",
+        "ID",
+        "PH",
+        "KH",
+        "LA",
+        "MM",
+        "BN",
+        "TL"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ],
+        "gcp": [
+          "asia-southeast1",
+          "asia-southeast2"
+        ],
+        "photon": [
+          "asia"
+        ],
+        "playfab": [
+          "SoutheastAsia"
+        ]
+      }
+    },
+    {
+      "code": "ap-northeast",
+      "name": "Japan and Korea",
+      "countries": [
+        "JP",
+        "KR"
+      ],
+      "fallback": [
+        "ap-southeast"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ],
+        "gcp": [
+          "asia-northeast1",
+          "asia-northeast2",
+          "asia-northeast3"
+        ],
+        "photon": [
+          "jp",
+          "kr"
+        ],
+        "playfab": [
+          "JapanEast",
+          "JapanWest",
+          "KoreaCentral"
+        ]
+      }
+    },
+    {
+      "code": "ap-east",
+      "name": "Hong Kong and Taiwan",
+      "countries": [
+        "HK",
+        "TW",
+        "MO",
+        "MN"
+      ],
+      "fallback": [
+        "ap-northeast",
+        "ap-southeast"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ],
+        "gcp": [
+          "asia-east2",
+          "asia-east1"
+        ],
+        "photon": [
+          "hk"
+        ],
+        "playfab": [
+          "EastAsia"
+        ]
+      }
+    },
+    {
+      "code": "oc",
+      "name": "Oceania",
+      "countries": [
+        "AU",
+        "NZ",
+        "FJ",
+        "PG",
+        "NC",
+        "PF",
+        "WS",
+        "TO",
+        "VU",
+        "SB",
+        "GU"
+      ],
+      "fallback": [
+        "ap-southeast"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ],
+        "gcp": [
+          "australia-southeast1",
+          "australia-southeast2"
+        ],
+        "photon": [
+          "au"
+        ],
+        "playfab": [
+          "AustraliaEast",
+          "AustraliaSoutheast"
+        ]
+      }
+    },
+    {
+      "code": "ap-south",
+      "name": "South Asia",
+      "countries": [
+        "IN",
+        "PK",
+        "BD",
+        "LK",
+        "NP",
+        "BT",
+        "MV"
+      ],
+      "fallback": [
+        "ap-southeast"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ],
+        "gcp": [
+          "asia-south1",
+          "asia-south2"
+        ],
+        "photon": [
+          "in"
+        ],
+        "playfab": [
+          "CentralIndia"
+        ]
+      }
+    },
+    {
+      "code": "me",
+      "name": "Middle East",
+      "countries": [
+        "AE",
+        "SA",
+        "QA",
+        "KW",
+        "BH",
+        "OM",
+        "IL",
+        "PS",
+        "JO",
+        "LB",
+        "IQ",
+        "TR",
+        "EG",
+        "GE",
+        "AM",
+        "AZ"
+      ],
+      "aliases": {
+        "amongus": [
+          "eu"
+        ],
+        "gcp": [
+          "me-central1",
+          "me-west1"
+        ],
+        "photon": [
+          "uae",
+          "tr"
+        ],
+        "playfab": [
+          "UaeNorth"
+        ]
+      }
+    },
+    {
+      "code": "af-south",
+      "name": "Southern Africa",
+      "countries": [
+        "ZA",
+        "NA",
+        "BW",
+        "ZW",
+        "MZ",
+        "LS",
+        "SZ",
+        "ZM",
+        "MW"
+      ],
+      "aliases": {
+        "amongus": [
+          "eu"
+        ],
+        "gcp": [
+          "africa-south1"
+        ],
+        "photon": [
+          "za"
+        ],
+        "playfab": [
+          "SouthAfricaNorth"
+        ]
+      }
+    },
+    {
+      "code": "eu-north",
+      "name": "Finland and the Baltics",
+      "countries": [
+        "FI",
+        "EE",
+        "LV",
+        "LT",
+        "BY"
+      ],
+      "aliases": {
+        "amongus": [
+          "eu"
+        ],
+        "gcp": [
+          "europe-north1"
+        ],
+        "photon": [
+          "eu"
+        ]
+      }
+    },
+    {
+      "code": "as-central",
+      "name": "Central Asia",
+      "countries": [
+        "KZ",
+        "UZ",
+        "KG",
+        "TJ",
+        "TM"
+      ],
+      "aliases": {
+        "amongus": [
+          "as"
+        ]
+      }
+    }
+  ],
+  "country_routes": {
+    "CN": [
+      "ap-east",
+      "ap-northeast"
+    ],
+    "RU": [
+      "eu-north",
+      "as-central"
+    ]
+  },
+  "nodes": []
+}

@@ -88,14 +88,28 @@ builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Navigation.NavMeshReg
 builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator>(
     _ => OpenPak.Server.Host.SteamValidatorFactory.Create());
 builder.Services.AddSingleton<AdminActionQueue>();
-// Region nodes: home reads the approved list from openpak.org and asks the Switch adapter which
-// country a player is from, so a new room lands on the node for its creator's country.
+// Region nodes: home reads the routing table from the account core and asks the Switch adapter which
+// country a player is from, so a new room lands on the node for its creator's chosen region or country.
 builder.Services.AddSingleton(sp =>
 {
     var c = sp.GetRequiredService<ServerConfig>();
     string? env(params string[] names) => names.Select(Environment.GetEnvironmentVariable).FirstOrDefault(v => !string.IsNullOrEmpty(v));
-    return new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.RegionsUrl,
+    var url = !string.IsNullOrWhiteSpace(c.Federation.RoutingUrl) ? c.Federation.RoutingUrl : env("OPENPAK_ROUTING_URL");
+    var key = !string.IsNullOrWhiteSpace(c.Federation.RoutingKey) ? c.Federation.RoutingKey : env("OPENPAK_ROUTING_KEY");
+    if (!string.IsNullOrWhiteSpace(c.Federation.RegionsUrl))
+        Log.Warn("Federation", "Federation.RegionsUrl is retired and ignored; set Federation.RoutingUrl (the account core) instead.");
+    return new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.IsNode ? null : url, key,
                              env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"));
+});
+// Auth-token keys: home signs (Ed25519), a node only verifies with home's public key.
+builder.Services.AddSingleton(sp =>
+{
+    var s = sp.GetRequiredService<ServerConfig>().Server;
+    var keys = TokenKeys.FromConfig(s.Secret, s.TokenSigningKey, s.TokenPublicKey);
+    Log.Info("HOST", keys.CanMint
+        ? $"auth tokens: Ed25519, public key {keys.PublicKeyBase64} (give region nodes this as Server.TokenPublicKey)"
+        : "auth tokens: verify-only (region node)");
+    return keys;
 });
 builder.Services.AddHostedService<OpenPak.Server.Host.RegionsRefreshService>();
 // Health/players over TCP: the only thing outside this process that can tell a

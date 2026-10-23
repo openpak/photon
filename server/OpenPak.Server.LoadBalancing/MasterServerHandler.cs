@@ -23,7 +23,7 @@ public sealed class MasterServerHandler : IOperationHandler
                        RoomPlayerCount = PhotonCodes.RoomProperty.PlayerCount, RoomMaxPlayers = PhotonCodes.RoomProperty.MaxPlayers;
 
     private readonly string _gameAddress;
-    private readonly string _secret;
+    private readonly TokenKeys _keys;
     private readonly RoomRegistry _registry;
     private readonly bool _allowAnonymousLan;
     private readonly AccountService? _accounts;
@@ -44,11 +44,11 @@ public sealed class MasterServerHandler : IOperationHandler
     public MasterServerHandler(string gameAddress, string secret, RoomRegistry registry,
                                bool allowAnonymousLan = false, AccountService? accounts = null,
                                RealmService? realms = null, Func<string, int>? lobbyBotCount = null,
-                               NodeDirectory? nodes = null)
+                               NodeDirectory? nodes = null, TokenKeys? keys = null)
     {
         _nodes = nodes;
         _gameAddress = gameAddress;
-        _secret = secret;
+        _keys = keys ?? TokenKeys.FromSecret(secret);
         _registry = registry;
         _allowAnonymousLan = allowAnonymousLan;
         _accounts = accounts;
@@ -93,13 +93,14 @@ public sealed class MasterServerHandler : IOperationHandler
         // a Steam ticket proved it) and reject banned accounts.
         if (r.Parameters.TryGetValue(PSecret, out var t) && t is string token)
         {
-            if (!AuthToken.Validate(token, _secret).TryGet(out var ident))
+            if (!AuthToken.Validate(token, _keys).TryGet(out var ident))
                 return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
             if (_accounts?.Find(ident.UserId)?.IsBanned == true)
                 return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
             if (peer is not null) { peer.SteamId = ident.UserId; peer.IsVerified = ident.Verified; }
             if (peer is not null && (ident.AppId is not null || ident.AppVersion is not null))
                 (peer.AppId, peer.AppVersion) = (ident.AppId, ident.AppVersion);
+            if (peer is not null) peer.Region = ident.Region;
             return new OperationResponse(OpAuthenticate, 0, null, new());
         }
 
@@ -113,7 +114,7 @@ public sealed class MasterServerHandler : IOperationHandler
         return new OperationResponse(OpAuthenticate, 0, null, new()
         {
             // hand back a token for the Game hop (unverified), carrying this client's build for its rooms there
-            { PSecret, AuthToken.Mint(userId, verified: false, _secret, peer?.AppId, peer?.AppVersion) },
+            { PSecret, AuthToken.Mint(userId, verified: false, _keys, peer?.AppId, peer?.AppVersion) },
             { PhotonCodes.Param.UserId, userId },
         });
     }
@@ -231,29 +232,23 @@ public sealed class MasterServerHandler : IOperationHandler
         _registry.GetOrCreate(key);
         return new OperationResponse(r.OperationCode, 0, null, new()
         {
-            { PAddress, GameAddressFor(key, existed, peer?.SteamId) },
+            { PAddress, GameAddressFor(key, existed, peer?.SteamId, peer?.Region) },
             { PRoomName, name },
         });
     }
 
     /// <summary>
     /// Where a room is served from. A room that already has people in it is wherever it is: a joiner
-    /// goes there whatever their own country. A new room goes to the node for the creator's country,
-    /// or home when there is none. Home's own address is the only one ever handed out without regions.
+    /// goes there whatever their own region or country. A new room goes where its creator chose (the
+    /// Photon region in their token), else to their account country's region, down the fallback chain,
+    /// or home. Home's own address is the only one ever handed out without a routing table, or with no
+    /// node in rotation. The Master itself is always home's: matchmaking stays global.
     /// <paramref name="room"/> is the room's registry key.
     /// </summary>
-    public string GameAddressFor(string room, bool existed, string? userId)
+    public string GameAddressFor(string room, bool existed, string? userId, string? region = null)
     {
         if (_nodes is null) return _gameAddress;
         if (existed) return _nodes.AddressForRoom(room) ?? _gameAddress;
-        var region = _nodes.ForCountry(_nodes.CountryOf(userId));
-        if (region?.PhotonAddress is null)
-        {
-            _nodes.UnpinRoom(room);
-            return _gameAddress;
-        }
-        _nodes.PinRoom(room, region.Id);
-        Log.Info("Federation", $"room {Redact.Room(room)} placed on {region.Id} ({region.Country})");
-        return region.PhotonAddress;
+        return _nodes.Place(room, userId, region) ?? _gameAddress;
     }
 }
