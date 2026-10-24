@@ -123,7 +123,10 @@ public sealed class PeerConnection
     {
         if (!WireMessage.TryPeekType(payload, out var type, out var encrypted))
         {
-            Log.Warn(_role, $"{PeerTag} dropped non-Photon payload ({payload.Length}B: {Redact.Hex(payload, 32)})");
+            // The first 16 bytes always: a header, enough to recognise an unknown framing (e.g. a client
+            // that wraps its Init differently), and too short to hold a token. The rest only under trace.
+            Log.Warn(_role, $"{PeerTag} dropped non-Photon payload ({payload.Length}B, starts " +
+                            $"{PhotonNames.Hex(payload, 16)}: {Redact.Hex(payload, 64)})");
             return;
         }
 
