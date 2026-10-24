@@ -13,6 +13,7 @@ public static class PhotonCodes
     public static class Op
     {
         public const byte Authenticate = 230;
+        public const byte AuthenticateOnce = 231;   // Name Server only: Authenticate + region pick in one op (Photon C++ SDK)
         public const byte GetRegions = 220;
         public const byte JoinLobby = 229;
         public const byte LeaveLobby = 228;

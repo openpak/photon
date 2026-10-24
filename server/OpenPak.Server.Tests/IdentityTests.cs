@@ -1,4 +1,5 @@
 using OpenPak.Photon;
+using OpenPak.Server.Core;
 using OpenPak.Server.Data;
 using OpenPak.Server.LoadBalancing;
 using Xunit;
@@ -88,6 +89,36 @@ public class IdentityTests
         Assert.StartsWith("openpak:", identities.Register("bsdid:574741535d0eef77"));
         Assert.StartsWith("openpak:", identities.Register("nex:nx2.!!not-base64!!.sig"));
         Assert.StartsWith("openpak:", identities.Register("nex:nx2.bm8tZG90cy1oZXJl.sig"));
+    }
+
+    [Fact]
+    public void NameServer_answers_AuthenticateOnce_like_Authenticate()
+    {
+        // The Photon C++ SDK (Unrailed!) authenticates with op 231 and these params; the token is a
+        // JWT whose payload carries the OpenPak nx2 credential. The answer must come back under 231.
+        var accounts = TestAccounts.Create();
+        var ns = new NameServerHandler("10.0.0.1:5055", Secret, accounts, accountIdentities: new AccountIdentityRegistry());
+        var claims = System.Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(
+                "{\"openpak\":\"nx2.MTgyMjExODc4Mi50b2JhZ2luLjE3OTI0NzkyMzM.c2lnbmF0dXJl\"}"))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var peer = new PeerConnection("NameServer", new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1), ns, (_, _) => { });
+        OperationResponse? resp = null;
+        peer.OnResponse = r => resp = r;
+
+        ns.OnOperationRequest(peer, new OperationRequest(231, new()
+        {
+            { 224, "9d45adf2-e83f-4281-b9f5-02728f813f80" }, { 220, "2.1-Cross" }, { 210, "eu" },
+            { PUserId, "NIN_0000000000000000000" }, { 217, (byte)0 },
+            { 216, $"platform=NIN&token=eyJhbGciOiJSUzI1NiJ9.{claims}.c2ln" },
+            { 194, new Dictionary<object, object> { { (byte)211, true } } }, { 193, (byte)0 }, { 195, (byte)0 },
+        }));
+
+        Assert.NotNull(resp);
+        Assert.Equal(231, resp!.OperationCode);
+        Assert.Equal(0, resp.ReturnCode);
+        Assert.True(resp.Parameters.ContainsKey(221));         // token for the Master
+        Assert.StartsWith("openpak:", (string)resp.Parameters[PUserId]);
+        Assert.Equal("9d45adf2-e83f-4281-b9f5-02728f813f80", peer.AppId);
     }
 
     [Fact]

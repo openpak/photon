@@ -75,6 +75,10 @@ public sealed class NameServerHandler : IOperationHandler
         _nodes = nodes;
         _router = new OperationRouter("NameServer", "Unsupported on Name Server")
             .On(OpAuthenticate, HandleAuthenticate)
+            // AuthenticateOnce (the Photon C++ SDK's AuthOnce mode, Unrailed!) carries the same identity
+            // params and expects the same answer, under its own op code; the Master then sees a token-only
+            // Authenticate as usual. Its 193 (EncryptionMode 0 = payload encryption) needs nothing extra.
+            .On(PhotonCodes.Op.AuthenticateOnce, HandleAuthenticate)
             .On(OpGetRegions, HandleGetRegions);
     }
 
@@ -125,6 +129,7 @@ public sealed class NameServerHandler : IOperationHandler
 
     private void HandleAuthenticate(PeerConnection peer, OperationRequest request)
     {
+        var op = request.OperationCode;
         // The only hop where a client names its game build; Respond seals both into the token so the
         // Master and Game servers (which see only the token) keep its rooms with that build's.
         (peer.AppId, peer.AppVersion) = RoomRegistry.AppOf(request);
@@ -143,15 +148,15 @@ public sealed class NameServerHandler : IOperationHandler
                 var userId = _accountIdentities.Register(bsDid);
                 if (_nodes is null)
                 {
-                    Respond(peer, userId, verified: false);
+                    Respond(peer, userId, verified: false, op);
                     return;
                 }
                 // The Master needs the country by the time this peer creates a room; ask now.
                 _ = _nodes.PrefetchCountryAsync(userId, bsDid, peer.Remote.Address);
-                _ = RespondUnlessBanned(peer, userId, bsDid, _nodes);
+                _ = RespondUnlessBanned(peer, userId, bsDid, _nodes, op);
                 return;
             }
-            Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false);
+            Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false, op);
             return;
         }
 
@@ -164,28 +169,28 @@ public sealed class NameServerHandler : IOperationHandler
         {
             Log.Warn("NameServer", $"{peer.PeerTag} public auth refused: Server.Secret is the shipped default — " +
                                    "a verified identity would be forgeable. Set a strong Server.Secret.");
-            peer.SendResponse(Fail("Server is not configured for public authentication")); return;
+            peer.SendResponse(Fail(op, "Server is not configured for public authentication")); return;
         }
         if (validId is null)
         {
             Log.Warn("NameServer", $"{peer.PeerTag} public auth without a valid SteamID -> rc=-1");
-            peer.SendResponse(Fail("A valid SteamID is required")); return;
+            peer.SendResponse(Fail(op, "A valid SteamID is required")); return;
         }
         if (!(request.Parameters.TryGetValue(PTicket, out var tk) && tk is byte[] ticket && ticket.Length > 0))
         {
             Log.Warn("NameServer", $"{peer.PeerTag} public auth without a Steam ticket -> rc=-1");
-            peer.SendResponse(Fail("A Steam auth ticket is required")); return;
+            peer.SendResponse(Fail(op, "A Steam auth ticket is required")); return;
         }
         if (!ulong.TryParse(validId, out var sid64))
         {
-            peer.SendResponse(Fail("A valid SteamID is required")); return;
+            peer.SendResponse(Fail(op, "A valid SteamID is required")); return;
         }
 
         Log.Info("NameServer", $"{peer.PeerTag} validating Steam ticket for {Redact.Tag(validId)} ({ticket.Length}B)...");
-        _ = ValidateAndRespond(peer, ticket, sid64);
+        _ = ValidateAndRespond(peer, ticket, sid64, op);
     }
 
-    private async Task ValidateAndRespond(PeerConnection peer, byte[] ticket, ulong assertedSteamId)
+    private async Task ValidateAndRespond(PeerConnection peer, byte[] ticket, ulong assertedSteamId, byte op)
     {
         SteamAuthResult result;
         using var cts = new CancellationTokenSource(ValidationTimeout);
@@ -198,12 +203,12 @@ public sealed class NameServerHandler : IOperationHandler
             if (result.Outcome == SteamAuthOutcome.Verified)
             {
                 Log.Info("NameServer", $"{peer.PeerTag} Steam VERIFIED as {Redact.Tag(result.SteamId)} -> rc=0");
-                Respond(peer, result.SteamId.ToString(), verified: true);
+                Respond(peer, result.SteamId.ToString(), verified: true, op);
             }
             else
             {
                 Log.Warn("NameServer", $"{peer.PeerTag} Steam validation {result.Outcome} ({result.Reason}) -> rc=-1");
-                peer.SendResponse(Fail("Steam ticket validation failed"));
+                peer.SendResponse(Fail(op, "Steam ticket validation failed"));
             }
         });
     }
@@ -211,7 +216,7 @@ public sealed class NameServerHandler : IOperationHandler
     /// <summary>An OpenPak account banned in the admin is refused with the same rc=-3 "Account banned"
     /// as a locally banned one (website/docs/ban-lookup.md). The Switch adapter is the one that
     /// knows the account behind the identity.</summary>
-    private async Task RespondUnlessBanned(PeerConnection peer, string userId, string identity, NodeDirectory nodes)
+    private async Task RespondUnlessBanned(PeerConnection peer, string userId, string identity, NodeDirectory nodes, byte op)
     {
         var banned = await nodes.IsBannedAsync(identity).ConfigureAwait(false);
         _post(() =>
@@ -219,10 +224,10 @@ public sealed class NameServerHandler : IOperationHandler
             if (banned)
             {
                 Log.Warn("NameServer", $"{peer.PeerTag} OpenPak account BANNED -> rc=-3");
-                peer.SendResponse(new OperationResponse(OpAuthenticate, -3, "Account banned", new()));
+                peer.SendResponse(new OperationResponse(op, -3, "Account banned", new()));
                 return;
             }
-            Respond(peer, userId, verified: false);
+            Respond(peer, userId, verified: false, op);
         });
     }
 
@@ -242,10 +247,10 @@ public sealed class NameServerHandler : IOperationHandler
 
     /// <summary>Resolves the account, rejects bans, binds the identity onto the peer, and sends the success
     /// response (token carries the <paramref name="verified"/> flag).</summary>
-    private void Respond(PeerConnection peer, string steamId, bool verified)
+    private void Respond(PeerConnection peer, string steamId, bool verified, byte op = OpAuthenticate)
     {
         var master = TrustedNetwork.IsLoopback(peer.Remote) ? _loopbackMasterAddress : _masterAddress;
-        var resp = BuildSuccess(steamId, verified, master, peer.AppId, peer.AppVersion, peer.Region);
+        var resp = BuildSuccess(steamId, verified, master, peer.AppId, peer.AppVersion, peer.Region, op);
         if (resp.ReturnCode == 0)
         {
             peer.SteamId = steamId;
@@ -258,7 +263,8 @@ public sealed class NameServerHandler : IOperationHandler
     /// <summary>Resolves the account (rejecting bans) and builds the success response with a token carrying the
     /// <paramref name="verified"/> flag. No peer side effects — shared by the sync and async paths.</summary>
     private OperationResponse BuildSuccess(string steamId, bool verified, string masterAddress,
-                                           string? appId = null, string? appVersion = null, string? region = null)
+                                           string? appId = null, string? appVersion = null, string? region = null,
+                                           byte op = OpAuthenticate)
     {
         var account = steamId.StartsWith("openpak:", StringComparison.Ordinal)
             ? null
@@ -266,9 +272,9 @@ public sealed class NameServerHandler : IOperationHandler
         if (account?.IsBanned == true)
         {
             Log.Warn("NameServer", $"{Redact.Tag(steamId)} is BANNED -> rc=-3");
-            return new OperationResponse(OpAuthenticate, -3, "Account banned", new());
+            return new OperationResponse(op, -3, "Account banned", new());
         }
-        return new OperationResponse(OpAuthenticate, 0, null, new()
+        return new OperationResponse(op, 0, null, new()
         {
             { PAddress, masterAddress },
             { PSecret, AuthToken.Mint(steamId, verified, _keys, appId, appVersion, region) },
@@ -276,5 +282,5 @@ public sealed class NameServerHandler : IOperationHandler
         });
     }
 
-    private static OperationResponse Fail(string message) => new(OpAuthenticate, -1, message, new());
+    private static OperationResponse Fail(byte op, string message) => new(op, -1, message, new());
 }

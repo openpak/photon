@@ -48,12 +48,15 @@ public sealed class GpBinaryReader
     public ushort ReadUInt16() { Need(2); ushort v = (ushort)(_data[_pos] | (_data[_pos + 1] << 8)); _pos += 2; return v; }
 
     /// <summary>Reads one typed value (type byte + payload).</summary>
-    public object? ReadTyped()
+    public object? ReadTyped() => ReadValue(ReadByte());
+
+    /// <summary>Reads the payload of a value whose type byte is already known: the type byte was
+    /// read separately, or a typed container (Dictionary) declared it once for every element.</summary>
+    private object? ReadValue(byte type)
     {
         if (++_depth > MaxDepth) throw new InvalidDataException($"GpBinary value nested deeper than {MaxDepth}");
         try
         {
-            byte type = ReadByte();
             // CustomTypeSlim: type bytes 128..228 encode a registered custom type, code = type - 128.
             if (type is >= 128 and <= 228) return ReadCustom((byte)(type - 128));
             switch (type)
@@ -89,6 +92,7 @@ public sealed class GpBinaryReader
                 case GpType.StringArray: return ReadStringArrayBody();
                 case GpType.ObjectArray: return ReadObjectArrayBody();
                 case GpType.Hashtable: return ReadHashtableBody();
+                case GpType.Dictionary: return ReadDictionaryBody();
                 default: throw new NotSupportedException($"GpBinary v1.8 read not implemented for type {type}");
             }
         }
@@ -163,6 +167,25 @@ public sealed class GpBinaryReader
         {
             var key = ReadTyped();
             var val = ReadTyped();
+            if (key is not null) d[key] = val!;
+        }
+        return d;
+    }
+
+    private Dictionary<object, object> ReadDictionaryBody()
+    {
+        // Dictionary<K,V>: [keyType][valueType][count] then the entries. A declared type of
+        // Unknown (0) means object: that side of each entry carries its own type byte. Otherwise
+        // the payload follows bare. The Photon C++ SDK (Unrailed!) sends one in AuthenticateOnce:
+        // param 194 = Dictionary<object,object> { (byte)211: true }.
+        byte keyType = ReadByte();
+        byte valueType = ReadByte();
+        int count = ReadCount();
+        var d = new Dictionary<object, object>(count);
+        for (int i = 0; i < count; i++)
+        {
+            var key = keyType == GpType.Unknown ? ReadTyped() : ReadValue(keyType);
+            var val = valueType == GpType.Unknown ? ReadTyped() : ReadValue(valueType);
             if (key is not null) d[key] = val!;
         }
         return d;

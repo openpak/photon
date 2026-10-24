@@ -23,6 +23,7 @@ public static class PhotonNames
         249 => "OpExchangeKeysForEncryption",
         248 => "OpChangeGroups",
         230 => "OpAuthenticate",
+        231 => "OpAuthenticateOnce",
         229 => "OpJoinLobby",
         228 => "OpLeaveLobby",
         227 => "OpCreateGame",
