@@ -75,7 +75,8 @@ public sealed class MasterServerHandler : IOperationHandler
                 peer.RaiseEvent(isDefaultLobby ? BuildGameListEvent(peer) : BuildFusionSessionLobbyEvent(req, peer));
             }, SessionStatus.Authenticated)
             .On(OpCreateGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated)
-            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated);
+            .On(OpJoinGame, (peer, req) => peer.SendResponse(CreateGame(req, peer)), SessionStatus.Authenticated)
+            .On(PhotonCodes.Op.JoinRandomGame, (peer, req) => peer.SendResponse(JoinRandomGame(req, peer)), SessionStatus.Authenticated);
     }
 
     public void OnConnect(PeerConnection peer) { }
@@ -235,6 +236,60 @@ public sealed class MasterServerHandler : IOperationHandler
             { PAddress, GameAddressFor(key, existed, peer?.SteamId, peer?.Region) },
             { PRoomName, name },
         });
+    }
+
+    /// <summary>Photon's return code when no room satisfies a random join; the client then creates one.</summary>
+    public const short NoRandomMatchFound = 32760;
+
+    /// <summary>
+    /// OpJoinRandomGame: a room of the asker's own AppId + AppVersion that has players, is open and
+    /// visible, has a free slot, carries every expected property (param 248) and, when the request
+    /// names a SQL lobby filter (param 245), satisfies it. The fullest such room wins, so players
+    /// gather instead of spreading one per room. None: <see cref="NoRandomMatchFound"/>.
+    /// </summary>
+    public OperationResponse JoinRandomGame(OperationRequest r, PeerConnection? peer = null)
+    {
+        var expected = r.Parameters.TryGetValue(PhotonCodes.Param.GameProperties, out var ep) && ep is System.Collections.IDictionary d
+            ? d : null;
+        Func<IReadOnlyDictionary<object, object>, bool> filter = _ => true;
+        if (r.Parameters.TryGetValue(PhotonCodes.Param.Data, out var f) && f is string sql && sql.Trim().Length > 0)
+            SqlLobbyFilter.TryParse(sql, out filter);
+
+        Room? best = null;
+        foreach (var room in _registry.All)
+        {
+            if (room.Key != RoomRegistry.KeyFor(peer?.AppId, peer?.AppVersion, room.Name)) continue;
+            int players;
+            lock (room.ActorNumbers) players = room.ActorNumbers.Count;
+            if (players == 0) continue;
+            var props = room.GameProperties;
+            if (props.TryGetValue(RoomIsOpen, out var open) && open is false) continue;
+            if (props.TryGetValue(RoomIsVisible, out var visible) && visible is false) continue;
+            if (props.TryGetValue(RoomMaxPlayers, out var max) && Convert.ToInt32(max) is int m && m > 0 && players >= m) continue;
+            if (expected is not null && !HasAll(props, expected)) continue;
+            if (!filter(props)) continue;
+            if (best is null || players > best.ActorNumbers.Count) best = room;
+        }
+        if (best is null)
+            return new OperationResponse(r.OperationCode, NoRandomMatchFound, "No match found", new());
+        return new OperationResponse(r.OperationCode, 0, null, new()
+        {
+            { PAddress, GameAddressFor(best.Key, existed: true, peer?.SteamId, peer?.Region) },
+            { PRoomName, best.Name },
+        });
+
+        static bool HasAll(IReadOnlyDictionary<object, object> props, System.Collections.IDictionary want)
+        {
+            foreach (System.Collections.DictionaryEntry e in want)
+            {
+                if (e.Key is null || !props.TryGetValue(e.Key, out var have)) return false;
+                if (!Equals(have, e.Value) && !(IsNumber(have) && IsNumber(e.Value) &&
+                        Convert.ToDouble(have) == Convert.ToDouble(e.Value))) return false;
+            }
+            return true;
+        }
+
+        static bool IsNumber(object? v) => v is byte or sbyte or short or ushort or int or uint or long or ulong or float or double;
     }
 
     /// <summary>

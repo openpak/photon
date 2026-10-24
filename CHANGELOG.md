@@ -5,6 +5,11 @@ of truth; this file is the readable summary.
 
 ## Unreleased
 
+**Quick match: OpJoinRandomGame.** The Master answers a random join with the fullest open, visible,
+not-full room of the asker's AppId + AppVersion that carries the expected properties and passes the
+request's Photon SQL-lobby filter (`C0 < 3 AND C1 = 2 AND (C3 = 0 OR C3 = 4)`, AND/OR/NOT, NULL for
+missing columns); none answers 32760 so the client creates a room. Needed by Unrailed! (Photon C++).
+
 **Rooms go to the region the player chose.** Home lists every region with a node in rotation under its
 real Photon token, the client's own ping (Automatic) or fixed choice picks one, and a new room is placed
 on that region's node; the Master and lobby stay at home. With no routing table or no nodes, nothing
