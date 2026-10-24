@@ -125,6 +125,13 @@ public sealed class ListenersHostedService : BackgroundService
                 _registry.Session(room).SendToActor(actor, new EventData(101, new() { { (byte)254, 0 }, { (byte)245, payload } }), unreliable: !reliable),
             new OpenPak.Server.LoadBalancing.Fusion.FusionRoomOptions { SceneAuthorityMasterClient = s.Fusion.SceneAuthorityMasterClient });
 
+        // Photon Quantum 2 rooms (Stumble Guys): the deterministic session's server half. Its events go out
+        // from the server (sender 0) to one actor, on the room's own loop like Fusion's.
+        var quantum = new OpenPak.Server.LoadBalancing.Quantum.QuantumHost(
+            (room, actor, code, payload, reliable) =>
+                _registry.Session(room).SendToActor(actor, new EventData(code, new() { { (byte)254, 0 }, { (byte)245, payload } }), unreliable: !reliable));
+        var quantumAppIds = (Env("OPENPAK_QUANTUM_APPIDS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
         // A region node has no adapter to publish presence to; home does that from the room report.
         var fed = _config.Federation;
         RoomReporter? reporter = fed.IsNode ? new RoomReporter(new HttpClient(), fed.HomeUrl, fed.ReportKey, fed.NodeId) : null;
@@ -140,7 +147,7 @@ public sealed class ListenersHostedService : BackgroundService
                                       // turn the room into that player's friend presence.
                                       string? identity = creator?.SteamId is { } uid ? accountIdentities.Find(uid) : null;
                                       _ = reporter.ReportAsync(room, identity);
-                                  }, keys: _keys);
+                                  }, keys: _keys, quantum: quantum, quantumAppIds: quantumAppIds);
         var game = new UdpListener("GameServer", s.Ports.GameServer, gameHandler, s.Listener);
         // See ServerPorts.NameServerAlt: pairs with NameServerAlt/MasterServerAlt for a client using
         // Photon's modern default UDP ports (27000/27001/27002).
@@ -155,8 +162,8 @@ public sealed class ListenersHostedService : BackgroundService
         // Advance hosted Fusion room simulations on the Game listener loop(s). Each room only ticks from the
         // loop that created it (UdpListener.Current, not a thread id — the loop hops pool threads), so
         // wiring both game and gameAlt is safe.
-        game.OnTick = fusion.Tick;
-        if (gameAlt != null) gameAlt.OnTick = fusion.Tick;
+        game.OnTick = () => { fusion.Tick(); quantum.Tick(); };
+        if (gameAlt != null) gameAlt.OnTick = game.OnTick;
         if (masterAlt != null) masterAlt.OnMaintenance = master.OnMaintenance;
         if (gameAlt != null) gameAlt.OnMaintenance = game.OnMaintenance;
 

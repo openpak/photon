@@ -98,6 +98,8 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
     /// the first join (so home can publish presence), null on a leave.</summary>
     private readonly Action<Room, PeerConnection?>? _roomChanged;
     private readonly IFusionSessionHost? _fusion;
+    private readonly Quantum.QuantumHost? _quantum;
+    private readonly HashSet<string> _quantumAppIds;
 
     /// <param name="allowAnonymousLan">
     /// When true, tokenless auth (LAN mode) is accepted from loopback/private-range peers only.
@@ -114,8 +116,11 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
                              IRoomLifecycleListener? lifecycle = null, CommandRegistry? chatCommands = null,
                              bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null,
                              IFusionSessionHost? fusion = null, Action<Room, PeerConnection?>? roomChanged = null,
-                             TokenKeys? keys = null)
+                             TokenKeys? keys = null, Quantum.QuantumHost? quantum = null,
+                             IEnumerable<string>? quantumAppIds = null)
     {
+        _quantum = quantum;
+        _quantumAppIds = new HashSet<string>(quantumAppIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         _roomChanged = roomChanged;
         _fusion = fusion;
         // A region node is given home's public key only (verify, never mint); home and tests derive the
@@ -173,6 +178,7 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
         left?.RemoveActor(state.Actor);
         if (left is not null) _roomChanged?.Invoke(left, null);
         _fusion?.PlayerLeft(state.RoomKey, state.Actor);
+        _quantum?.PlayerLeft(state.RoomKey, state.Actor);
         _lifecycle?.OnLeft(state.RoomKey, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
@@ -293,6 +299,15 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
             {
                 Log.Warn("GameServer", $"actor {state.Actor} in {Redact.Room(state.RoomName)} tried to raise reserved " +
                                        $"server event {PhotonNames.Event(ec)} -> dropped");
+                return;
+            }
+            // A Quantum room (its AppId is in OPENPAK_QUANTUM_APPIDS): events 100/101 are the deterministic
+            // session protocol and 102 the tick inputs, all addressed to the server, which answers them as
+            // Photon Cloud's Quantum plugin does (Quantum.QuantumHost). None of them is relayed.
+            if (_quantum is not null && ec is >= Photon.QuantumProtocol.ProtocolEvent and <= Photon.QuantumProtocol.InputEvent
+                && peer.AppId is { } quantumApp && _quantumAppIds.Contains(quantumApp) && data is byte[] quantumPayload)
+            {
+                _quantum.Feed(state.RoomKey, state.Actor, ec, quantumPayload);
                 return;
             }
             // Fusion's own session-negotiation protocol rides on this same event code (100, "protocol
