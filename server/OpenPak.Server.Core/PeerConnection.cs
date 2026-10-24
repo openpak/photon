@@ -130,8 +130,9 @@ public sealed class PeerConnection
             SendRaw(WireMessage.InitResponseMessage());
             if (_handler is IInitTokenHandler tokens)
             {
-                var ok = tokens.OnInitToken(this, webInit.TokenCandidates());
-                Log.Info(_role, $"{PeerTag} web Init token {(ok ? "accepted" : "absent or invalid")}");
+                var auth = tokens.OnInitToken(this, webInit.TokenCandidates());
+                Log.Info(_role, $"{PeerTag} web Init token {(auth.ReturnCode == 0 ? "accepted" : "absent or invalid")}");
+                SendResponse(auth);
             }
             return;
         }

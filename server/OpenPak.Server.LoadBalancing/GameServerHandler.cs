@@ -524,17 +524,17 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
         eventCode is not (PhotonCodes.Event.Join or PhotonCodes.Event.Leave or PhotonCodes.Event.PropertiesChanged);
 
     /// <summary>Authenticates from a web-style Init's token (AuthenticateOnce clients), the same check as
-    /// a token-only OpAuthenticate, without sending a response the client never asked for.</summary>
-    public bool OnInitToken(PeerConnection peer, IEnumerable<string> candidates)
+    /// a token-only OpAuthenticate. The caller sends the response: the client waits for it.</summary>
+    public OperationResponse OnInitToken(PeerConnection peer, IEnumerable<string> candidates)
     {
         foreach (var candidate in candidates)
         {
             if (candidate.Length is < 16 or > 4096) continue;
             var response = Authenticate(new OperationRequest(OpAuthenticate, new() { { PSecret, candidate } }), false, peer);
-            if (response.ReturnCode == 0) { peer.Status = SessionStatus.Authenticated; return true; }
-            if (response.ReturnCode == -3) return false;     // banned: stop, do not try the rest
+            if (response.ReturnCode == 0) { peer.Status = SessionStatus.Authenticated; return response; }
+            if (response.ReturnCode == -3) return response;  // banned: stop, do not try the rest
         }
-        return false;
+        return new OperationResponse(OpAuthenticate, -1, "Invalid token", new());
     }
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)

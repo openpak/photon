@@ -128,8 +128,10 @@ public class IdentityTests
         var peer = new PeerConnection("MasterServer", new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1), master, (_, _) => { });
         var token = AuthToken.Mint("openpak:abc", verified: false, Secret, "9d45adf2-e83f-4281-b9f5-02728f813f80", "2.1-Cross");
 
-        Assert.False(master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", "not-a-token-at-all" }));
-        Assert.True(master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", token }));
+        Assert.Equal(-1, master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", "not-a-token-at-all" }).ReturnCode);
+        var ok = master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", token });
+        Assert.Equal(0, ok.ReturnCode);
+        Assert.Equal(PhotonCodes.Op.Authenticate, ok.OperationCode);
         Assert.Equal(SessionStatus.Authenticated, peer.Status);
         Assert.Equal("openpak:abc", peer.SteamId);
         Assert.Equal("2.1-Cross", peer.AppVersion);
