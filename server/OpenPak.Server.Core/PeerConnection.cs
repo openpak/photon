@@ -16,6 +16,10 @@ public sealed class PeerConnection
     private readonly EnetPeer _enet = new();
     private readonly IOperationHandler _handler;
     private readonly Action<IReadOnlyList<NCommand>, int> _send;
+    // Set for a stream transport (WebSocket): whole Photon messages go out as they are, with no eNet
+    // commands around them, and inbound messages arrive through HandleMessage.
+    private readonly Action<byte[]>? _rawSend;
+    private readonly Action? _close;
     private readonly string _role;
     private DiffieHellmanCryptoProvider? _crypto;
 
@@ -64,6 +68,21 @@ public sealed class PeerConnection
         Remote = remote;
         _handler = handler;
         _send = send;
+    }
+
+    /// <summary>A peer on a message transport (WebSocket): no eNet layer, one Photon message per frame.</summary>
+    public PeerConnection(string role, IPEndPoint remote, IOperationHandler handler, Action<byte[]> rawSend, Action close)
+        : this(role, remote, handler, (_, _) => { })
+    {
+        _rawSend = rawSend;
+        _close = close;
+    }
+
+    /// <summary>One whole Photon message from a message transport.</summary>
+    public void HandleMessage(byte[] payload)
+    {
+        LastInboundUtc = DateTime.UtcNow;
+        HandleAppPayload(payload);
     }
 
     public void HandlePacket(PhotonHeader header, IReadOnlyList<NCommand> commands)
@@ -231,6 +250,7 @@ public sealed class PeerConnection
     /// </summary>
     public void MaybePing(DateTime now, TimeSpan quietFor)
     {
+        if (_rawSend is not null) return;   // the stream transport keeps itself alive
         if (now - LastInboundUtc < quietFor || now - _lastPingSentUtc < quietFor) return;
         _lastPingSentUtc = now;
         Log.Trace(_role, $"{PeerTag} -> keepalive Ping (quiet {(now - LastInboundUtc).TotalSeconds:F1}s)");
@@ -250,6 +270,7 @@ public sealed class PeerConnection
     {
         if (WantsDisconnect) return;
         WantsDisconnect = true;
+        if (_close is not null) { _close(); Log.Info(_role, $"{PeerTag} hard-disconnected (server kick)"); return; }
         try { _send(new[] { _enet.Disconnect() }, _enet.Challenge); }
         catch (Exception ex) { Log.Exception(_role, $"{PeerTag} disconnect send failed", ex); }
         Log.Info(_role, $"{PeerTag} hard-disconnected (server kick)");
@@ -299,10 +320,14 @@ public sealed class PeerConnection
         bool fusionEvent = ev.Code is 100 or 101;
         var msg = WireMessage.EventMessage(ev,
             encrypt: !fusionEvent && _crypto is { IsInitialized: true } c ? c.Encrypt : null);
-        if (unreliable) _send(new[] { _enet.WrapUnreliable(msg) }, _enet.Challenge);
+        if (_rawSend is not null) _rawSend(msg);
+        else if (unreliable) _send(new[] { _enet.WrapUnreliable(msg) }, _enet.Challenge);
         else SendRaw(msg);
     }
 
-    private void SendRaw(byte[] appMessage) =>
-        _send(_enet.WrapReliableFragmented(appMessage), _enet.Challenge);
+    private void SendRaw(byte[] appMessage)
+    {
+        if (_rawSend is not null) _rawSend(appMessage);
+        else _send(_enet.WrapReliableFragmented(appMessage), _enet.Challenge);
+    }
 }

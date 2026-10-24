@@ -85,6 +85,11 @@ public sealed class ListenersHostedService : BackgroundService
             ? new UdpListener("NameServerAlt", altPort, nameHandler, s.Listener)
             : null;
         if (nameAlt != null) nameAlt.OnMaintenance = name.OnMaintenance;
+        // Name Server over WebSocket (Photon Realtime C# AuthOnceWss: wss://ns.photonengine.io:443, TLS ended in
+        // front). Off unless OPENPAK_PHOTON_NS_WS_PORT is set.
+        var nameWs = int.TryParse(Env("OPENPAK_PHOTON_NS_WS_PORT"), out var wsPort) && wsPort > 0
+            ? new WebSocketListener("NameServerWs", wsPort, nameHandler, new object())
+            : null;
         // Advertise bots as players in the lobby browser only when the operator opted in.
         Func<string, int>? lobbyBotCount = s.Bots.CountInLobby ? _bots.CountIn : null;
         var masterHandler = new MasterServerHandler($"{_config.AdvertisedHost}:{s.Ports.GameServer}", s.Secret, _registry,
@@ -211,6 +216,7 @@ public sealed class ListenersHostedService : BackgroundService
         {
             var tasks = new List<Task> { name.RunAsync(stoppingToken), master.RunAsync(stoppingToken), game.RunAsync(stoppingToken) };
             if (nameAlt != null) tasks.Add(nameAlt.RunAsync(stoppingToken));
+            if (nameWs != null) tasks.Add(nameWs.RunAsync(stoppingToken));
             if (masterAlt != null) tasks.Add(masterAlt.RunAsync(stoppingToken));
             if (gameAlt != null) tasks.Add(gameAlt.RunAsync(stoppingToken));
             await Task.WhenAll(tasks);
