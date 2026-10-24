@@ -121,6 +121,21 @@ public sealed class PeerConnection
 
     private void HandleAppPayload(byte[] payload)
     {
+        // Web-style Init ("POST /?init=&app=..."), the Photon C++ SDK's first message on the Master and
+        // Game hops after AuthenticateOnce. Answered like the binary Init; the token it carries
+        // authenticates the peer, since no OpAuthenticate follows.
+        if (WebInit.TryParse(payload, out var webInit))
+        {
+            Log.Info(_role, $"{PeerTag} web Init {webInit.Describe()} -> InitResponse");
+            SendRaw(WireMessage.InitResponseMessage());
+            if (_handler is IInitTokenHandler tokens)
+            {
+                var ok = tokens.OnInitToken(this, webInit.TokenCandidates());
+                Log.Info(_role, $"{PeerTag} web Init token {(ok ? "accepted" : "absent or invalid")}");
+            }
+            return;
+        }
+
         if (!WireMessage.TryPeekType(payload, out var type, out var encrypted))
         {
             // The first 16 bytes always: a header, enough to recognise an unknown framing (e.g. a client

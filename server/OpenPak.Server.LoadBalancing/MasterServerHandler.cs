@@ -8,7 +8,7 @@ namespace OpenPak.Server.LoadBalancing;
 /// Photon Master Server role: re-authenticates via the token, handles lobby + matchmaking, and
 /// routes the client to the Game Server by returning its address (param 230) for CreateGame/JoinGame.
 /// </summary>
-public sealed class MasterServerHandler : IOperationHandler
+public sealed class MasterServerHandler : IOperationHandler, IInitTokenHandler
 {
     // Local aliases for the Photon codes this role uses; values come from PhotonCodes (single source of truth).
     private const byte OpAuthenticate = PhotonCodes.Op.Authenticate, OpJoinLobby = PhotonCodes.Op.JoinLobby,
@@ -83,6 +83,20 @@ public sealed class MasterServerHandler : IOperationHandler
     public void OnDisconnect(PeerConnection peer) { }
 
     public void OnOperationRequest(PeerConnection peer, OperationRequest request) => _router.Dispatch(peer, request);
+
+    /// <summary>Authenticates from a web-style Init's token (AuthenticateOnce clients), the same check as
+    /// a token-only OpAuthenticate, without sending a response the client never asked for.</summary>
+    public bool OnInitToken(PeerConnection peer, IEnumerable<string> candidates)
+    {
+        foreach (var candidate in candidates)
+        {
+            if (candidate.Length is < 16 or > 4096) continue;
+            var response = Authenticate(new OperationRequest(OpAuthenticate, new() { { PSecret, candidate } }), false, peer);
+            if (response.ReturnCode == 0) { peer.Status = SessionStatus.Authenticated; return true; }
+            if (response.ReturnCode == -3) return false;     // banned: stop, do not try the rest
+        }
+        return false;
+    }
 
     public OperationResponse Authenticate(OperationRequest r, bool allowAnonymous = false, PeerConnection? peer = null)
     {

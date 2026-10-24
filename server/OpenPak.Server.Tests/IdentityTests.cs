@@ -122,6 +122,20 @@ public class IdentityTests
     }
 
     [Fact]
+    public void Master_authenticates_a_web_Init_token()
+    {
+        var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry());
+        var peer = new PeerConnection("MasterServer", new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 1), master, (_, _) => { });
+        var token = AuthToken.Mint("openpak:abc", verified: false, Secret, "9d45adf2-e83f-4281-b9f5-02728f813f80", "2.1-Cross");
+
+        Assert.False(master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", "not-a-token-at-all" }));
+        Assert.True(master.OnInitToken(peer, new[] { "9d45adf2-e83f-4281-b9f5-02728f813f80", token }));
+        Assert.Equal(SessionStatus.Authenticated, peer.Status);
+        Assert.Equal("openpak:abc", peer.SteamId);
+        Assert.Equal("2.1-Cross", peer.AppVersion);
+    }
+
+    [Fact]
     public void Master_refuses_banned_account_via_token()
     {
         var accounts = TestAccounts.Create();
