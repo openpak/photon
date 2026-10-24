@@ -266,23 +266,22 @@ public sealed class QuantumRoom
     // --- inputs (event 102) ---
 
     /// <summary>A client's input packet: back-to-back records of u8 player index, u32 tick, data
-    /// (presence bit + u16 length + bytes), one rpc bit (always 0 from the client), 4-bit flags.</summary>
+    /// (presence bit + u16 length + bytes), one rpc bit (always 0 from the client), 8-bit flags.</summary>
     internal void OnInputs(int actor, byte[] payload)
     {
         var r = new QuantumBitReader(payload);
-        while (r.BitsLeft >= 8 + 32 + 1)
+        while (r.BitsLeft >= 8 + 32 + 1 + 1 + 8)
         {
             var index = r.ReadByte();
             var tick = r.ReadInt();
             byte[]? data = null;
             if (r.ReadBool()) data = r.ReadBytes((int)r.ReadBits(16));
             if (r.ReadBool()) { r.ReadBytes((int)r.ReadBits(16)); }   // an rpc here is a client bug; skip it
-            var flags = (int)r.ReadBits(4);
+            var flags = r.ReadByte();
             var slot = SlotOf(actor, index);
             if (slot < 0 || tick <= _confirmedTick) continue;
             if (!_pending.TryGetValue(tick, out var perSlot)) _pending[tick] = perSlot = new();
             perSlot.TryAdd(slot, new TickInput(data, null, flags));
-            if (r.BitsLeft < 8) break;
         }
     }
 

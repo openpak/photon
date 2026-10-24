@@ -50,7 +50,7 @@ public class QuantumHostTests
         w.WriteInt(tick);
         w.WriteByteArray(data);
         w.WriteBool(false);      // rpc (always absent from the client)
-        w.WriteBits(0, 4);       // flags
+        w.WriteByte(0);          // flags
         return w.ToArray();
     }
 
