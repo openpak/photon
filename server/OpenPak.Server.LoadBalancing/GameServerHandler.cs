@@ -440,8 +440,10 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
                 peer.RaiseEvent(ServerFusionEvent(ec, relayData));
             }
             // When a Fusion server hosts the room, its protocol-package (100) traffic is client<->server
-            // too — don't relay it peer-to-peer either.
-            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode) return;
+            // too — don't relay it peer-to-peer either. Only for a Fusion peer (one that sent a Fusion
+            // Join): plain Realtime titles use code 100 for their own traffic (Unrailed's keepalive),
+            // and swallowing it made both players time out ~14 s after joining.
+            if (_fusion is not null && ec == FusionProtocol.ProtocolPackageEventCode && state.FusionVersion is not null) return;
             // Not a server command: relay this gameplay event to the other actors in the room.
             _registry.Session(state.RoomKey).RelayFrom(state.Actor, new EventData(ec, new() { { PData, data } }), peer.CurrentInboundUnreliable);
         }
