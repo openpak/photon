@@ -7,6 +7,8 @@ RUN dotnet publish server/OpenPak.Server.Host -c Release -r linux-$TARGETARCH \
 
 FROM mcr.microsoft.com/dotnet/runtime:8.0
 WORKDIR /app
+# /app must be writable by the runtime user: the host writes openpak.server.json beside the DLLs when it is absent.
+RUN chown 65532:65532 /app
 # No RUN in this stage: the image assembles by copy alone, so cross-arch builds need no emulation.
 COPY --from=build --chown=65532:65532 /out /app
 USER 65532:65532
