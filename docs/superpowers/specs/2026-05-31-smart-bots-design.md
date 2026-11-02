@@ -1,6 +1,5 @@
 # Smart Bots — Design Spec (world-aware playerbots)
 
-**Status:** Design, in progress on branch `feat/smart-bots` (autonomous iteration, 2026-05-31).
 **Goal (owner):** Bots should act like real players — run around, find things to *hack* and *kill*,
 equip/upgrade and get stronger, with collision so they don't clip through the world/objects.
 

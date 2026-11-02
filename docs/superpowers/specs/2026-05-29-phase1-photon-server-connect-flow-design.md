@@ -3,7 +3,6 @@
 **Project:** Black Ice independent server (open-source, GPLv3)
 **Phase:** 1 of 5 — Photon transport, serialization, Name/Master/Game connect flow, client redirect
 **Date:** 2026-05-29
-**Status:** Approved design — pending spec review
 
 ---
 

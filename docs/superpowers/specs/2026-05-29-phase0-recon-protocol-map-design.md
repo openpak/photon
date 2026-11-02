@@ -3,7 +3,6 @@
 **Project:** Black Ice independent server (open-source interoperability project)
 **Phase:** 0 of 5 — Reconnaissance & Protocol Mapping
 **Date:** 2026-05-29
-**Status:** Approved design — pending spec review
 
 ---
 

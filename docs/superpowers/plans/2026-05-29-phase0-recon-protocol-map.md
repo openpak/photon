@@ -87,11 +87,6 @@ trivial. This project reimplements the server side of that protocol so the game 
 on infrastructure you control, and so world authority can move from an untrusted player
 to the server.
 
-## Status
-
-**Phase 0 — Reconnaissance & Protocol Map.** Documenting the protocol and building the
-recon tooling. No server yet. See `docs/superpowers/plans/`.
-
 ## Legal / scope
 
 This is a clean, independent interoperability project in the tradition of OpenRA and

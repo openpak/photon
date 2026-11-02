@@ -1,6 +1,5 @@
 # Real Arena Down-and-Respawn — Design
 
-**Status:** approved (brainstorm) — ready for implementation plan
 **Date:** 2026-06-02
 **Phase context:** Phase 2/3 gameplay (server-side arena), builds on the live protocol-verification pass
 

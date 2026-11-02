@@ -4,10 +4,7 @@ Photon's transport is an eNet-derived reliable-UDP protocol implemented in
 `Photon3Unity3D.dll` (`EnetPeer : PeerBase`, `EnetChannel`, `NCommand`). The framing below
 is from static analysis of that code.
 
-> **Status:** documented from the binary. Live byte-level validation with a packet capture
-> is deferred — run `tools/capture/capture.ps1` (earlier copy of the Photon server) after installing Wireshark/npcap to confirm
-> against the wire (npcap requires an interactive driver install, so it was not possible in
-> the automated recon run).
+> Documented from the binary; not byte-validated against a packet capture.
 
 ## UDP packet header (12 bytes)
 

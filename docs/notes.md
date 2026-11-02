@@ -27,12 +27,7 @@ Titles it currently serves:
   moving authority to the server also kills client-side cheating. The PC-side client mods
   and asset tooling are not in this repo; they live in an earlier copy of the Photon server.
 
-## Status
-
-**Phase 1 — Photon transport + connect flow** (in progress, branch `phase1-connect`). The
-server foundation is built and tested: GpBinary v1.8 codec, eNet transport, Oakley-768 DH +
-AES encryption, UDP server core, and Name/Master/Game role handlers. See
-`docs/superpowers/plans/`.
+## Protocol reconstruction
 
 The client's full session-join dialogue and its GameList room-property contract were
 reconstructed from Outbound's own decompiled code (no live capture needed) —

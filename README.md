@@ -44,7 +44,6 @@ dotnet run --project server/OpenPak.Server.Host 127.0.0.1
 ## Docs
 
 - [protocol.md](docs/protocol.md) — hosts, endpoints, wire formats, protocol tables
-- [evidence.md](docs/evidence.md) — captures, traces, confirmed vs assumed
 - [deploy.md](docs/deploy.md) — ports, env vars, image, build and run
 - [notes.md](docs/notes.md) — design rationale, history, status, upstream credit
 - [admin-commands.md](docs/admin-commands.md) — admin and debug commands

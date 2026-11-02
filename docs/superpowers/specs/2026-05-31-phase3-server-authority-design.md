@@ -1,6 +1,5 @@
 # Phase 3 — Server Authority / Anti-cheat — Design Spec
 
-**Status:** Approved design (2026-05-31). Source directive: `docs/design/phase3-authority-directive.md`.
 **Scope decision:** This spec covers *all* of Phase 3, anchored on a server game-state model, but
 decomposed into three independently buildable sub-phases (3a / 3b / 3c) — each gets its own
 implementation plan. Mirrors the Phase 2 → 2a/2b/2c structure.

@@ -1,6 +1,5 @@
 # Phase 2 — Event Relay, Mod-Free Server Authority, and Playerbots
 
-**Status:** design (approved 2026-05-30)
 **Supersedes scope of:** the original "Phase 2 relay" + "Phase 3 server authority" placeholders, plus a new playerbot subsystem.
 
 ## Goal

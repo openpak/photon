@@ -3,7 +3,6 @@
 **Project:** Black Ice independent server (open-source, GPLv3)
 **Group:** Server Platform (1 of 3 — Persistence/Identity → Realms → In-game commands)
 **Date:** 2026-05-30
-**Status:** Approved design — pending spec review
 
 ---
 

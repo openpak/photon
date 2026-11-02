@@ -1,7 +1,6 @@
 # Steam Game-Server Ticket Validation — Design
 
 **Date:** 2026-06-02
-**Status:** design (pending implementation plan)
 **Closes:** the SECURITY GATE in `CLAUDE.md` / `SECURITY.md` — "Identity is asserted, not proven."
 
 ## Problem

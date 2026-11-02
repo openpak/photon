@@ -1,6 +1,5 @@
 # Map NavMesh Extraction & Bot Navigation — Design Spec
 
-**Status:** Design (2026-06-01), branch `feat/map-navmesh`.
 **Goal:** Give the server real walkable-surface knowledge so playerbots path along the map instead of
 clipping through geometry / floating / dying to hazards — while keeping the clean-room rule intact.
 

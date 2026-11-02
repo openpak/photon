@@ -1,7 +1,6 @@
 # MOTD (Message of the Day) — Design
 
 - **Date:** 2026-05-30
-- **Status:** Approved (brainstorming) → ready for implementation planning
 - **Sub-project of:** OpenPak.Server. First of the next batch (MOTD → remote hosting + Steam
   registration → SP3 ticket validation → Phase 2 relay).
 
