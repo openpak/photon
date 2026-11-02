@@ -45,7 +45,7 @@ dotnet run --project server/OpenPak.Server.Host 127.0.0.1
 
 - [protocol.md](docs/protocol.md) — hosts, endpoints, wire formats, protocol tables
 - [deploy.md](docs/deploy.md) — ports, env vars, image, build and run
-- [notes.md](docs/notes.md) — design rationale, history, status, upstream credit
+- [provenance.md](docs/provenance.md) — upstream lineage
 - [admin-commands.md](docs/admin-commands.md) — admin and debug commands
 - [configuration.md](docs/configuration.md) — configuration file and `OPENPAK_*` variables
 - [debugging.md](docs/debugging.md) — debugging and instrumentation toolkit
@@ -59,6 +59,8 @@ dotnet run --project server/OpenPak.Server.Host 127.0.0.1
 - [design/](docs/design/) — design documents
 - [protocol/](docs/protocol/) — protocol study files and generated tables
 - [superpowers/](docs/superpowers/) — plans and specs
+
+PRDs: openpak/prds (private)
 
 ## Licence
 
