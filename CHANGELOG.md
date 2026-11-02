@@ -3,8 +3,7 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
-## Unreleased
-
+## v0.14.0 — 2026-11-02
 **Quick match: OpJoinRandomGame.** The Master answers a random join with the fullest open, visible,
 not-full room of the asker's AppId + AppVersion that carries the expected properties and passes the
 request's Photon SQL-lobby filter (`C0 < 3 AND C1 = 2 AND (C3 = 0 OR C3 = 4)`, AND/OR/NOT, NULL for
