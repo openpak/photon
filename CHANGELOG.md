@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.14.1 — 2026-11-02
+
+- Container: /app is writable by the runtime user, so the host can write its default openpak.server.json on first start.
+
 ## v0.14.0 — 2026-11-02
 **Quick match: OpJoinRandomGame.** The Master answers a random join with the fullest open, visible,
 not-full room of the asker's AppId + AppVersion that carries the expected properties and passes the
