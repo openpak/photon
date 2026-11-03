@@ -203,12 +203,13 @@ public sealed class ListenersHostedService : BackgroundService
         var rewardsMap = PhotonRewards.Parse(Env("OPENPAK_PHOTON_REWARDS"));
         if (!fed.IsNode && rewardsMap.Count > 0 && !string.IsNullOrEmpty(Env("OPENPAK_BAAS_URL")))
         {
-            if (RewardsEmitter.FromEnv(n => Env(n)) is { } emitter)
+            var rewardsStore = new SqlRewardsStore(_dbf);
+            if (RewardsEmitter.FromEnv(n => Env(n), rewardsStore) is { } emitter)
             {
                 var min = PhotonRewards.SessionMin(Env("REWARDS_SESSION_MIN"));
                 var watcher = new RewardsWatcher(_registry, accountIdentities, rewardsMap, min,
                     RewardsWatcher.BaasResolver(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, Env("OPENPAK_BAAS_URL")!, Env("OPENPAK_INTERNAL_KEY")),
-                    emitter.Enqueue);
+                    emitter.Enqueue, store: rewardsStore);
                 _ = Task.Run(() => watcher.RunAsync(stoppingToken), stoppingToken);
                 Log.Info("HOST", $"rewards watcher enabled: {rewardsMap.Count} game(s), session after {min}");
             }

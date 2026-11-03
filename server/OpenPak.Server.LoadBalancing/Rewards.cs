@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net.Http.Json;
@@ -38,6 +39,61 @@ public static class PhotonRewards
     }
 }
 
+/// <summary>Durable name -> JSON body store for the rewards state, so a restart loses nothing.</summary>
+public interface IRewardsStore
+{
+    string? Get(string name);
+    void Put(string name, string body);
+}
+
+/// <summary>Kept in the server's own database (SQLite on the /app/data volume in production).</summary>
+public sealed class SqlRewardsStore : IRewardsStore
+{
+    private readonly Microsoft.EntityFrameworkCore.IDbContextFactory<OpenPak.Server.Data.OpenPakDbContext> _dbf;
+    private readonly object _gate = new();
+    private bool _ready;
+
+    public SqlRewardsStore(Microsoft.EntityFrameworkCore.IDbContextFactory<OpenPak.Server.Data.OpenPakDbContext> dbf) => _dbf = dbf;
+
+    private OpenPak.Server.Data.OpenPakDbContext Open()
+    {
+        var db = _dbf.CreateDbContext();
+        if (!_ready)
+        {
+            db.Database.ExecuteSqlRaw("CREATE TABLE IF NOT EXISTS rewards_state (name VARCHAR(64) NOT NULL PRIMARY KEY, body TEXT NOT NULL)");
+            _ready = true;
+        }
+        return db;
+    }
+
+    public string? Get(string name)
+    {
+        lock (_gate)
+        {
+            using var db = Open();
+            return db.Database.SqlQueryRaw<string>("SELECT body AS Value FROM rewards_state WHERE name = {0}", name).AsEnumerable().FirstOrDefault();
+        }
+    }
+
+    public void Put(string name, string body)
+    {
+        lock (_gate)
+        {
+            using var db = Open();
+            if (db.Database.ExecuteSqlRaw("UPDATE rewards_state SET body = {0} WHERE name = {1}", body, name) == 0)
+                db.Database.ExecuteSqlRaw("INSERT INTO rewards_state (name, body) VALUES ({0}, {1})", name, body);
+        }
+    }
+}
+
+/// <summary>Process-local store, for tests and for running without a database.</summary>
+public sealed class MemoryRewardsStore : IRewardsStore
+{
+    private readonly ConcurrentDictionary<string, string> _d = new();
+    public string? Get(string name) => _d.TryGetValue(name, out var b) ? b : null;
+    public void Put(string name, string body) => _d[name] = body;
+}
+
 /// <summary>One room as the clock sees it: a unique id, its metric, and the mapped players' subjects.</summary>
 public sealed record ClockRoom(string Id, string Metric, IReadOnlyCollection<string> Subjects);
 
@@ -50,11 +106,39 @@ public sealed record SessionEvent(string EventId, string Metric, string RoomId, 
 /// </summary>
 public sealed class SessionClock
 {
+    private static readonly TimeSpan RestartGap = TimeSpan.FromMinutes(2), EmittedKeep = TimeSpan.FromHours(24);
     private readonly TimeSpan _min;
-    private readonly Dictionary<string, DateTime> _since = new(StringComparer.Ordinal);
-    private readonly HashSet<string> _emitted = new(StringComparer.Ordinal);
+    private readonly IRewardsStore? _store;
+    private Dictionary<string, DateTime> _since = new(StringComparer.Ordinal);
+    private Dictionary<string, DateTime> _emitted = new(StringComparer.Ordinal);   // key -> last time its room was live
+    private string? _saved;
 
-    public SessionClock(TimeSpan min) => _min = min;
+    private sealed class Snapshot
+    {
+        public DateTime SavedAt { get; set; }
+        public Dictionary<string, DateTime> Since { get; set; } = new();
+        public Dictionary<string, DateTime> Emitted { get; set; } = new();
+    }
+
+    /// <param name="store">When given, the clock reloads from it: counted pairs always, running clocks only
+    /// if the snapshot is younger than a restart gap (a long outage is a break in "unbroken time").</param>
+    public SessionClock(TimeSpan min, IRewardsStore? store = null, DateTime? now = null)
+    {
+        _min = min; _store = store;
+        if (store?.Get("clock") is { } body)
+        {
+            try
+            {
+                var snap = JsonSerializer.Deserialize<Snapshot>(body);
+                if (snap is not null)
+                {
+                    _emitted = new(snap.Emitted, StringComparer.Ordinal);
+                    if ((now ?? DateTime.UtcNow) - snap.SavedAt <= RestartGap) _since = new(snap.Since, StringComparer.Ordinal);
+                }
+            }
+            catch (JsonException) { }
+        }
+    }
 
     public List<SessionEvent> Tick(DateTime now, IEnumerable<ClockRoom> rooms)
     {
@@ -70,19 +154,33 @@ public sealed class SessionClock
                 var k = room.Id + "\0" + subject;
                 seen.Add(k);
                 if (!_since.TryGetValue(k, out var since)) _since[k] = since = now;
-                if (!_emitted.Contains(k) && now - since >= _min)
+                if (!_emitted.ContainsKey(k) && now - since >= _min)
                 {
-                    _emitted.Add(k);
+                    _emitted[k] = now;
                     events.Add(new SessionEvent($"{room.Metric}:{room.Id}:switch:{subject}", room.Metric, room.Id, subject, now));
                 }
             }
         }
         foreach (var k in _since.Keys.Where(k => !seen.Contains(k)).ToList()) _since.Remove(k);
-        // A room id is unique over time: an emitted mark only needs to outlive its room's listing, so a
-        // player who leaves and returns to the same room is not counted twice, and the set stays small.
+        // A counted pair is remembered while its room lives and for a day after (a restart empties the
+        // registry for a while), so a player who leaves and returns is not counted twice.
         var live = rooms.Select(r => r.Id).ToHashSet(StringComparer.Ordinal);
-        _emitted.RemoveWhere(k => !live.Contains(k[..k.IndexOf('\0')]));
+        foreach (var k in _emitted.Keys.ToList())
+        {
+            if (live.Contains(k[..k.IndexOf('\0')])) _emitted[k] = now;
+            else if (now - _emitted[k] > EmittedKeep) _emitted.Remove(k);
+        }
+        Save(now);
         return events;
+    }
+
+    private void Save(DateTime now)
+    {
+        if (_store is null) return;
+        if (_since.Count == 0 && _emitted.Count == 0 && _saved is null) return;
+        var body = JsonSerializer.Serialize(new Snapshot { SavedAt = now, Since = _since, Emitted = _emitted });
+        _store.Put("clock", body);
+        _saved = body;
     }
 }
 
@@ -93,18 +191,28 @@ public sealed class RewardsEmitter : IAsyncDisposable
     private const int Batch = 50, QueueSize = 2000;
     private readonly HttpClient _http;
     private readonly string _url, _key;
-    private readonly ConcurrentQueue<SessionEvent> _queue = new();
+    private readonly IRewardsStore _store;
+    private readonly object _gate = new();
+    private readonly List<SessionEvent> _outbox = new();   // durable: persisted on every change
     private readonly CancellationTokenSource _stop = new();
     private readonly Task _loop;
+    private readonly TimeSpan _poll;
 
-    public RewardsEmitter(HttpClient http, string url, string key)
+    public RewardsEmitter(HttpClient http, string url, string key, IRewardsStore? store = null, TimeSpan? poll = null)
     {
-        _http = http; _url = url.TrimEnd('/'); _key = key;
+        _http = http; _url = url.TrimEnd('/'); _key = key; _store = store ?? new MemoryRewardsStore();
+        _poll = poll ?? TimeSpan.FromSeconds(2);
+        try
+        {
+            if (_store.Get("outbox") is { } body && JsonSerializer.Deserialize<List<SessionEvent>>(body) is { } saved)
+                _outbox.AddRange(saved);
+        }
+        catch (Exception) { }
         _loop = Task.Run(RunAsync);
     }
 
     /// <summary>Enabled only with both REWARDS_EVENTS_URL and REWARDS_EVENTS_KEY (or _KEY_FILE).</summary>
-    public static RewardsEmitter? FromEnv(Func<string, string?> env)
+    public static RewardsEmitter? FromEnv(Func<string, string?> env, IRewardsStore? store = null)
     {
         var url = env("REWARDS_EVENTS_URL");
         var key = env("REWARDS_EVENTS_KEY");
@@ -114,33 +222,45 @@ public sealed class RewardsEmitter : IAsyncDisposable
         }
         return string.IsNullOrEmpty(url) || string.IsNullOrEmpty(key)
             ? null
-            : new RewardsEmitter(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, url, key);
+            : new RewardsEmitter(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, url, key, store);
     }
+
+    public int Pending { get { lock (_gate) return _outbox.Count; } }
 
     public void Enqueue(SessionEvent e)
     {
-        if (_queue.Count >= QueueSize) return;
-        _queue.Enqueue(e);
+        lock (_gate)
+        {
+            if (_outbox.Count >= QueueSize) return;
+            _outbox.Add(e);
+            Persist();
+        }
+    }
+
+    private void Persist()
+    {
+        try { _store.Put("outbox", JsonSerializer.Serialize(_outbox)); }
+        catch (Exception ex) { Log.Warn("Rewards", $"outbox save failed: {ex.GetType().Name}"); }
     }
 
     private async Task RunAsync()
     {
-        var buf = new List<SessionEvent>();
         var backoff = TimeSpan.Zero;
         var next = DateTime.MinValue;
         while (!_stop.IsCancellationRequested)
         {
-            try { await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token).ConfigureAwait(false); }
+            try { await Task.Delay(_poll, _stop.Token).ConfigureAwait(false); }
             catch (OperationCanceledException) { break; }
-            while (_queue.TryDequeue(out var e)) buf.Add(e);
-            if (buf.Count == 0 || DateTime.UtcNow < next) continue;
+            if (DateTime.UtcNow < next) continue;
             try
             {
-                while (buf.Count > 0)
+                while (true)
                 {
-                    var batch = buf.Take(Batch).ToList();
+                    List<SessionEvent> batch;
+                    lock (_gate) batch = _outbox.Take(Batch).ToList();
+                    if (batch.Count == 0) break;
                     if (!await PostAsync(batch).ConfigureAwait(false)) throw new HttpRequestException("retry");
-                    buf.RemoveRange(0, batch.Count);
+                    lock (_gate) { _outbox.RemoveRange(0, batch.Count); Persist(); }
                     backoff = TimeSpan.Zero;
                 }
             }
@@ -148,7 +268,7 @@ public sealed class RewardsEmitter : IAsyncDisposable
             {
                 backoff = TimeSpan.FromSeconds(Math.Min(Math.Max(backoff.TotalSeconds * 2, 1), 60));
                 next = DateTime.UtcNow + backoff;
-                buf.RemoveAll(e => DateTime.UtcNow - e.At > MaxAge);
+                lock (_gate) { if (_outbox.RemoveAll(e => DateTime.UtcNow - e.At > MaxAge) > 0) Persist(); }
             }
         }
     }
@@ -198,16 +318,32 @@ public sealed class RewardsWatcher
     private readonly Func<string, Task<string?>> _resolve;
     private readonly Action<SessionEvent> _emit;
     private readonly SessionClock _clock;
-    private readonly Dictionary<string, (string? Subject, DateTime At)> _subjects = new();
-    private readonly Dictionary<string, (string Id, DateTime Born)> _incarnation = new();
+    private readonly IRewardsStore _store;
+    private readonly Dictionary<string, (string? Subject, DateTime At)> _subjects = new();   // positives are durable
+    private Dictionary<string, Incarnation> _incarnation = new();
+
+    /// <summary>A room's id, kept through a restart: the same name within <see cref="Reuse"/> of its last
+    /// live moment is the same room, so event ids do not change when the server does.</summary>
+    public sealed class Incarnation { public string Id { get; set; } = ""; public DateTime LastLive { get; set; } }
+    private static readonly TimeSpan Reuse = TimeSpan.FromMinutes(10), Forget = TimeSpan.FromDays(1);
 
     public RewardsWatcher(RoomRegistry registry, AccountIdentityRegistry identities,
                           IReadOnlyDictionary<string, string> metricByAppId, TimeSpan min,
-                          Func<string, Task<string?>> resolveIdentity, Action<SessionEvent> emit, Func<DateTime>? now = null)
+                          Func<string, Task<string?>> resolveIdentity, Action<SessionEvent> emit, Func<DateTime>? now = null,
+                          IRewardsStore? store = null)
     {
+        _store = store ?? new MemoryRewardsStore();
+        _now = now ?? (() => DateTime.UtcNow);
+        try
+        {
+            if (_store.Get("incarnations") is { } i) _incarnation = JsonSerializer.Deserialize<Dictionary<string, Incarnation>>(i) ?? new();
+            if (_store.Get("subjects") is { } sj && JsonSerializer.Deserialize<Dictionary<string, string>>(sj) is { } m)
+                foreach (var (u, sub) in m) _subjects[u] = (sub, DateTime.MinValue);
+        }
+        catch (Exception) { }
         _registry = registry; _identities = identities; _metricByAppId = metricByAppId;
-        _resolve = resolveIdentity; _emit = emit; _now = now ?? (() => DateTime.UtcNow);
-        _clock = new SessionClock(min);
+        _resolve = resolveIdentity; _emit = emit;
+        _clock = new SessionClock(min, _store, _now());
     }
 
     public async Task RunAsync(CancellationToken ct)
@@ -225,7 +361,7 @@ public sealed class RewardsWatcher
     {
         var now = _now();
         var rooms = new List<ClockRoom>();
-        var live = new HashSet<string>();
+        var dirty = false;
         foreach (var room in _registry.All)
         {
             if (!_metricByAppId.TryGetValue(room.AppId, out var metric)) continue;
@@ -234,16 +370,22 @@ public sealed class RewardsWatcher
             if (session is not null)
                 foreach (var actor in session.Actors())
                     if (session.PeerOf(actor) is { SteamId: { Length: > 0 } uid }) userIds.Add(uid);
-            if (userIds.Count == 0) { _incarnation.Remove(room.Key); continue; }
-            live.Add(room.Key);
-            if (!_incarnation.TryGetValue(room.Key, out var inc))
-                _incarnation[room.Key] = inc = ($"{room.Name}@{new DateTimeOffset(now).ToUnixTimeSeconds()}", now);
+            if (userIds.Count == 0) continue;
+            if (!_incarnation.TryGetValue(room.Key, out var inc) || now - inc.LastLive > Reuse)
+            {
+                _incarnation[room.Key] = inc = new Incarnation { Id = $"{room.Name}@{new DateTimeOffset(now).ToUnixTimeSeconds()}" };
+                dirty = true;
+            }
+            if (now - inc.LastLive > TimeSpan.FromSeconds(30)) dirty = true;
+            inc.LastLive = now;
             var subjects = new List<string>();
             foreach (var uid in userIds.Distinct())
                 if (await SubjectAsync(uid, now).ConfigureAwait(false) is { } s) subjects.Add(s);
             rooms.Add(new ClockRoom(inc.Id, metric, subjects));
         }
-        foreach (var k in _incarnation.Keys.Where(k => !live.Contains(k)).ToList()) _incarnation.Remove(k);
+        foreach (var k in _incarnation.Where(kv => now - kv.Value.LastLive > Forget).Select(kv => kv.Key).ToList())
+        { _incarnation.Remove(k); dirty = true; }
+        if (dirty) try { _store.Put("incarnations", JsonSerializer.Serialize(_incarnation)); } catch (Exception) { }
         foreach (var e in _clock.Tick(now, rooms)) _emit(e);
     }
 
@@ -257,6 +399,15 @@ public sealed class RewardsWatcher
             catch (Exception) { }
         }
         _subjects[userId] = (string.IsNullOrEmpty(subject) ? null : subject, now);
+        if (_subjects[userId].Subject is not null)
+        {
+            try
+            {
+                _store.Put("subjects", JsonSerializer.Serialize(_subjects.Where(kv => kv.Value.Subject is not null)
+                                                                          .ToDictionary(kv => kv.Key, kv => kv.Value.Subject!)));
+            }
+            catch (Exception) { }
+        }
         return _subjects[userId].Subject;
     }
 

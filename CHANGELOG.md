@@ -3,6 +3,13 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.15.1 — 2026-11-03
+
+- Rewards state is durable: the session clock (running clocks and counted pairs), room ids, the identity to
+  account cache and the unsent-event outbox live in the server database (`rewards_state`), so a restart
+  keeps event ids stable, never counts a pair twice and loses no queued event. Running clocks resume only if
+  the restart gap is under 2 minutes; a room name returning within 10 minutes keeps its id.
+
 ## v0.15.0 — 2026-11-03
 
 - Rewards: `game_sessions.<game>` events. A player counts once per room after 3 minutes (`REWARDS_SESSION_MIN`)

@@ -162,7 +162,7 @@ home sends `game_sessions.<slug>` events (source `photon`): a player counts once
 minutes in it with at least one other player whose account is known. Accounts come from nx-baas
 `/internal/photon-identity` (`baas_user_id`, namespace `switch`); anonymous or unknown players are left out
 and do not count as the other player. The room id is the room name plus the unix time it filled, which is
-the dedupe key. Region nodes send nothing. Without the URL/key the watcher is off and the log says so.
+the dedupe key. Region nodes send nothing. Clock, room ids, account cache and unsent events are stored in the server database (table `rewards_state`), so a restart changes nothing. Without the URL/key the watcher is off and the log says so.
 
 One server hosts several games, and each dials it with its own Photon AppId, so a room is filed
 under whichever title `OPENPAK_PHOTON_TITLES` maps that AppId to (param 224, read at Authenticate;

@@ -3,7 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Threading.Tasks;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using OpenPak.Photon;
+using OpenPak.Server.Data;
 using OpenPak.Server.Core;
 using OpenPak.Server.LoadBalancing;
 using Xunit;
@@ -102,6 +105,78 @@ public class RewardsTests
         now = T0.AddMinutes(9);
         await w.TickAsync();
         Assert.Equal(2, sent.Count);
+    }
+
+    sealed class Factory(SqliteConnection c) : IDbContextFactory<OpenPakDbContext>
+    {
+        public OpenPakDbContext CreateDbContext() => new(new DbContextOptionsBuilder<OpenPakDbContext>().UseSqlite(c).Options);
+    }
+
+    [Fact]
+    public async Task Restart_keeps_clock_event_ids_identities_and_unsent_events()
+    {
+        var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();   // the "disk": outlives each boot
+        var reg = new RoomRegistry();
+        var ids = new AccountIdentityRegistry();
+        var ua = ids.Register("bsdid:a"); var ub = ids.Register("bsdid:b");
+        var key = RoomRegistry.KeyFor("app-1", "1", "room");
+        reg.GetOrCreate(key);
+        void Fill() { var se = reg.Session(key); se.Join(1, Peer(ua, "app-1")); se.Join(2, Peer(ub, "app-1")); }
+        Fill();
+        var calls = 0;
+        Func<string, Task<string?>> resolve = id => { calls++; return Task.FromResult<string?>("baas-" + id[^1]); };
+        var map = PhotonRewards.Parse("app-1=outbound");
+
+        // boot 1: two minutes in, then the server stops
+        var now = T0; var first = new List<SessionEvent>();
+        var w1 = new RewardsWatcher(reg, ids, map, TimeSpan.FromMinutes(3), resolve, first.Add, () => now, new SqlRewardsStore(new Factory(conn)));
+        await w1.TickAsync(); now = T0.AddMinutes(2); await w1.TickAsync();
+        Assert.Empty(first); Assert.Equal(2, calls);
+
+        // boot 2, 30 s later: players are back, nothing is looked up again, the clock goes on
+        now = T0.AddMinutes(2.5);
+        var second = new List<SessionEvent>();
+        var w2 = new RewardsWatcher(reg, ids, map, TimeSpan.FromMinutes(3), resolve, second.Add, () => now, new SqlRewardsStore(new Factory(conn)));
+        now = T0.AddMinutes(3.5); await w2.TickAsync();
+        Assert.Equal(2, second.Count); Assert.Equal(2, calls);
+        var firstIds = second.Select(e => e.EventId).OrderBy(x => x).ToArray();
+        Assert.All(firstIds, i => Assert.StartsWith("game_sessions.outbound:room@" + new DateTimeOffset(T0).ToUnixTimeSeconds() + ":switch:", i));
+
+        // boot 3: already counted, never again, even though the registry was empty for a while
+        now = T0.AddMinutes(6);
+        var third = new List<SessionEvent>();
+        var w3 = new RewardsWatcher(reg, ids, map, TimeSpan.FromMinutes(3), resolve, third.Add, () => now, new SqlRewardsStore(new Factory(conn)));
+        await w3.TickAsync(); now = T0.AddMinutes(12); await w3.TickAsync(); now = T0.AddMinutes(20); await w3.TickAsync();
+        Assert.Empty(third);
+    }
+
+    sealed class Down : HttpMessageHandler
+    {
+        public bool Up; public int Posts;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, System.Threading.CancellationToken ct)
+        { Posts++; return Task.FromResult(new HttpResponseMessage(Up ? System.Net.HttpStatusCode.OK : System.Net.HttpStatusCode.ServiceUnavailable)); }
+    }
+
+    [Fact]
+    public async Task Unsent_events_survive_a_restart_and_go_out_once_rewards_is_back()
+    {
+        var conn = new SqliteConnection("DataSource=:memory:"); conn.Open();
+        var h = new Down();
+        var e1 = new RewardsEmitter(new HttpClient(h), "http://rewards", "k", new SqlRewardsStore(new Factory(conn)), TimeSpan.FromMilliseconds(20));
+        e1.Enqueue(new SessionEvent("game_sessions.outbound:r@1:switch:a", "game_sessions.outbound", "r@1", "a", DateTime.UtcNow));
+        await Task.Delay(150);
+        await e1.DisposeAsync();
+        Assert.True(h.Posts > 0);
+
+        h.Up = true;
+        var e2 = new RewardsEmitter(new HttpClient(h), "http://rewards", "k", new SqlRewardsStore(new Factory(conn)), TimeSpan.FromMilliseconds(20));
+        Assert.Equal(1, e2.Pending);
+        for (var i = 0; i < 100 && e2.Pending > 0; i++) await Task.Delay(50);
+        Assert.Equal(0, e2.Pending);
+        await e2.DisposeAsync();
+        var e3 = new RewardsEmitter(new HttpClient(h), "http://rewards", "k", new SqlRewardsStore(new Factory(conn)), TimeSpan.FromMilliseconds(20));
+        Assert.Equal(0, e3.Pending);
+        await e3.DisposeAsync();
     }
 
     sealed class NullHandler : IOperationHandler
