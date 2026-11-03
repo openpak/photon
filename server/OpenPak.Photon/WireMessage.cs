@@ -138,13 +138,11 @@ public static class WireMessage
         }
         catch (Exception ex)
         {
-            // Surface the bytes at the failing offset so an unhandled structure can be
-            // pinpointed. Never the whole body: it is decrypted and can carry auth tokens.
+            // The offset pinpoints an unhandled structure. No bytes: the body is decrypted and can carry
+            // auth tokens and player data, and this message reaches the log.
             int at = r?.Position ?? 0;
-            int from = Math.Max(0, at - 4), len = Math.Min(body.Length, at + 16) - from;
             throw new InvalidOperationException(
-                $"body parse failed (msgType {messageType}, {body.Length}B) near offset {at}: " +
-                $"[{from}..] {BitConverter.ToString(body, from, len)} :: {ex.Message}");
+                $"body parse failed (msgType {messageType}, {body.Length}B) near offset {at} :: {ex.Message}");
         }
     }
 

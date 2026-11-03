@@ -3,6 +3,14 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.16.1 — 2026-11-03
+
+- One log line per Photon operation at the default level: `cmd <Op> -> rc=<n> <ms>ms`, written when its response
+  goes out; connect and disconnect lines; the health listener logs `http <method> <path> -> <status> <ms>ms`
+  (never query, headers or body; `/health` and `/healthz` skipped). The per-operation request and response
+  dumps (redacted parameters) moved to Debug. A malformed-message error no longer prints message bytes.
+  Test: nothing from the traffic (ids, tickets, room, nickname, chat, bytes) reaches the Info log.
+
 ## v0.16.0 — 2026-11-03
 
 - All server state (accounts, profiles, realms, MOTD, bootstrap code, rewards state) lives in Postgres

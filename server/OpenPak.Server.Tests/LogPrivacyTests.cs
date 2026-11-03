@@ -82,7 +82,7 @@ public class LogPrivacyTests
         public override string ToString() { lock (_text) return _text.ToString(); }
     }
 
-    private static string Capture(Action run)
+    private static string Capture(Action run, LogLevel level = LogLevel.Trace)
     {
         var path = Path.Combine(Path.GetTempPath(), $"openpak-privacy-{Guid.NewGuid():N}.log");
         var prevLevel = Log.Level;
@@ -90,7 +90,7 @@ public class LogPrivacyTests
         var console = new LockedWriter();
         try
         {
-            Log.Level = LogLevel.Trace;
+            Log.Level = level;
             Log.ToFile(path);
             Console.SetOut(console); Console.SetError(console);
             run();
@@ -111,10 +111,10 @@ public class LogPrivacyTests
     /// <summary>Runs a Name Server and a Game server, sends a public Steam-ticket auth to the first and an
     /// anonymous auth, room join, player properties and chat command to the second; returns the whole log
     /// and the clients' own ports.</summary>
-    private static (string Log, int NamePort, int GamePort) DriveServers()
+    private static (string Log, int NamePort, int GamePort) DriveServers(LogLevel level = LogLevel.Trace)
     {
         int namePort = 0, gamePort = 0;
-        var log = Capture(() => (namePort, gamePort) = DriveCore());
+        var log = Capture(() => (namePort, gamePort) = DriveCore(), level);
         return (log, namePort, gamePort);
     }
 
@@ -203,6 +203,34 @@ public class LogPrivacyTests
 
         foreach (var s in Sentinels(namePort, gamePort))
             Assert.False(log.Contains(s, StringComparison.OrdinalIgnoreCase), $"the log carries a personal value ({s.Length} chars, starts '{s[..Math.Min(4, s.Length)]}')");
+    }
+
+    [Fact]
+    public void Default_level_logs_one_line_per_operation_connect_and_http_without_payloads()
+    {
+        Redact.TraceBodies = false;
+        var (log, namePort, gamePort) = DriveServers(LogLevel.Info);
+
+        Assert.True(System.Text.RegularExpressions.Regex.IsMatch(log, @"cmd Op\w+ -> rc=-?\d+ \d+ms"), log);
+        Assert.Matches(@"cmd OpJoinGame -> rc=-?\d+ \d+ms", log);
+        Assert.Contains("connect", log);
+        // The request dump (parameters, even redacted) is Debug and below.
+        Assert.DoesNotContain(" <- ", log);
+        Assert.DoesNotContain("4E-49-43-4B", log);   // no byte dumps from a malformed message
+
+        var http = Capture(() =>
+        {
+            var t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+            OpenPak.Server.Host.HealthHostedService.LogRequest("GET", "/players", 200, t0);
+            OpenPak.Server.Host.HealthHostedService.LogRequest("GET", "/healthz", 200, t0);
+            OpenPak.Server.Host.HealthHostedService.LogRequest("POST", "/internal/node-room", 401, t0);
+        }, LogLevel.Info);
+        Assert.Matches(@"http GET /players -> 200 \d+ms", http);
+        Assert.Matches(@"http POST /internal/node-room -> 401 \d+ms", http);
+        Assert.DoesNotContain("/healthz", http);
+
+        foreach (var s in Sentinels(namePort, gamePort).Append("X-Node-Key"))
+            Assert.False((log + http).Contains(s, StringComparison.OrdinalIgnoreCase), $"the log carries a personal value ({s.Length} chars)");
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Net;
 using OpenPak.Photon;
 using OpenPak.Photon.Crypto;
@@ -62,6 +63,9 @@ public sealed class PeerConnection
     public DateTime LastInboundUtc { get; private set; } = DateTime.UtcNow;
     private DateTime _lastPingSentUtc = DateTime.UtcNow;
 
+    /// <summary>Start time of each operation still waiting for its response, for the per-operation duration line.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<byte, long> _opStart = new();
+
     public PeerConnection(string role, IPEndPoint remote, IOperationHandler handler, Action<IReadOnlyList<NCommand>, int> send)
     {
         _role = role;
@@ -117,7 +121,7 @@ public sealed class PeerConnection
         {
             if (cmd.CommandType == NCommand.Connect)
             {
-                Log.Info(_role, $"{PeerTag} eNet CONNECT");
+                Log.Info(_role, $"{PeerTag} connect");
                 _handler.OnConnect(this);
             }
             if (cmd.CommandType == NCommand.Disconnect)
@@ -125,7 +129,7 @@ public sealed class PeerConnection
                 // The client is telling us it's leaving. We don't tear down transport state yet
                 // (Phase 1), but record it — a Disconnect here vs. a silent timeout are very
                 // different failure modes when diagnosing "kicked out of the game".
-                Log.Info(_role, $"{PeerTag} eNet DISCONNECT received");
+                Log.Info(_role, $"{PeerTag} disconnect (client)");
                 _handler.OnDisconnect(this);
             }
         }
@@ -198,16 +202,18 @@ public sealed class PeerConnection
 
         // RaiseEvent is the per-packet relay path (Fusion's 101 at the send rate, PUN's serialize stream):
         // Debug, and formatted only when enabled. Every other operation stays an Info line.
+        // The Info line per operation is the "cmd <op> -> rc=<n> <ms>ms" written when its response goes out
+        // (SendResponse); the request itself, with its redacted parameters, is Debug.
         var hotPath = msg.MessageType == WireMessage.Operation && msg.Code == PhotonCodes.Op.RaiseEvent;
-        if (hotPath)
+        if (msg.MessageType == WireMessage.Operation && !hotPath) _opStart[msg.Code] = Stopwatch.GetTimestamp();
+        if (Log.Enabled(LogLevel.Debug))
         {
-            if (Log.Enabled(LogLevel.Debug)) Log.Debug(_role, $"{PeerTag} <- {PhotonNames.Op(msg.Code)} [{Redact.Params(msg.Parameters)}]");
+            if (msg.MessageType == WireMessage.Operation)
+                Log.Debug(_role, $"{PeerTag} <- {PhotonNames.Op(msg.Code)} [{Redact.Params(msg.Parameters)}]");
+            else
+                Log.Debug(_role, $"{PeerTag} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
+                                 $"[{Redact.Params(msg.Parameters)}]");
         }
-        else if (msg.MessageType == WireMessage.Operation)
-            Log.Info(_role, $"{PeerTag} <- {PhotonNames.Op(msg.Code)} [{Redact.Params(msg.Parameters)}]");
-        else
-            Log.Info(_role, $"{PeerTag} <- {PhotonNames.MessageType(msg.MessageType)} code={msg.Code} " +
-                            $"[{Redact.Params(msg.Parameters)}]");
 
         try
         {
@@ -281,9 +287,12 @@ public sealed class PeerConnection
 
     public void SendResponse(OperationResponse response)
     {
-        Log.Info(_role, $"{PeerTag} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
-                        $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
-                        $"[{Redact.Params(response.Parameters)}]");
+        var ms = _opStart.TryRemove(response.OperationCode, out var t0) ? (long)Stopwatch.GetElapsedTime(t0).TotalMilliseconds : 0;
+        Log.Info(_role, $"{PeerTag} cmd {PhotonNames.Op(response.OperationCode)} -> rc={response.ReturnCode} {ms}ms");
+        if (Log.Enabled(LogLevel.Debug))
+            Log.Debug(_role, $"{PeerTag} -> {PhotonNames.Op(response.OperationCode)} response rc={response.ReturnCode}" +
+                             $"{(response.DebugMessage is null ? "" : $" \"{response.DebugMessage}\"")} " +
+                             $"[{Redact.Params(response.Parameters)}]");
         OnResponse?.Invoke(response);
         SendRaw(WireMessage.Response(response, encrypt: _crypto is { IsInitialized: true } c ? c.Encrypt : null));
     }

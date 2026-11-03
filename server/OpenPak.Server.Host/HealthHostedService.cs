@@ -96,6 +96,7 @@ public sealed class HealthHostedService : BackgroundService
     private void Respond(HttpListenerContext ctx)
     {
         var path = ctx.Request.Url?.AbsolutePath ?? "/";
+        var started = System.Diagnostics.Stopwatch.GetTimestamp();
         string json;
         int status;
         if (ctx.Request.HttpMethod == "POST" && path == "/internal/node-room")
@@ -108,6 +109,16 @@ public sealed class HealthHostedService : BackgroundService
         ctx.Response.ContentLength64 = body.Length;
         ctx.Response.OutputStream.Write(body, 0, body.Length);
         ctx.Response.Close();
+        LogRequest(ctx.Request.HttpMethod, path, status, started);
+    }
+
+    /// <summary>One line per request: method, path, status, duration. Never the query, headers or body.
+    /// The probe routes (/health, /healthz) are skipped.</summary>
+    public static void LogRequest(string method, string path, int status, long startedTimestamp)
+    {
+        if (path is "/health" or "/healthz") return;
+        static string Clean(string s) => new(s.Take(64).Select(c => c < 0x20 || c == 0x7f || c == ' ' ? '?' : c).ToArray());
+        Log.Info("HEALTH", $"http {Clean(method)} {Clean(path)} -> {status} {(long)System.Diagnostics.Stopwatch.GetElapsedTime(startedTimestamp).TotalMilliseconds}ms");
     }
 
     /// <summary>
