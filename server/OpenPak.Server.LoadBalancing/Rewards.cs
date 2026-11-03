@@ -46,7 +46,7 @@ public interface IRewardsStore
     void Put(string name, string body);
 }
 
-/// <summary>Kept in the server's own database (SQLite on the /app/data volume in production).</summary>
+/// <summary>Kept in the server's own database (Postgres).</summary>
 public sealed class SqlRewardsStore : IRewardsStore
 {
     private readonly Microsoft.EntityFrameworkCore.IDbContextFactory<OpenPak.Server.Data.OpenPakDbContext> _dbf;

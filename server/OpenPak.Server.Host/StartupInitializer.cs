@@ -16,11 +16,11 @@ public static class StartupInitializer
     {
         var dbf = services.GetRequiredService<IDbContextFactory<OpenPakDbContext>>();
 
-        // Schema first (migrate on SQLite / ensure on others), then everything else can query safely.
+        // Schema first (create missing tables in Postgres), then everything else can query safely.
         using (var schemaCtx = dbf.CreateDbContext())
             config.Database.InitializeSchema(schemaCtx);
 
-        Log.Info("HOST", $"OpenPak.Server starting — DB {config.Database.Provider}, advertising {config.AdvertisedHost}, " +
+        Log.Info("HOST", $"OpenPak.Server starting — DB Postgres, advertising {config.AdvertisedHost}, " +
                          $"anonLan={config.AllowAnonymousLan}, trustLanAdmin={config.TrustLanAdmin}, logLevel={Log.Level}");
         Log.Info("HOST", $"log file: {logPath}");
 

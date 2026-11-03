@@ -1,35 +1,38 @@
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace OpenPak.Server.Data;
 
+/// <summary>
+/// The server's one store: Postgres. There is no file or in-memory fallback; an unset connection string
+/// is a startup error (see <see cref="Validate"/>).
+/// </summary>
 public sealed class DatabaseOptions
 {
-    public string Provider { get; set; } = "Sqlite";              // "Sqlite" | "MySql"
-    public string ConnectionString { get; set; } = "Data Source=openpak.db";
+    /// <summary>Environment variable that carries the Postgres DSN (URL or Npgsql key=value form).</summary>
+    public const string EnvVar = "PHOTON_DATABASE_URL";
 
-    /// <summary>
-    /// When true (the default), the schema is brought up to date on startup: SQLite applies the
-    /// committed EF Core migrations (<see cref="RelationalDatabaseFacadeExtensions.Migrate"/>); other
-    /// providers fall back to <c>EnsureCreated</c>. Set false to manage the schema out of band — e.g.
-    /// running <c>dotnet ef database update</c> as a deliberate deploy step.
-    /// </summary>
+    public string ConnectionString { get; set; } = "";
+
+    /// <summary>When true (the default), missing tables are created on startup. Set false to manage the schema out of band.</summary>
     public bool AutoMigrate { get; set; } = true;
 
-    /// <summary>Returns human-readable validation errors; empty means usable. Catches an empty connection
-    /// string or an unrecognized provider name (which would otherwise silently fall back to SQLite).</summary>
+    /// <summary>Fills an empty connection string from <see cref="EnvVar"/>.</summary>
+    public void ApplyEnvironment(Func<string, string?> env)
+    {
+        if (string.IsNullOrWhiteSpace(ConnectionString) && env(EnvVar) is { Length: > 0 } v) ConnectionString = v;
+    }
+
+    /// <summary>Returns human-readable validation errors; empty means usable.</summary>
     public IReadOnlyList<string> Validate()
     {
         var errors = new List<string>();
         if (string.IsNullOrWhiteSpace(ConnectionString))
-            errors.Add("Database.ConnectionString must not be empty.");
-        if (!string.Equals(Provider, "Sqlite", StringComparison.OrdinalIgnoreCase) &&
-            !string.Equals(Provider, "MySql", StringComparison.OrdinalIgnoreCase))
-            errors.Add($"Database.Provider '{Provider}' is not recognized (use \"Sqlite\" or \"MySql\").");
+            errors.Add($"no Postgres connection string: set {EnvVar} (or Database.ConnectionString). The server has no file or memory fallback.");
         return errors;
     }
 
-    /// <summary>Builds a context for the selected provider and initializes its schema per <see cref="AutoMigrate"/>.</summary>
+    /// <summary>Builds a context and initializes its schema per <see cref="AutoMigrate"/>.</summary>
     public OpenPakDbContext CreateContext()
     {
         var ctx = new OpenPakDbContext(BuildOptions());
@@ -37,10 +40,6 @@ public sealed class DatabaseOptions
         return ctx;
     }
 
-    /// <summary>
-    /// Builds the provider-configured options without touching the database. Exposed so the host can
-    /// register a pooled <c>IDbContextFactory&lt;OpenPakDbContext&gt;</c> over the same configuration.
-    /// </summary>
     public DbContextOptions<OpenPakDbContext> BuildOptions()
     {
         var builder = new DbContextOptionsBuilder<OpenPakDbContext>();
@@ -48,54 +47,45 @@ public sealed class DatabaseOptions
         return builder.Options;
     }
 
-    /// <summary>
-    /// Applies the selected provider to a context options builder. Shared by <see cref="BuildOptions"/>
-    /// and the host's <c>AddDbContextFactory</c> registration so there is one place that knows how to
-    /// wire SQLite vs MySQL.
-    /// </summary>
-    public void Configure(DbContextOptionsBuilder builder)
-    {
-        switch (Provider.ToLowerInvariant())
-        {
-            case "mysql":
-                builder.UseMySql(ConnectionString, ServerVersion.AutoDetect(ConnectionString));
-                break;
-            case "sqlite":
-            default:
-                builder.UseSqlite(AnchorSqliteFile(ConnectionString));
-                break;
-        }
-    }
+    /// <summary>Applies Npgsql to a context options builder (shared with the host's <c>AddDbContextFactory</c>).</summary>
+    public void Configure(DbContextOptionsBuilder builder) => builder.UseNpgsql(Normalize(ConnectionString));
 
-    /// <summary>
-    /// Brings a fresh or existing database up to the current schema. SQLite (the default) ships
-    /// committed migrations and applies any pending ones in order, recording them in
-    /// <c>__EFMigrationsHistory</c> — so schema changes are versioned and replayable. The MySQL
-    /// provider has no migrations of its own yet and uses <c>EnsureCreated</c> until provider-specific
-    /// migrations are generated; both keep a new database self-initializing on first run.
-    /// </summary>
+    /// <summary>Creates the tables on a fresh database, then the raw-SQL rewards table. Idempotent.</summary>
     public void InitializeSchema(OpenPakDbContext ctx)
     {
         if (!AutoMigrate) return;
-        if (string.Equals(Provider, "Sqlite", StringComparison.OrdinalIgnoreCase))
-            ctx.Database.Migrate();
-        else
-            ctx.Database.EnsureCreated();
+        ctx.Database.EnsureCreated();
+        ctx.Database.ExecuteSqlRaw("CREATE TABLE IF NOT EXISTS rewards_state (name VARCHAR(64) NOT NULL PRIMARY KEY, body TEXT NOT NULL)");
     }
 
-    /// <summary>
-    /// Resolves a relative SQLite Data Source file against the EXE directory so the database lives
-    /// next to the binary regardless of the launch working directory (matching config + log files).
-    /// Leaves <c>:memory:</c> and already-absolute paths untouched — so in-memory test contexts and
-    /// explicit paths are unaffected.
-    /// </summary>
-    public static string AnchorSqliteFile(string connectionString)
+    /// <summary>Accepts <c>postgres://user:pw@host:port/db?sslmode=…</c> or an Npgsql string; caps the pool at 3.</summary>
+    public static string Normalize(string dsn)
     {
-        var b = new SqliteConnectionStringBuilder(connectionString);
-        var src = b.DataSource;
-        if (string.IsNullOrEmpty(src) || src == ":memory:" || src.StartsWith("file::memory:") || Path.IsPathRooted(src))
-            return connectionString;
-        b.DataSource = Path.Combine(AppContext.BaseDirectory, src);
+        NpgsqlConnectionStringBuilder b;
+        if (dsn.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) || dsn.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            var u = new Uri(dsn);
+            b = new NpgsqlConnectionStringBuilder
+            {
+                Host = u.Host,
+                Port = u.Port > 0 ? u.Port : 5432,
+                Database = Uri.UnescapeDataString(u.AbsolutePath.TrimStart('/')),
+            };
+            if (!string.IsNullOrEmpty(u.UserInfo))
+            {
+                var parts = u.UserInfo.Split(':', 2);
+                b.Username = Uri.UnescapeDataString(parts[0]);
+                if (parts.Length > 1) b.Password = Uri.UnescapeDataString(parts[1]);
+            }
+            foreach (var kv in u.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+            {
+                var p = kv.Split('=', 2);
+                if (p[0].Equals("sslmode", StringComparison.OrdinalIgnoreCase) && p.Length == 2 && Enum.TryParse<SslMode>(p[1], true, out var m)) b.SslMode = m;
+            }
+        }
+        else b = new NpgsqlConnectionStringBuilder(dsn);
+        b.MaxPoolSize = 3;
+        b.MinPoolSize = 0;
         return b.ToString();
     }
 }

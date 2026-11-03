@@ -86,16 +86,11 @@ obscurely once a client connects. Running on the shipped placeholder secret logs
   },
 
   "Database": {
-    // "Sqlite" (default) or "MySql".
-    "Provider": "Sqlite",
+    // Postgres only. Leave empty and set PHOTON_DATABASE_URL (postgres://user:pw@host:port/db);
+    // with neither set the server refuses to start (no file or memory fallback). Pool is capped at 3.
+    "ConnectionString": "",
 
-    // SQLite: a relative Data Source is anchored next to the executable. MySQL: a standard
-    // Pomelo/MySqlConnector connection string.
-    "ConnectionString": "Data Source=openpak.db",
-
-    // When true (default), the schema is brought up to date on startup: SQLite applies the
-    // committed EF Core migrations; MySQL uses EnsureCreated. Set false to manage the schema out
-    // of band (e.g. `dotnet ef database update` as a deploy step).
+    // When true (default), missing tables are created on startup (EnsureCreated). Set false to manage the schema out of band.
     "AutoMigrate": true
   },
 
@@ -178,10 +173,4 @@ Quick launch overrides also exist: the first command-line argument sets `Adverti
 
 ## Schema migrations
 
-The SQLite schema is managed with EF Core migrations (committed under
-`server/OpenPak.Server.Data/Migrations`). To evolve it:
-
-```bash
-dotnet ef migrations add <Name> --project server/OpenPak.Server.Data
-dotnet ef database update      --project server/OpenPak.Server.Data   # or let AutoMigrate apply on startup
-```
+The schema is created by `EnsureCreated` on a fresh Postgres database; there are no committed migrations. Schema changes to an existing database are applied by hand.

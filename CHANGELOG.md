@@ -3,6 +3,13 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.16.0 — 2026-11-03
+
+- All server state (accounts, profiles, realms, MOTD, bootstrap code, rewards state) lives in Postgres
+  (`PHOTON_DATABASE_URL`, pool of 3). SQLite and MySQL are gone from the server, along with the EF migrations.
+  An unset DSN is a startup error: no file or memory fallback. Previously the database was a file in the
+  container layer, lost on every image update.
+
 ## v0.15.1 — 2026-11-03
 
 - Rewards state is durable: the session clock (running clocks and counted pairs), room ids, the identity to

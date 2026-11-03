@@ -1,71 +1,49 @@
 using System;
-using System.IO;
 using System.Linq;
 using OpenPak.Server.Data;
-using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Xunit;
 
 namespace OpenPak.Server.Data.Tests;
 
-/// <summary>
-/// SQLite Data Source anchoring: a relative db file must resolve next to the EXE (AppContext.
-/// BaseDirectory), not the launch working directory — otherwise the server reads/writes a
-/// different openpak.db depending on where it was started from.
-/// </summary>
 public class DatabaseOptionsTests
 {
     [Fact]
-    public void Relative_data_source_is_anchored_to_base_directory()
+    public void Unset_dsn_fails_validation_and_never_falls_back()
     {
-        var anchored = DatabaseOptions.AnchorSqliteFile("Data Source=openpak.db");
-        var src = new SqliteConnectionStringBuilder(anchored).DataSource;
-        Assert.True(Path.IsPathRooted(src));
-        Assert.StartsWith(AppContext.BaseDirectory, src);
-        Assert.EndsWith("openpak.db", src);
+        var o = new DatabaseOptions();
+        o.ApplyEnvironment(_ => null);
+        Assert.NotEmpty(o.Validate());
     }
 
     [Fact]
-    public void In_memory_data_source_is_untouched()
+    public void Dsn_comes_from_the_environment()
     {
-        const string cs = "Data Source=:memory:";
-        Assert.Equal(":memory:", new SqliteConnectionStringBuilder(DatabaseOptions.AnchorSqliteFile(cs)).DataSource);
+        var o = new DatabaseOptions();
+        o.ApplyEnvironment(n => n == DatabaseOptions.EnvVar ? "postgres://u:p%40w@db:19432/photon" : null);
+        Assert.Empty(o.Validate());
+        var b = new NpgsqlConnectionStringBuilder(DatabaseOptions.Normalize(o.ConnectionString));
+        Assert.Equal("db", b.Host); Assert.Equal(19432, b.Port); Assert.Equal("photon", b.Database);
+        Assert.Equal("u", b.Username); Assert.Equal("p@w", b.Password); Assert.Equal(3, b.MaxPoolSize);
     }
 
+    /// <summary>Restart test against a real Postgres: set PHOTON_TEST_DATABASE_URL (an empty scratch database). Skipped when unset.</summary>
     [Fact]
-    public void Absolute_data_source_is_untouched()
+    public void State_written_by_one_instance_is_seen_by_the_next()
     {
-        var abs = Path.Combine(Path.GetTempPath(), "explicit.db");
-        var src = new SqliteConnectionStringBuilder(DatabaseOptions.AnchorSqliteFile($"Data Source={abs}")).DataSource;
-        Assert.Equal(abs, src);
-    }
-
-    [Fact]
-    public void CreateContext_applies_migrations_and_yields_a_usable_schema()
-    {
-        var dbPath = Path.Combine(Path.GetTempPath(), $"openpak-mig-{Guid.NewGuid():N}.db");
-        var opts = new DatabaseOptions { Provider = "Sqlite", ConnectionString = $"Data Source={dbPath}" };
-        try
+        var url = Environment.GetEnvironmentVariable("PHOTON_TEST_DATABASE_URL");
+        if (string.IsNullOrEmpty(url)) return;
+        var opts = new DatabaseOptions { ConnectionString = url };
+        var name = "r-" + Guid.NewGuid().ToString("N");
+        using (var ctx = opts.CreateContext())
         {
-            using (var ctx = opts.CreateContext())
-            {
-                // The committed migration was applied (recorded in __EFMigrationsHistory) ...
-                Assert.Contains(ctx.Database.GetAppliedMigrations(), m => m.EndsWith("InitialCreate"));
-                // ... and the resulting schema round-trips data.
-                ctx.Realms.Add(new Realm { Name = "r", DisplayName = "R" });
-                ctx.SaveChanges();
-            }
-            using var reopened = opts.CreateContext();   // re-applying migrations on an up-to-date DB is a no-op
-            Assert.Equal(1, reopened.Realms.Count());
+            ctx.Realms.Add(new Realm { Name = name, DisplayName = "R" });
+            ctx.SaveChanges();
+            ctx.Database.ExecuteSqlRaw("INSERT INTO rewards_state (name, body) VALUES ({0}, 'x') ON CONFLICT (name) DO UPDATE SET body = 'x'", name);
         }
-        finally
-        {
-            // Microsoft.Data.Sqlite pools connections, so the file handle outlives the disposed context —
-            // deleting it immediately races the pool and throws IOException ("being used by another
-            // process"). Clear the pool first so the OS handle is released before we delete.
-            SqliteConnection.ClearAllPools();
-            foreach (var f in new[] { dbPath, dbPath + "-shm", dbPath + "-wal" })
-                if (File.Exists(f)) File.Delete(f);
-        }
+        using var reopened = opts.CreateContext();   // second boot: schema init is a no-op, data is there
+        Assert.True(reopened.Realms.Any(r => r.Name == name));
+        Assert.Equal("x", reopened.Database.SqlQueryRaw<string>("SELECT body AS \"Value\" FROM rewards_state WHERE name = {0}", name).AsEnumerable().First());
     }
 }

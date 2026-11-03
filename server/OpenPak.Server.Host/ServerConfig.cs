@@ -61,6 +61,7 @@ public sealed class ServerConfig
 
         var result = new ServerConfig { Realms = new() };
         configuration.Bind(result);
+        result.Database.ApplyEnvironment(Environment.GetEnvironmentVariable);
         if (result.Realms.Count == 0) result.Realms = DefaultRealms();
         return result;
     }

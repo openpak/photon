@@ -11,6 +11,8 @@ using Microsoft.Extensions.Hosting;
 
 // Configuration: openpak.server.json (generated with defaults if absent) layered under OPENPAK_*
 // environment overrides. The positional arg and --require-token flag remain as quick launch overrides.
+// Npgsql: accept DateTime of any Kind (the data layer predates timestamptz strictness).
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var config = ServerConfig.Load("openpak.server.json");
 if (args.Length > 0 && !args[0].StartsWith("--")) config.AdvertisedHost = args[0];
 if (args.Contains("--require-token")) config.AllowAnonymousLan = false;
