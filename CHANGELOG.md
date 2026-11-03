@@ -3,6 +3,12 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.15.0 — 2026-11-03
+
+- Rewards: `game_sessions.<game>` events. A player counts once per room after 3 minutes (`REWARDS_SESSION_MIN`)
+  with at least one other known player; accounts resolve through nx-baas `/internal/photon-identity`. Games are
+  chosen by `OPENPAK_PHOTON_REWARDS=<appid>=<slug>,...`; off without `REWARDS_EVENTS_URL` and key. Home only.
+
 ## v0.14.1 — 2026-11-02
 
 - Container: /app is writable by the runtime user, so the host can write its default openpak.server.json on first start.

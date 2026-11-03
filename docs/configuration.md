@@ -153,6 +153,16 @@ the title being hosted rather than to the server:
 | Internal key for that API | `OPENPAK_INTERNAL_KEY` | `<shared secret>` |
 | Photon AppId → title id | `OPENPAK_PHOTON_TITLES` | `cffbe809-…=0100ED9024EB8000,a956fef2-…=0100C4C00E73E000` |
 | Title id for a room whose AppId is unmapped | `OPENPAK_TITLE_ID` | `0100ED9024EB8000` (Outbound) |
+| Photon AppId → rewards game slug | `OPENPAK_PHOTON_REWARDS` | `cffbe809-…=outbound,a956fef2-…=moving-out` |
+| Rewards events endpoint / key | `REWARDS_EVENTS_URL`, `REWARDS_EVENTS_KEY` (or `REWARDS_EVENTS_KEY_FILE`) | `http://openpak-rewards:20180` |
+| Minutes together before a session counts | `REWARDS_SESSION_MIN` | `3m` (default) |
+
+**Rewards sessions.** With `OPENPAK_PHOTON_REWARDS`, the rewards URL and key, and `OPENPAK_BAAS_URL` all set,
+home sends `game_sessions.<slug>` events (source `photon`): a player counts once per room after 3 unbroken
+minutes in it with at least one other player whose account is known. Accounts come from nx-baas
+`/internal/photon-identity` (`baas_user_id`, namespace `switch`); anonymous or unknown players are left out
+and do not count as the other player. The room id is the room name plus the unix time it filled, which is
+the dedupe key. Region nodes send nothing. Without the URL/key the watcher is off and the log says so.
 
 One server hosts several games, and each dials it with its own Photon AppId, so a room is filed
 under whichever title `OPENPAK_PHOTON_TITLES` maps that AppId to (param 224, read at Authenticate;

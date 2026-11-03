@@ -47,3 +47,11 @@ tests without it.
 
 Run tests via **Test → Run All Tests**. (With the game's `Photon3Unity3D.dll` present, the full
 interop oracle suite runs too; without it, those tests are skipped and the rest still run.)
+
+## Rewards session events
+
+To feed `game_sessions.<game>` rewards, add `OPENPAK_PHOTON_REWARDS=<appid>=<slug>,...` to the container
+(for example Outbound `cffbe809-5036-43d8-84a1-7bf16c924721=outbound`). The container also needs
+`OPENPAK_BAAS_URL`, `OPENPAK_INTERNAL_KEY`, `REWARDS_EVENTS_URL` and `REWARDS_EVENTS_KEY`. The startup log
+shows `rewards watcher enabled`. Do not map Moving Out 2: the t17 host already sends its sessions.
+See [configuration.md](configuration.md).

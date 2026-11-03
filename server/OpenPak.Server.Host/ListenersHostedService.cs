@@ -198,6 +198,23 @@ public sealed class ListenersHostedService : BackgroundService
                              (withMesh > 0 ? $", pinned realms={withMesh}" : ""));
         }
 
+        // Rewards session events (game_sessions.<game>): home only, and only with an AppId map plus the
+        // rewards events URL and key. Its own task, off the UDP loops.
+        var rewardsMap = PhotonRewards.Parse(Env("OPENPAK_PHOTON_REWARDS"));
+        if (!fed.IsNode && rewardsMap.Count > 0 && !string.IsNullOrEmpty(Env("OPENPAK_BAAS_URL")))
+        {
+            if (RewardsEmitter.FromEnv(n => Env(n)) is { } emitter)
+            {
+                var min = PhotonRewards.SessionMin(Env("REWARDS_SESSION_MIN"));
+                var watcher = new RewardsWatcher(_registry, accountIdentities, rewardsMap, min,
+                    RewardsWatcher.BaasResolver(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, Env("OPENPAK_BAAS_URL")!, Env("OPENPAK_INTERNAL_KEY")),
+                    emitter.Enqueue);
+                _ = Task.Run(() => watcher.RunAsync(stoppingToken), stoppingToken);
+                Log.Info("HOST", $"rewards watcher enabled: {rewardsMap.Count} game(s), session after {min}");
+            }
+            else Log.Info("HOST", "rewards watcher off: REWARDS_EVENTS_URL / REWARDS_EVENTS_KEY not set");
+        }
+
         if (fed.IsNode)
         {
             // Game role only: matchmaking is home's. Name/Master listeners never open here.
