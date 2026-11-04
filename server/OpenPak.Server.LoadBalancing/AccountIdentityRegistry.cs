@@ -24,6 +24,9 @@ public sealed class AccountIdentityRegistry
         return userId;
     }
 
+    /// <summary>Account erasure: forgets the credential behind a userId.</summary>
+    public bool Forget(string userId) => _identities.TryRemove(userId, out _);
+
     public string? Find(string userId) => _identities.TryGetValue(userId, out var identity) ? identity : null;
 
     /// <summary>

@@ -90,6 +90,7 @@ builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Navigation.NavMeshReg
 builder.Services.AddSingleton<OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator>(
     _ => OpenPak.Server.Host.SteamValidatorFactory.Create());
 builder.Services.AddSingleton<AdminActionQueue>();
+builder.Services.AddSingleton(sp => new ErasureHub { Store = new SqlRewardsStore(sp.GetRequiredService<IDbContextFactory<OpenPakDbContext>>()) });
 // Region nodes: home reads the routing table from the account core and asks the Switch adapter which
 // country a player is from, so a new room lands on the node for its creator's chosen region or country.
 builder.Services.AddSingleton(sp =>

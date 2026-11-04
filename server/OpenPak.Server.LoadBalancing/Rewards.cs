@@ -140,6 +140,39 @@ public sealed class SessionClock
         }
     }
 
+    private static bool KeyIsFor(string key, IReadOnlyCollection<string> subjects)
+    {
+        var i = key.IndexOf('\0');
+        return i >= 0 && subjects.Contains(key[(i + 1)..]);
+    }
+
+    /// <summary>Account erasure: drops the running clocks and counted pairs of the subjects and saves.
+    /// Returns the entries removed. Called under the watcher's gate (one caller at a time).</summary>
+    public int Forget(IReadOnlyCollection<string> subjects)
+    {
+        var n = 0;
+        foreach (var k in _since.Keys.Where(k => KeyIsFor(k, subjects)).ToList()) { _since.Remove(k); n++; }
+        foreach (var k in _emitted.Keys.Where(k => KeyIsFor(k, subjects)).ToList()) { _emitted.Remove(k); n++; }
+        if (n > 0 && _store is not null)
+            _store.Put("clock", JsonSerializer.Serialize(new Snapshot { SavedAt = DateTime.UtcNow, Since = _since, Emitted = _emitted }));
+        return n;
+    }
+
+    /// <summary>Same as <see cref="Forget"/> for a clock that is only in the store (rewards off in this run).</summary>
+    public static int ForgetInStore(IRewardsStore store, IReadOnlyCollection<string> subjects)
+    {
+        if (store.Get("clock") is not { } body) return 0;
+        Snapshot? snap;
+        try { snap = JsonSerializer.Deserialize<Snapshot>(body); } catch (JsonException) { return 0; }
+        if (snap is null) return 0;
+        var n = snap.Since.Keys.Count(k => KeyIsFor(k, subjects)) + snap.Emitted.Keys.Count(k => KeyIsFor(k, subjects));
+        if (n == 0) return 0;
+        snap.Since = snap.Since.Where(kv => !KeyIsFor(kv.Key, subjects)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        snap.Emitted = snap.Emitted.Where(kv => !KeyIsFor(kv.Key, subjects)).ToDictionary(kv => kv.Key, kv => kv.Value);
+        store.Put("clock", JsonSerializer.Serialize(snap));
+        return n;
+    }
+
     public List<SessionEvent> Tick(DateTime now, IEnumerable<ClockRoom> rooms)
     {
         rooms = rooms.ToList();
@@ -235,6 +268,29 @@ public sealed class RewardsEmitter : IAsyncDisposable
             _outbox.Add(e);
             Persist();
         }
+    }
+
+    /// <summary>Account erasure: drops the unsent events of the subjects. Returns how many.</summary>
+    public int Forget(IReadOnlyCollection<string> subjects)
+    {
+        lock (_gate)
+        {
+            var n = _outbox.RemoveAll(e => subjects.Contains(e.Subject));
+            if (n > 0) Persist();
+            return n;
+        }
+    }
+
+    /// <summary>Same for an outbox that is only in the store (rewards off in this run).</summary>
+    public static int ForgetInStore(IRewardsStore store, IReadOnlyCollection<string> subjects)
+    {
+        if (store.Get("outbox") is not { } body) return 0;
+        List<SessionEvent>? list;
+        try { list = JsonSerializer.Deserialize<List<SessionEvent>>(body); } catch (JsonException) { return 0; }
+        if (list is null) return 0;
+        var n = list.RemoveAll(e => subjects.Contains(e.Subject));
+        if (n > 0) store.Put("outbox", JsonSerializer.Serialize(list));
+        return n;
     }
 
     private void Persist()
@@ -357,7 +413,48 @@ public sealed class RewardsWatcher
         }
     }
 
+    private readonly SemaphoreSlim _sync = new(1, 1);
+
+    /// <summary>Account erasure: forgets the userId to subject cache entries, the running clocks and the counted
+    /// pairs of the subjects, durably. Returns the rows removed and the Photon userIds that were mapped to them.</summary>
+    public (int Rows, List<string> UserIds) ForgetSubjects(IReadOnlyCollection<string> subjects)
+    {
+        _sync.Wait();
+        try
+        {
+            var users = _subjects.Where(kv => kv.Value.Subject is not null && subjects.Contains(kv.Value.Subject)).Select(kv => kv.Key).ToList();
+            foreach (var u in users) _subjects.Remove(u);
+            var rows = users.Count;
+            if (users.Count > 0)
+                _store.Put("subjects", JsonSerializer.Serialize(_subjects.Where(kv => kv.Value.Subject is not null)
+                                                                          .ToDictionary(kv => kv.Key, kv => kv.Value.Subject!)));
+            return (rows + _clock.Forget(subjects), users);
+        }
+        finally { _sync.Release(); }
+    }
+
+    /// <summary>Same for a subject cache that is only in the store (rewards off in this run).</summary>
+    public static int ForgetInStore(IRewardsStore store, IReadOnlyCollection<string> subjects)
+    {
+        if (store.Get("subjects") is not { } body) return 0;
+        Dictionary<string, string>? m;
+        try { m = JsonSerializer.Deserialize<Dictionary<string, string>>(body); } catch (JsonException) { return 0; }
+        if (m is null) return 0;
+        var drop = m.Where(kv => subjects.Contains(kv.Value)).Select(kv => kv.Key).ToList();
+        if (drop.Count == 0) return 0;
+        foreach (var k in drop) m.Remove(k);
+        store.Put("subjects", JsonSerializer.Serialize(m));
+        return drop.Count;
+    }
+
     public async Task TickAsync()
+    {
+        await _sync.WaitAsync().ConfigureAwait(false);
+        try { await TickLockedAsync().ConfigureAwait(false); }
+        finally { _sync.Release(); }
+    }
+
+    private async Task TickLockedAsync()
     {
         var now = _now();
         var rooms = new List<ClockRoom>();

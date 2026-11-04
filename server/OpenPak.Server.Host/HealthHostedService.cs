@@ -28,9 +28,15 @@ public sealed class HealthHostedService : BackgroundService
     private readonly NodeDirectory _nodes;
     private readonly Dictionary<string, string> _nodeKeys;
     private readonly AccountRoomPublisher? _publisher;
+    private readonly AccountEraser _eraser;
 
-    public HealthHostedService(RoomRegistry rooms, ServerConfig config, NodeDirectory nodes)
+    public HealthHostedService(RoomRegistry rooms, ServerConfig config, NodeDirectory nodes, ErasureHub hub)
     {
+        var internalKey = Environment.GetEnvironmentVariable("OPENPAK_INTERNAL_KEY") ?? "";
+        var coreKey = Environment.GetEnvironmentVariable("ACCOUNT_INTERNAL_KEY") is { Length: > 0 } ck ? ck : internalKey;
+        var coreAddr = Environment.GetEnvironmentVariable("ACCOUNT_GRPC_ADDR") is { Length: > 0 } ca ? ca : "openpak-account:20001";
+        _eraser = new AccountEraser(coreKey.Length > 0 ? new CoreLinks(new HttpClient { Timeout = TimeSpan.FromSeconds(15) }, coreAddr, coreKey) : null,
+                                    hub, Environment.GetEnvironmentVariable("ACCOUNT_ERASE_KEY"));
         _rooms = rooms;
         _nodes = nodes;
         _nodeKeys = config.Federation.NodeKeys ?? new();
@@ -101,6 +107,8 @@ public sealed class HealthHostedService : BackgroundService
         int status;
         if (ctx.Request.HttpMethod == "POST" && path == "/internal/node-room")
             json = AcceptRoomReport(ctx.Request, out status);
+        else if (ctx.Request.HttpMethod == "DELETE" && path.StartsWith("/internal/accounts/", StringComparison.Ordinal) && path.EndsWith("/data", StringComparison.Ordinal))
+            (status, json) = _eraser.Handle(path["/internal/accounts/".Length..^"/data".Length], ctx.Request.Headers["Authorization"]);
         else
             json = Payload(path, _rooms, out status);
         var body = Encoding.UTF8.GetBytes(json);

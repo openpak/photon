@@ -3,6 +3,18 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.17.0 — 2026-11-04
+
+- Account erasure (openpak/prds#120): `DELETE /internal/accounts/{account_id}/data` on the health listener (port
+  8080, container network) with `Authorization: Bearer $ACCOUNT_ERASE_KEY`; 503 while the key is unset. Asks the
+  account core (`ACCOUNT_GRPC_ADDR`, default `openpak-account:20001`; key `ACCOUNT_INTERNAL_KEY`, falling back to
+  `OPENPAK_INTERNAL_KEY`) for the account's "switch" links and removes what the rewards state holds for them: the
+  userId to subject cache, running clocks and counted pairs, unsent events, plus the in-memory credential, country
+  and tester caches of the userIds mapped to them. Answers `{"service":"photon","rows":N}`, logs
+  `account erased account=<uuid> rows=<n> service=photon`. Idempotent. The `Accounts`/`Profiles` tables hold
+  Steam ids only (console peers get no row) and are not tied to an OpenPak account, so they are untouched. No
+  `account_deleted` consumer: the endpoint is the path.
+
 ## v0.16.1 — 2026-11-03
 
 - One log line per Photon operation at the default level: `cmd <Op> -> rc=<n> <ms>ms`, written when its response

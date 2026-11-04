@@ -231,6 +231,10 @@ public sealed class NodeDirectory
         }
     }
 
+    /// <summary>Account erasure: forgets the country and tester flag cached for a userId.</summary>
+    public int ForgetUser(string userId)
+        => (_countryByUser.TryRemove(userId, out _) ? 1 : 0) + (_testers.TryRemove(userId, out _) ? 1 : 0);
+
     public void SetCountry(string userId, string country) => _countryByUser[userId] = country.ToUpperInvariant();
     public void SetTester(string userId, bool tester, System.Net.IPAddress? from = null)
     {

@@ -29,6 +29,7 @@ public sealed class ListenersHostedService : BackgroundService
     private readonly OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator _steam;
     private readonly NodeDirectory _nodes;
     private readonly TokenKeys _keys;
+    private readonly ErasureHub _erasure;
 
     // NOTE: registry's interceptors come from the plugin manager (anti-cheat/game-mode logic lives in plugins).
     public ListenersHostedService(ServerConfig config, IDbContextFactory<OpenPakDbContext> dbf,
@@ -37,8 +38,9 @@ public sealed class ListenersHostedService : BackgroundService
                                   OpenPak.Server.LoadBalancing.Authority.RoomWorldStateRegistry worlds,
                                   OpenPak.Server.LoadBalancing.Navigation.NavMeshRegistry navs,
                                   OpenPak.Server.LoadBalancing.Auth.ISteamTicketValidator steam,
-                                  NodeDirectory nodes, TokenKeys keys)
+                                  NodeDirectory nodes, TokenKeys keys, ErasureHub erasure)
     {
+        _erasure = erasure;
         _keys = keys;
         _steam = steam;
         _nodes = nodes;
@@ -61,6 +63,8 @@ public sealed class ListenersHostedService : BackgroundService
 
         var s = _config.Server;
         var accountIdentities = new AccountIdentityRegistry();
+        _erasure.Identities = accountIdentities;
+        _erasure.Nodes = _nodes;
         // Room presence goes to the Switch adapter (nx-baas) now, not the account server: a
         // deliberately new variable name, so a rig still setting the old account-server URL stops
         // publishing rather than posting this shape at the wrong service.
@@ -210,6 +214,8 @@ public sealed class ListenersHostedService : BackgroundService
                 var watcher = new RewardsWatcher(_registry, accountIdentities, rewardsMap, min,
                     RewardsWatcher.BaasResolver(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, Env("OPENPAK_BAAS_URL")!, Env("OPENPAK_INTERNAL_KEY")),
                     emitter.Enqueue, store: rewardsStore);
+                _erasure.Watcher = watcher;
+                _erasure.Emitter = emitter;
                 _ = Task.Run(() => watcher.RunAsync(stoppingToken), stoppingToken);
                 Log.Info("HOST", $"rewards watcher enabled: {rewardsMap.Count} game(s), session after {min}");
             }
