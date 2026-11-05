@@ -22,6 +22,9 @@ public sealed record PeerRoomState(string RoomKey, int Actor)
     /// local server. See GameServerHandler.HandleRaiseEvent.</summary>
     public FusionProtocol.JoinMessage? PendingFusionJoin { get; set; }
 
+    /// <summary>How many raised events were logged for this peer (only the first few are, to see what a client sends).</summary>
+    public int RaisedLogged { get; set; }
+
     /// <summary>The Fusion topology the client asked for in its JoinGame (parameter 213): "Shared"
     /// or "ClientServer". Outbound asks for Shared, where the authoritative simulation belongs to the
     /// cloud plugin and we host it (see Fusion.FusionSharedHost). Moving Out 2 asks for
@@ -295,6 +298,11 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
             // Packet validation: a client must not raise the server-only lifecycle events (Join/Leave/
             // PropertiesChanged) — those are emitted by the server, and relaying a client-forged one would
             // let it spoof another player joining/leaving or changing properties. Drop the attempt.
+            if (state.RaisedLogged < 40)
+            {
+                state.RaisedLogged++;
+                Log.Info("GameServer", $"{Redact.Room(state.RoomKey)} actor {state.Actor} raised event {ec} ({(data as byte[])?.Length ?? -1}B) quantumApp={(peer.AppId is { } a && _quantumAppIds.Contains(a))}");
+            }
             if (!IsClientRaisable(ec))
             {
                 Log.Warn("GameServer", $"actor {state.Actor} in {Redact.Room(state.RoomName)} tried to raise reserved " +

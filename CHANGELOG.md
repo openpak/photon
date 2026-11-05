@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.17.1 — 2026-11-05
+
+- Log the first 40 raised events per peer (code, size, whether the app is a Quantum app), to see what a Quantum client sends (prds#12).
+
 ## v0.17.0 — 2026-11-04
 
 - Account erasure (openpak/prds#120): `DELETE /internal/accounts/{account_id}/data` on the health listener (port
