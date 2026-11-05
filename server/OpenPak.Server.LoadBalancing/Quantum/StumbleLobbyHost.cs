@@ -56,6 +56,8 @@ public sealed class StumbleLobbyHost
     public int RoundsNumber { get; set; } = 1;
     public IReadOnlyList<StumbleRound> Rounds { get; set; } = DefaultRounds;
     public string PluginVersion { get; set; } = "openpak-1";
+    /// <summary>The optional properties set besides ROUNDS_NUMBER, ROUND{i}_MAP_ID and ROUND{i}_MAP (all by default); trimmed from the environment to find which one a client rejects.</summary>
+    public ISet<string> Extras { get; set; } = new HashSet<string> { KeyGameId, KeyPool, KeyPluginVersion, KeyPlayWithBots, "MAP_NAME", "MAP_GUID" };
 
     public void Joined(string room, int actor, double now)
     {
@@ -112,18 +114,18 @@ public sealed class StumbleLobbyHost
                 var props = new Dictionary<object, object>
                 {
                     [KeyRoundsNumber] = (byte)n,
-                    [KeyGameId] = room,
-                    [KeyPool] = 0,
-                    [KeyPluginVersion] = PluginVersion,
-                    [KeyPlayWithBots] = true,
                 };
+                if (Extras.Contains(KeyGameId)) props[KeyGameId] = room;
+                if (Extras.Contains(KeyPool)) props[KeyPool] = 0;
+                if (Extras.Contains(KeyPluginVersion)) props[KeyPluginVersion] = PluginVersion;
+                if (Extras.Contains(KeyPlayWithBots)) props[KeyPlayWithBots] = true;
                 for (int i = 1; i <= n; i++)
                 {
                     var r = Rounds[i - 1];
                     props[RoundKey(i, "MAP_ID")] = r.LevelId;
                     props[RoundKey(i, "MAP")] = r.MapName;
-                    props[RoundKey(i, "MAP_NAME")] = r.FriendlyName;
-                    props[RoundKey(i, "MAP_GUID")] = r.MapGuid;
+                    if (Extras.Contains("MAP_NAME")) props[RoundKey(i, "MAP_NAME")] = r.FriendlyName;
+                    if (Extras.Contains("MAP_GUID")) props[RoundKey(i, "MAP_GUID")] = r.MapGuid;
                 }
                 Log.Info("Stumble", $"{Redact.Room(room)} {l.Actors.Count} player(s), {n} round(s): rounds then LOAD");
                 _setRoomProperties(room, props);

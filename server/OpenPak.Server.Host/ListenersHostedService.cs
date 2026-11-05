@@ -140,6 +140,8 @@ public sealed class ListenersHostedService : BackgroundService
             _registry.Find(room)?.SetProperties(null, (System.Collections.IDictionary)props);
             _registry.Session(room).SendToAll(new EventData(253, new() { { (byte)251, props }, { (byte)253, 0 } }));
         });
+        if (Env("OPENPAK_STUMBLE_EXTRAS") is { } stumbleExtras)
+            stumble.Extras = new HashSet<string>(stumbleExtras.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
         if (int.TryParse(Env("OPENPAK_STUMBLE_ROUNDS"), out var stumbleRounds)) stumble.RoundsNumber = stumbleRounds;
         if (double.TryParse(Env("OPENPAK_STUMBLE_JOIN_WINDOW"), System.Globalization.CultureInfo.InvariantCulture, out var stumbleWindow)) stumble.JoinWindow = stumbleWindow;
         var quantumAppIds = (Env("OPENPAK_QUANTUM_APPIDS") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);

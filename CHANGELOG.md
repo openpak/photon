@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.1 — 2026-11-05
+
+- OPENPAK_STUMBLE_EXTRAS trims the optional Stumble room properties (default all) so a rejected one can be found without a rebuild.
+
 ## v0.18.0 — 2026-11-05
 
 - Stumble Guys room plugin (prds#12): after the matched players join a Quantum-app room, set ROUNDS_NUMBER (byte), ROUND{i}_MAP_ID/_MAP/_MAP_NAME (strings) and
