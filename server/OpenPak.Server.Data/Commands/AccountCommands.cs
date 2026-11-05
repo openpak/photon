@@ -29,7 +29,7 @@ public sealed class AccountCommands
     [ConsoleCommand("list", MinLevel = PlayerLevel.Mod)]
     private string List(CommandLine line)
         => string.Join('\n', _accounts.All().Select(a =>
-            $"{a.SteamId} {a.DisplayName} {a.Level}{(a.IsBanned ? " [BANNED]" : "")}"));
+            $"{a.SteamId} {a.Level}{(a.IsBanned ? " [BANNED]" : "")}"));
 
     [ConsoleCommand("whois", Usage = "<steamId>", MinParts = 2, MinLevel = PlayerLevel.Mod)]
     private string Whois(CommandLine line)
@@ -37,7 +37,7 @@ public sealed class AccountCommands
         var a = _accounts.Find(line.Parts[1]);
         return a is null
             ? $"no such account: {line.Parts[1]}"
-            : $"{a.SteamId} \"{a.DisplayName}\" level={a.Level} banned={a.IsBanned} " +
+            : $"{a.SteamId} level={a.Level} banned={a.IsBanned} " +
               $"created={a.CreatedUtc:u} lastSeen={a.LastSeenUtc:u} playtime={a.Profile.PlaytimeSeconds}s";
     }
 

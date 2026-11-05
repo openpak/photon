@@ -55,6 +55,8 @@ public sealed class DatabaseOptions
     {
         if (!AutoMigrate) return;
         ctx.Database.EnsureCreated();
+        // 2026-11-05 (prds#131): the name column held the Steam id again; names live in the core account.
+        ctx.Database.ExecuteSqlRaw("ALTER TABLE IF EXISTS \"Accounts\" DROP COLUMN IF EXISTS \"DisplayName\"");
         ctx.Database.ExecuteSqlRaw("CREATE TABLE IF NOT EXISTS rewards_state (name VARCHAR(64) NOT NULL PRIMARY KEY, body TEXT NOT NULL)");
     }
 

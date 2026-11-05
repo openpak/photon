@@ -9,7 +9,7 @@ public class CommandPermissionTests
     {
         db = new TestDb();
         var accounts = new AccountService(db.Context);
-        accounts.ResolveOrCreate("s1", "x");
+        accounts.ResolveOrCreate("s1");
         return new CommandRegistry().Register(new AccountCommands(accounts));
     }
 

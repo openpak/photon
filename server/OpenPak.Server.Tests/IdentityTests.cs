@@ -29,7 +29,7 @@ public class IdentityTests
     {
         const string bannedSteamId = "76561198000000010";   // valid SteamID64 format
         var accounts = TestAccounts.Create();
-        accounts.ResolveOrCreate(bannedSteamId, "x");
+        accounts.ResolveOrCreate(bannedSteamId);
         accounts.SetBanned(bannedSteamId, true);
         var ns = new NameServerHandler("127.0.0.1:5055", Secret, accounts);
 
@@ -141,7 +141,7 @@ public class IdentityTests
     public void Master_refuses_banned_account_via_token()
     {
         var accounts = TestAccounts.Create();
-        accounts.ResolveOrCreate("banned-2", "x");
+        accounts.ResolveOrCreate("banned-2");
         accounts.SetBanned("banned-2", true);
         var master = new MasterServerHandler("127.0.0.1:5056", Secret, new RoomRegistry(), accounts: accounts);
 

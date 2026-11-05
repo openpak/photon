@@ -39,4 +39,25 @@ public class BanLookupTests
         var nodes = new NodeDirectory(new HttpClient(new Answer(HttpStatusCode.Forbidden)), null, null, null, null);
         Assert.False(await nodes.IsBannedAsync("bsdid:0011"));
     }
+
+    [Theory]
+    [InlineData(HttpStatusCode.OK, IdentityState.Linked)]
+    [InlineData(HttpStatusCode.Forbidden, IdentityState.Banned)]
+    [InlineData(HttpStatusCode.BadRequest, IdentityState.Unlinked)]
+    [InlineData(HttpStatusCode.NotFound, IdentityState.Unlinked)]
+    [InlineData(HttpStatusCode.BadGateway, IdentityState.Unknown)]
+    public async Task LinkAtFirstUse_UnknownIdentityIsUnlinked_OutageIsNot(HttpStatusCode status, IdentityState want)
+    {
+        var nodes = new NodeDirectory(new HttpClient(new Answer(status)), null, null, "http://adapter", "k");
+        Assert.Equal(want, await nodes.LookupAsync("bsdid:0011"));
+        Assert.True(nodes.RequiresLink);
+    }
+
+    [Fact]
+    public async Task NoAdapterNeverRequiresALink()
+    {
+        var nodes = new NodeDirectory(new HttpClient(new Answer(HttpStatusCode.BadRequest)), null, null, null, null);
+        Assert.False(nodes.RequiresLink);
+        Assert.Equal(IdentityState.Unknown, await nodes.LookupAsync("bsdid:0011"));
+    }
 }

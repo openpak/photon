@@ -156,6 +156,13 @@ public sealed class NameServerHandler : IOperationHandler
                 _ = RespondUnlessBanned(peer, userId, bsDid, _nodes, op);
                 return;
             }
+            // No credential at all: an anonymous player. Refused once the Switch adapter is attached
+            // (production); loopback test rigs and adapter-less LAN servers keep the legacy path.
+            if (_nodes is { RequiresLink: true } && !TrustedNetwork.IsLoopback(peer.Remote))
+            {
+                RefuseUnlinked(peer, op);
+                return;
+            }
             Respond(peer, validId ?? Guid.NewGuid().ToString(), verified: false, op);
             return;
         }
@@ -218,17 +225,31 @@ public sealed class NameServerHandler : IOperationHandler
     /// knows the account behind the identity.</summary>
     private async Task RespondUnlessBanned(PeerConnection peer, string userId, string identity, NodeDirectory nodes, byte op)
     {
-        var banned = await nodes.IsBannedAsync(identity).ConfigureAwait(false);
+        var state = await nodes.LookupAsync(identity).ConfigureAwait(false);
         _post(() =>
         {
-            if (banned)
+            if (state == IdentityState.Banned)
             {
                 Log.Warn("NameServer", $"{peer.PeerTag} OpenPak account BANNED -> rc=-3");
                 peer.SendResponse(new OperationResponse(op, -3, "Account banned", new()));
                 return;
             }
+            if (state == IdentityState.Unlinked)
+            {
+                RefuseUnlinked(peer, op);
+                return;
+            }
             Respond(peer, userId, verified: false, op);
         });
+    }
+
+    /// <summary>Link at first use: no OpenPak account behind the credential, so no play.</summary>
+    internal const string LinkMessage = "Link your OpenPak account to play online (openpak.org/link)";
+
+    private static void RefuseUnlinked(PeerConnection peer, byte op)
+    {
+        Log.Warn("NameServer", $"{peer.PeerTag} no OpenPak account behind the credential -> rc=-4");
+        peer.SendResponse(new OperationResponse(op, -4, LinkMessage, new()));
     }
 
     /// <summary>
@@ -268,7 +289,7 @@ public sealed class NameServerHandler : IOperationHandler
     {
         var account = steamId.StartsWith("openpak:", StringComparison.Ordinal)
             ? null
-            : _accounts.ResolveOrCreate(steamId, steamId);
+            : _accounts.ResolveOrCreate(steamId);
         if (account?.IsBanned == true)
         {
             Log.Warn("NameServer", $"{Redact.Tag(steamId)} is BANNED -> rc=-3");

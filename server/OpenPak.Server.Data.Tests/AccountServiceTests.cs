@@ -9,7 +9,7 @@ public class AccountServiceTests
     public void Schema_supports_account_with_profile()
     {
         using var db = new TestDb();
-        db.Context.Accounts.Add(new Account { SteamId = "76561198000000001", DisplayName = "Nate" });
+        db.Context.Accounts.Add(new Account { SteamId = "76561198000000001" });
         db.Context.SaveChanges();
 
         using var read = db.NewContext();
@@ -24,10 +24,9 @@ public class AccountServiceTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        var acct = svc.ResolveOrCreate("76561198000000002", "Runner");
+        var acct = svc.ResolveOrCreate("76561198000000002");
 
         Assert.Equal(PlayerLevel.Player, acct.Level);
-        Assert.Equal("Runner", acct.DisplayName);
         Assert.NotNull(db.NewContext().Profiles.Find("76561198000000002"));
     }
 
@@ -36,14 +35,13 @@ public class AccountServiceTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        var first = svc.ResolveOrCreate("76561198000000003", "A");
+        var first = svc.ResolveOrCreate("76561198000000003");
         var firstSeen = first.LastSeenUtc;
         System.Threading.Thread.Sleep(5);
-        var again = svc.ResolveOrCreate("76561198000000003", "A-renamed");
+        var again = svc.ResolveOrCreate("76561198000000003");
 
         Assert.Equal(1, db.NewContext().Accounts.Count());
         Assert.True(again.LastSeenUtc >= firstSeen);
-        Assert.Equal("A-renamed", again.DisplayName);
     }
 
     [Fact]
@@ -51,7 +49,7 @@ public class AccountServiceTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("s1", "x");
+        svc.ResolveOrCreate("s1");
         Assert.True(svc.SetLevel("s1", PlayerLevel.Admin).IsOk);
         Assert.Equal(PlayerLevel.Admin, svc.Find("s1")!.Level);
         Assert.Equal(OpenPak.Server.Common.ErrorCode.NotFound, svc.SetLevel("does-not-exist", PlayerLevel.Mod).Error);
@@ -62,7 +60,7 @@ public class AccountServiceTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("s2", "x");
+        svc.ResolveOrCreate("s2");
         Assert.True(svc.SetBanned("s2", true).IsOk);
         Assert.True(svc.Find("s2")!.IsBanned);
         svc.SetBanned("s2", false);
@@ -84,7 +82,7 @@ public class AccountServiceTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("owner", "Owner");
+        svc.ResolveOrCreate("owner");
         var code = svc.EnsureBootstrapCode();
 
         Assert.True(svc.ClaimBootstrap("owner", code).IsOk);

@@ -2,11 +2,11 @@ using System.ComponentModel.DataAnnotations;
 
 namespace OpenPak.Server.Data;
 
-/// <summary>A persistent player identity, keyed by SteamID, auto-created on first connect.</summary>
+/// <summary>A persistent Steam peer's moderation record, keyed by SteamID, auto-created on first connect. Holds no name:
+/// console players are OpenPak accounts and their name is the core account's.</summary>
 public class Account
 {
     [Key] public string SteamId { get; set; } = "";
-    public string DisplayName { get; set; } = "";
     public PlayerLevel Level { get; set; } = PlayerLevel.Player;
     public bool IsBanned { get; set; }
     public DateTime CreatedUtc { get; set; } = DateTime.UtcNow;

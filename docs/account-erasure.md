@@ -10,5 +10,5 @@ per-account key Photon holds, in the rewards state (`rewards_state`): the userId
 session clock (`clock`) and unsent events (`outbox`). Those entries are removed, in the running objects and in the
 table, together with the in-memory credential, country and tester caches of the userIds mapped to the account.
 
-Kept: room ids and the `Accounts`/`Profiles` tables. The latter are keyed by Steam id for Steam peers (console peers are
+Kept: room ids and the `Accounts`/`Profiles` tables (since v0.19.0 they hold no name: `DisplayName` was dropped). The latter are keyed by Steam id for Steam peers (console peers are
 `openpak:` ids with no row), carry no OpenPak account reference and are not tied to an account that could be erased.

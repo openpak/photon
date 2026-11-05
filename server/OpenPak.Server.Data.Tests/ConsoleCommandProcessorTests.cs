@@ -10,7 +10,7 @@ public class ConsoleCommandProcessorTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("s1", "x");
+        svc.ResolveOrCreate("s1");
         var proc = new ConsoleCommandProcessor(svc);
 
         var output = proc.Execute("promote s1 2");
@@ -23,7 +23,7 @@ public class ConsoleCommandProcessorTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("s2", "x");
+        svc.ResolveOrCreate("s2");
         var proc = new ConsoleCommandProcessor(svc);
         proc.Execute("ban s2");
         Assert.True(svc.Find("s2")!.IsBanned);
@@ -82,7 +82,7 @@ public class ConsoleCommandProcessorTests
     {
         using var db = new TestDb();
         var svc = new AccountService(db.Context);
-        svc.ResolveOrCreate("s3", "x");
+        svc.ResolveOrCreate("s3");
         svc.SetLevel("s3", PlayerLevel.Admin);
         var proc = new ConsoleCommandProcessor(svc);
 

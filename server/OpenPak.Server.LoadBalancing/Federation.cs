@@ -213,21 +213,37 @@ public sealed class NodeDirectory
     /// (website/docs/ban-lookup.md): nx-baas answers /internal/photon-identity with 403
     /// {"error":"account_banned"} (or "account_deleted") for a locked-out account. True only on that
     /// answer; no adapter, an unknown identity or an adapter outage is not a ban.</summary>
-    public async Task<bool> IsBannedAsync(string identity)
+    public async Task<bool> IsBannedAsync(string identity) => await LookupAsync(identity).ConfigureAwait(false) == IdentityState.Banned;
+
+    /// <summary>True when the Switch adapter is configured, i.e. an OpenPak account is required to play.</summary>
+    public bool RequiresLink => !string.IsNullOrEmpty(_adapterUrl);
+
+    /// <summary>
+    /// What the Switch adapter says about an identity. Link at first use (prds#131): an identity the adapter
+    /// does not know (400 "unknown identity", 404) has no OpenPak account behind it and is <see cref="IdentityState.Unlinked"/>.
+    /// No adapter, or an outage, is <see cref="IdentityState.Unknown"/>: a hiccup must not lock players out.
+    /// </summary>
+    public async Task<IdentityState> LookupAsync(string identity)
     {
-        if (string.IsNullOrEmpty(_adapterUrl)) return false;
+        if (string.IsNullOrEmpty(_adapterUrl)) return IdentityState.Unknown;
         try
         {
             using var req = new HttpRequestMessage(HttpMethod.Post, $"{_adapterUrl}/internal/photon-identity");
             if (!string.IsNullOrEmpty(_internalKey)) req.Headers.Add("X-Internal-Key", _internalKey);
             req.Content = JsonContent.Create(new { identity });
             using var resp = await _http.SendAsync(req).ConfigureAwait(false);
-            return resp.StatusCode == System.Net.HttpStatusCode.Forbidden;
+            return resp.StatusCode switch
+            {
+                System.Net.HttpStatusCode.OK => IdentityState.Linked,
+                System.Net.HttpStatusCode.Forbidden => IdentityState.Banned,
+                System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound => IdentityState.Unlinked,
+                _ => IdentityState.Unknown,
+            };
         }
         catch (Exception ex)
         {
-            Log.Warn("Federation", $"ban lookup failed: {ex.GetType().Name}");
-            return false;
+            Log.Warn("Federation", $"identity lookup failed: {ex.GetType().Name}");
+            return IdentityState.Unknown;
         }
     }
 
@@ -243,6 +259,8 @@ public sealed class NodeDirectory
         if (from is not null) _testerIps[from] = DateTime.UtcNow;
     }
 }
+
+public enum IdentityState { Unknown, Linked, Unlinked, Banned }
 
 /// <summary>
 /// What a node tells home about one of its rooms: who is in it and the game properties the

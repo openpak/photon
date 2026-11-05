@@ -3,6 +3,11 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.19.0 — 2026-11-05
+
+- Link at first use (prds#131): a console credential the Switch adapter does not know, and a credential-less peer from a non-loopback address, is refused at the Name Server with rc=-4 "Link your OpenPak account to play online". Only when the adapter is configured; an adapter outage never locks anyone out.
+- `Accounts.DisplayName` is gone (it only ever held the Steam id; a player's name is the core account's). The column is dropped at startup, idempotently. `Accounts` (Level, IsBanned) and `Profiles` stay as the Steam peers' moderation and playtime record.
+
 ## v0.18.5 — 2026-11-05
 
 - The pool property P is no longer set by default (its type is not known; the client falls back to its default pool).

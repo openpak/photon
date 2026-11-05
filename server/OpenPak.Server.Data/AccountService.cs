@@ -10,7 +10,7 @@ public sealed class AccountService
     public AccountService(OpenPakDbContext db) => _db = db ?? throw new ArgumentNullException(nameof(db));
 
     /// <summary>Finds the account for a SteamID, creating it (+ profile) at level Player on first contact.</summary>
-    public Account ResolveOrCreate(string steamId, string displayName)
+    public Account ResolveOrCreate(string steamId)
     {
         var acct = _db.Accounts.Include(a => a.Profile).FirstOrDefault(a => a.SteamId == steamId);
         if (acct is null)
@@ -18,7 +18,6 @@ public sealed class AccountService
             acct = new Account
             {
                 SteamId = steamId,
-                DisplayName = displayName,
                 Profile = new Profile { SteamId = steamId },
             };
             _db.Accounts.Add(acct);
@@ -26,7 +25,6 @@ public sealed class AccountService
         else
         {
             acct.LastSeenUtc = DateTime.UtcNow;
-            if (!string.IsNullOrEmpty(displayName)) acct.DisplayName = displayName;
         }
         _db.SaveChanges();
         return acct;
