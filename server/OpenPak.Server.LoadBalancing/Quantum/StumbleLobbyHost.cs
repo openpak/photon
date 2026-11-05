@@ -59,6 +59,28 @@ public sealed class StumbleLobbyHost
     /// <summary>The optional properties set besides ROUNDS_NUMBER, ROUND{i}_MAP_ID and ROUND{i}_MAP (all by default); trimmed from the environment to find which one a client rejects.</summary>
     public ISet<string> Extras { get; set; } = new HashSet<string> { KeyGameId, KeyPool, KeyPluginVersion, KeyPlayWithBots, "MAP_NAME", "MAP_GUID" };
 
+    /// <summary>The room properties the plugin has set before the first player's join answers, so the join response
+    /// carries them: the client reads the rounds (and picks its scenes) right after joining, not when LOAD comes.</summary>
+    public Dictionary<object, object> InitialProperties(string room)
+    {
+        int n = Math.Clamp(RoundsNumber, 0, Rounds.Count);
+        var props = new Dictionary<object, object> { [KeyRoundsNumber] = (byte)n };
+        if (Extras.Contains(KeyGameId)) props[KeyGameId] = room;
+        if (Extras.Contains(KeyPool)) props[KeyPool] = 0;
+        if (Extras.Contains(KeyPluginVersion)) props[KeyPluginVersion] = PluginVersion;
+        if (Extras.Contains(KeyPlayWithBots)) props[KeyPlayWithBots] = true;
+        for (int i = 1; i <= n; i++)
+        {
+            var r = Rounds[i - 1];
+            props[RoundKey(i, "MAP_ID")] = r.LevelId;
+            props[RoundKey(i, "MAP")] = r.MapName;
+            if (Extras.Contains("MAP_NAME")) props[RoundKey(i, "MAP_NAME")] = r.FriendlyName;
+            if (Extras.Contains("MAP_GUID")) props[RoundKey(i, "MAP_GUID")] = r.MapGuid;
+        }
+        Log.Info("Stumble", $"{Redact.Room(room)} room created with {n} round(s)");
+        return props;
+    }
+
     public void Joined(string room, int actor, double now)
     {
         lock (_gate)
@@ -110,25 +132,7 @@ public sealed class StumbleLobbyHost
             }
             if (sendLoad)
             {
-                int n = Math.Clamp(RoundsNumber, 0, Rounds.Count);
-                var props = new Dictionary<object, object>
-                {
-                    [KeyRoundsNumber] = (byte)n,
-                };
-                if (Extras.Contains(KeyGameId)) props[KeyGameId] = room;
-                if (Extras.Contains(KeyPool)) props[KeyPool] = 0;
-                if (Extras.Contains(KeyPluginVersion)) props[KeyPluginVersion] = PluginVersion;
-                if (Extras.Contains(KeyPlayWithBots)) props[KeyPlayWithBots] = true;
-                for (int i = 1; i <= n; i++)
-                {
-                    var r = Rounds[i - 1];
-                    props[RoundKey(i, "MAP_ID")] = r.LevelId;
-                    props[RoundKey(i, "MAP")] = r.MapName;
-                    if (Extras.Contains("MAP_NAME")) props[RoundKey(i, "MAP_NAME")] = r.FriendlyName;
-                    if (Extras.Contains("MAP_GUID")) props[RoundKey(i, "MAP_GUID")] = r.MapGuid;
-                }
-                Log.Info("Stumble", $"{Redact.Room(room)} {l.Actors.Count} player(s), {n} round(s): rounds then LOAD");
-                _setRoomProperties(room, props);
+                Log.Info("Stumble", $"{Redact.Room(room)} {l.Actors.Count} player(s): LOAD");
                 _setRoomProperties(room, new Dictionary<object, object> { [KeyLoad] = true });
             }
             if (sendStart)

@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.3 — 2026-11-05
+
+- The Stumble round properties are set when the room is created, so the first join response carries them (the client picks its rounds and scenes right after joining; setting them later made it drop). LOAD and START still follow on the timer / LOAD_READY.
+
 ## v0.18.2 — 2026-11-05
 
 - OPENPAK_STUMBLE_ROUNDS may be 0 (a probe: no round properties, only the handshake).

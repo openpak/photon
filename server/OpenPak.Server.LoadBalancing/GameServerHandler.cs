@@ -643,6 +643,8 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
         if (actor == 1 && r.Parameters.TryGetValue(PGameProperties, out var creatorGp)
                         && creatorGp is System.Collections.IDictionary creatorProps)
             room.SetProperties(null, creatorProps);
+        if (actor == 1 && _stumble is not null && peer?.AppId is { } stumbleCreatorApp && _quantumAppIds.Contains(stumbleCreatorApp))
+            room.SetProperties(null, _stumble.InitialProperties(room.Key));
 
         // Stamp the realm ruleset into the room's game properties so the client sees it in-room.
         // MasterClientId is a well-known Photon room property (never previously populated here) that

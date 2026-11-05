@@ -18,22 +18,37 @@ public class StumbleLobbyHostTests
     }
 
     [Fact]
-    public void After_the_window_the_rounds_then_LOAD_are_set_with_the_types_the_client_reads()
+    public void The_initial_properties_carry_the_rounds_with_the_types_the_client_reads()
     {
-        var h = Host();
-        h.Joined("r", 1, 0);
-        h.Tick(5);
-        Assert.Equal(2, _sets.Count);
-        var rounds = _sets[0];
+        var rounds = Host().InitialProperties("r");
         Assert.Equal((byte)1, rounds["ROUNDS_NUMBER"]);                 // byte
         Assert.Equal("IPL_047_Flame", rounds["ROUND1_MAP_ID"]);         // string, LevelDef id
         Assert.Equal("ipl_047_flame", rounds["ROUND1_MAP"]);            // string, MapCollection name
         Assert.IsType<string>(rounds["ROUND1_MAP_NAME"]);
         Assert.Equal(3684277463294234336L, rounds["ROUND1_MAP_GUID"]);  // long
         Assert.True(rounds.ContainsKey("GAME_ID"));
-        Assert.Equal(true, _sets[1]["LOAD"]);
+    }
+
+    [Fact]
+    public void Extras_can_be_trimmed_and_rounds_clamped()
+    {
+        var h = Host();
+        h.Extras = new HashSet<string>();
+        h.RoundsNumber = 9;
+        var p = h.InitialProperties("r");
+        Assert.Equal((byte)2, p["ROUNDS_NUMBER"]);
+        Assert.False(p.ContainsKey("GAME_ID") || p.ContainsKey("ROUND1_MAP_GUID"));
+    }
+
+    [Fact]
+    public void After_the_window_LOAD_is_set_once()
+    {
+        var h = Host();
+        h.Joined("r", 1, 0);
+        h.Tick(5);
+        Assert.Equal(true, Assert.Single(_sets)["LOAD"]);
         h.Tick(6);
-        Assert.Equal(2, _sets.Count);   // sent once
+        Assert.Single(_sets);
     }
 
     [Fact]
