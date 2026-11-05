@@ -110,7 +110,7 @@ public sealed class StumbleLobbyHost
             }
             if (sendLoad)
             {
-                int n = Math.Clamp(RoundsNumber, 1, Rounds.Count);
+                int n = Math.Clamp(RoundsNumber, 0, Rounds.Count);
                 var props = new Dictionary<object, object>
                 {
                     [KeyRoundsNumber] = (byte)n,

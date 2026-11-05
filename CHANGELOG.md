@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.2 — 2026-11-05
+
+- OPENPAK_STUMBLE_ROUNDS may be 0 (a probe: no round properties, only the handshake).
+
 ## v0.18.1 — 2026-11-05
 
 - OPENPAK_STUMBLE_EXTRAS trims the optional Stumble room properties (default all) so a rejected one can be found without a rebuild.
