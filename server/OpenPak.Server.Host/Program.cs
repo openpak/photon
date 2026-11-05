@@ -101,8 +101,14 @@ builder.Services.AddSingleton(sp =>
     var key = !string.IsNullOrWhiteSpace(c.Federation.RoutingKey) ? c.Federation.RoutingKey : env("OPENPAK_ROUTING_KEY");
     if (!string.IsNullOrWhiteSpace(c.Federation.RegionsUrl))
         Log.Warn("Federation", "Federation.RegionsUrl is retired and ignored; set Federation.RoutingUrl (the account core) instead.");
-    return new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.IsNode ? null : url, key,
-                             env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"));
+    var nodes = new NodeDirectory(new HttpClient { Timeout = TimeSpan.FromSeconds(10) }, c.Federation.IsNode ? null : url, key,
+                                  env("OPENPAK_BAAS_URL"), env("OPENPAK_INTERNAL_KEY"));
+    // Link at first use: the account core must hold an active link for the console's BAAS user.
+    var coreKey = env("ACCOUNT_INTERNAL_KEY", "OPENPAK_INTERNAL_KEY");
+    var coreAddr = env("ACCOUNT_GRPC_ADDR") ?? "openpak-account:20001";
+    if (!string.IsNullOrEmpty(coreKey) && !c.Federation.IsNode)
+        nodes.CoreLinks = new CoreLinks(new HttpClient { Timeout = TimeSpan.FromSeconds(5) }, coreAddr, coreKey);
+    return nodes;
 });
 // Auth-token keys: home signs (Ed25519), a node only verifies with home's public key.
 builder.Services.AddSingleton(sp =>

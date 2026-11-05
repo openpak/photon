@@ -12,12 +12,19 @@ public interface ILinkSource
     Task<IReadOnlyList<string>> SwitchSubjectsAsync(string accountId, CancellationToken ct);
 }
 
+/// <summary>Whether an active OpenPak account owns a Switch BAAS user id (link at first use).</summary>
+public interface ILinkCheck
+{
+    /// <summary>True/false from the core; null when the core could not be asked.</summary>
+    Task<bool?> IsLinkedAsync(string baasUserId, CancellationToken ct);
+}
+
 /// <summary>
 /// ListAccountLinks over gRPC without generated code (the one call needed): HTTP/2 cleartext to the account
 /// core, x-internal-key metadata, hand-encoded protobuf (request account_id=1, namespace=2; response
 /// links=1 {namespace=2, subject_id=3}).
 /// </summary>
-public sealed class CoreLinks : ILinkSource
+public sealed class CoreLinks : ILinkSource, ILinkCheck
 {
     private readonly HttpClient _http;
     private readonly string _addr, _key;
@@ -54,6 +61,61 @@ public sealed class CoreLinks : ILinkSource
         if (resp.StatusCode != HttpStatusCode.OK || status != "0")
             throw new InvalidOperationException("account core refused the link lookup (grpc-status " + (status ?? "none") + ")");
         return ParseResponse(data);
+    }
+
+    /// <summary>GetLinkBySubject(namespace switch, subject): NotFound (grpc 5) is "not linked"; an ACTIVE (2)
+    /// link with an account id is linked. Anything else leaves the answer open (null).</summary>
+    public async Task<bool?> IsLinkedAsync(string baasUserId, CancellationToken ct)
+    {
+        try
+        {
+            var msg = new List<byte>();
+            AddString(msg, 1, "switch");
+            AddString(msg, 2, baasUserId.ToLowerInvariant());
+            var body = new byte[5 + msg.Count];
+            var n = msg.Count;
+            body[1] = (byte)(n >> 24); body[2] = (byte)(n >> 16); body[3] = (byte)(n >> 8); body[4] = (byte)n;
+            msg.CopyTo(body, 5);
+            using var req = new HttpRequestMessage(HttpMethod.Post, _addr + "/openpak.account.v1.Links/GetLinkBySubject")
+            {
+                Version = HttpVersion.Version20,
+                VersionPolicy = HttpVersionPolicy.RequestVersionExact,
+                Content = new ByteArrayContent(body),
+            };
+            req.Content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/grpc");
+            req.Headers.TryAddWithoutValidation("te", "trailers");
+            req.Headers.TryAddWithoutValidation("x-internal-key", _key);
+            using var resp = await _http.SendAsync(req, ct).ConfigureAwait(false);
+            var data = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+            var status = resp.TrailingHeaders.TryGetValues("grpc-status", out var t) ? t.First()
+                : resp.Headers.TryGetValues("grpc-status", out var h) ? h.First() : null;
+            if (status == "5") return false;
+            if (resp.StatusCode != HttpStatusCode.OK || status != "0") return null;
+            return ParseLinked(data);
+        }
+        catch (Exception) { return null; }
+    }
+
+    /// <summary>GetLinkBySubjectResponse: account_id=2 (string), state=3 (varint, ACTIVE=2).</summary>
+    internal static bool ParseLinked(byte[] data)
+    {
+        if (data.Length < 5) return false;
+        var len = (data[1] << 24) | (data[2] << 16) | (data[3] << 8) | data[4];
+        var p = 5;
+        var end = Math.Min(data.Length, 5 + Math.Max(len, 0));
+        var account = false;
+        ulong state = 0;
+        while (p < end)
+        {
+            var tag = Varint(data, ref p);
+            switch (tag & 7)
+            {
+                case 0: { var v = Varint(data, ref p); if (tag >> 3 == 3) state = v; break; }
+                case 2: { var l = (int)Varint(data, ref p); if (tag >> 3 == 2 && l > 0) account = true; p += l; break; }
+                default: return false;
+            }
+        }
+        return account && state == 2;
     }
 
     internal static IReadOnlyList<string> ParseResponse(byte[] data)
@@ -180,6 +242,7 @@ public sealed class AccountEraser
             else if (_hub.Store is { } s) rows += RewardsWatcher.ForgetInStore(s, subjects) + SessionClock.ForgetInStore(s, subjects);
             if (_hub.Emitter is { } e) rows += e.Forget(subjects);
             else if (_hub.Store is { } s2) rows += RewardsEmitter.ForgetInStore(s2, subjects);
+            foreach (var sub in subjects) rows += _hub.Nodes?.ForgetLinked(sub) ?? 0;
             foreach (var u in users)
             {
                 if (_hub.Identities?.Forget(u) == true) rows++;

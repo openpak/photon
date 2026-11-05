@@ -60,4 +60,51 @@ public class BanLookupTests
         Assert.False(nodes.RequiresLink);
         Assert.Equal(IdentityState.Unknown, await nodes.LookupAsync("bsdid:0011"));
     }
+
+    private sealed class Core(bool? answer) : ILinkCheck
+    {
+        public int Calls;
+        public Task<bool?> IsLinkedAsync(string baasUserId, CancellationToken ct) { Calls++; return Task.FromResult(answer); }
+    }
+
+    private sealed class Body(string json) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+    }
+
+    [Theory]
+    [InlineData(true, IdentityState.Linked)]
+    [InlineData(false, IdentityState.Unlinked)]
+    [InlineData(null, IdentityState.Linked)]   // the core cannot be asked: not a lockout
+    public async Task KnownToTheAdapterButNotLinkedInTheCoreIsUnlinked(bool? core, IdentityState want)
+    {
+        var nodes = new NodeDirectory(new HttpClient(new Body("{\"baas_user_id\":\"abc\"}")), null, null, "http://adapter", "k")
+        { CoreLinks = new Core(core) };
+        Assert.Equal(want, await nodes.LookupAsync("bsdid:0011"));
+    }
+
+    [Fact]
+    public async Task ALinkedAnswerIsCachedAndErasable()
+    {
+        var core = new Core(true);
+        var nodes = new NodeDirectory(new HttpClient(new Body("{\"baas_user_id\":\"abc\"}")), null, null, "http://adapter", "k") { CoreLinks = core };
+        await nodes.LookupAsync("x"); await nodes.LookupAsync("x");
+        Assert.Equal(1, core.Calls);
+        Assert.Equal(1, nodes.ForgetLinked("abc"));
+        await nodes.LookupAsync("x");
+        Assert.Equal(2, core.Calls);
+    }
+
+    [Fact]
+    public void ParsesAnActiveLinkAndRefusesAPendingOne()
+    {
+        static byte[] Frame(byte[] msg) => new byte[] { 0, 0, 0, 0, (byte)msg.Length }.Concat(msg).ToArray();
+        var acct = System.Text.Encoding.UTF8.GetBytes("acct-1");
+        var active = new byte[] { 0x12, (byte)acct.Length }.Concat(acct).Concat(new byte[] { 0x18, 2 }).ToArray();
+        var pending = new byte[] { 0x12, (byte)acct.Length }.Concat(acct).Concat(new byte[] { 0x18, 1 }).ToArray();
+        Assert.True(CoreLinks.ParseLinked(Frame(active)));
+        Assert.False(CoreLinks.ParseLinked(Frame(pending)));
+        Assert.False(CoreLinks.ParseLinked(Array.Empty<byte>()));
+    }
 }

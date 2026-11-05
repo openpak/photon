@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.20.0 — 2026-11-05
+
+- Link at first use, against the account core: a console the Switch adapter knows must also hold an active `switch` link in the core (GetLinkBySubject), otherwise rc=-4 "Link your OpenPak account". Positive answers are cached five minutes (and dropped by account erasure), a refusal never; a core that cannot be asked lets the player in.
+
 ## v0.19.0 — 2026-11-05
 
 - Link at first use (prds#131): a console credential the Switch adapter does not know, and a credential-less peer from a non-loopback address, is refused at the Name Server with rc=-4 "Link your OpenPak account to play online". Only when the adapter is configured; an adapter outage never locks anyone out.

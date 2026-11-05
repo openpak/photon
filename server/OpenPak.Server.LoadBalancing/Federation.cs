@@ -215,7 +215,38 @@ public sealed class NodeDirectory
     /// answer; no adapter, an unknown identity or an adapter outage is not a ban.</summary>
     public async Task<bool> IsBannedAsync(string identity) => await LookupAsync(identity).ConfigureAwait(false) == IdentityState.Banned;
 
+    /// <summary>The adapter knows the console's user; the account core must also hold an active link for it.
+    /// Positive answers are cached five minutes, a refusal never; a core that cannot be asked lets the player in.</summary>
+    private async Task<IdentityState> CheckCoreAsync(HttpResponseMessage resp)
+    {
+        if (CoreLinks is null) return IdentityState.Linked;
+        string? baas = null;
+        try
+        {
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync().ConfigureAwait(false));
+            if (doc.RootElement.TryGetProperty("baas_user_id", out var b)) baas = b.GetString();
+        }
+        catch (Exception) { }
+        if (string.IsNullOrEmpty(baas)) return IdentityState.Linked;
+        if (_linkedUntil.TryGetValue(baas, out var until) && until > DateTime.UtcNow) return IdentityState.Linked;
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        switch (await CoreLinks.IsLinkedAsync(baas, cts.Token).ConfigureAwait(false))
+        {
+            case false: return IdentityState.Unlinked;
+            case true:
+                if (_linkedUntil.Count > 20000) _linkedUntil.Clear();
+                _linkedUntil[baas] = DateTime.UtcNow + LinkTtl;
+                return IdentityState.Linked;
+            default: return IdentityState.Linked;
+        }
+    }
+
     /// <summary>True when the Switch adapter is configured, i.e. an OpenPak account is required to play.</summary>
+    /// <summary>The account core's link lookup (production sets it). Without it an identity the adapter knows is enough.</summary>
+    public ILinkCheck? CoreLinks { get; set; }
+    private readonly ConcurrentDictionary<string, DateTime> _linkedUntil = new(StringComparer.Ordinal);
+    private static readonly TimeSpan LinkTtl = TimeSpan.FromMinutes(5);
+
     public bool RequiresLink => !string.IsNullOrEmpty(_adapterUrl);
 
     /// <summary>
@@ -234,7 +265,7 @@ public sealed class NodeDirectory
             using var resp = await _http.SendAsync(req).ConfigureAwait(false);
             return resp.StatusCode switch
             {
-                System.Net.HttpStatusCode.OK => IdentityState.Linked,
+                System.Net.HttpStatusCode.OK => await CheckCoreAsync(resp).ConfigureAwait(false),
                 System.Net.HttpStatusCode.Forbidden => IdentityState.Banned,
                 System.Net.HttpStatusCode.BadRequest or System.Net.HttpStatusCode.NotFound => IdentityState.Unlinked,
                 _ => IdentityState.Unknown,
@@ -246,6 +277,9 @@ public sealed class NodeDirectory
             return IdentityState.Unknown;
         }
     }
+
+    /// <summary>Account erasure: forgets the cached link answer for a BAAS user id.</summary>
+    public int ForgetLinked(string baasUserId) => _linkedUntil.TryRemove(baasUserId, out _) ? 1 : 0;
 
     /// <summary>Account erasure: forgets the country and tester flag cached for a userId.</summary>
     public int ForgetUser(string userId)
