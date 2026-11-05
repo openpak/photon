@@ -77,6 +77,9 @@ public sealed class StumbleLobbyHost
             if (Extras.Contains("MAP_NAME")) props[RoundKey(i, "MAP_NAME")] = r.FriendlyName;
             if (Extras.Contains("MAP_GUID")) props[RoundKey(i, "MAP_GUID")] = r.MapGuid;
         }
+        // The scene loader reads the current round's level from MAP_ID (the LevelDef id; without it: "Impossible to load scene.
+        // Missing Map or MapId properties") and MAP (the map name) when LOAD arrives.
+        if (n > 0) { props["MAP_ID"] = Rounds[0].LevelId; props["MAP"] = Rounds[0].MapName; }
         Log.Info("Stumble", $"{Redact.Room(room)} room created with {n} round(s)");
         return props;
     }

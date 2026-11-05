@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.4 — 2026-11-05
+
+- The room carries MAP_ID (the LevelDef id) and MAP (the map name) of the current round: the client's scene loader reads them when LOAD arrives.
+
 ## v0.18.3 — 2026-11-05
 
 - The Stumble round properties are set when the room is created, so the first join response carries them (the client picks its rounds and scenes right after joining; setting them later made it drop). LOAD and START still follow on the timer / LOAD_READY.

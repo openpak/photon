@@ -26,6 +26,8 @@ public class StumbleLobbyHostTests
         Assert.Equal("ipl_047_flame", rounds["ROUND1_MAP"]);            // string, MapCollection name
         Assert.IsType<string>(rounds["ROUND1_MAP_NAME"]);
         Assert.Equal(3684277463294234336L, rounds["ROUND1_MAP_GUID"]);  // long
+        Assert.Equal("IPL_047_Flame", rounds["MAP_ID"]);                // the scene loader's current round
+        Assert.Equal("ipl_047_flame", rounds["MAP"]);
         Assert.True(rounds.ContainsKey("GAME_ID"));
     }
 
