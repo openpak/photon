@@ -57,7 +57,7 @@ public sealed class StumbleLobbyHost
     public IReadOnlyList<StumbleRound> Rounds { get; set; } = DefaultRounds;
     public string PluginVersion { get; set; } = "openpak-1";
     /// <summary>The optional properties set besides ROUNDS_NUMBER, ROUND{i}_MAP_ID and ROUND{i}_MAP (all by default); trimmed from the environment to find which one a client rejects.</summary>
-    public ISet<string> Extras { get; set; } = new HashSet<string> { KeyGameId, KeyPool, KeyPluginVersion, KeyPlayWithBots, "MAP_NAME", "MAP_GUID" };
+    public ISet<string> Extras { get; set; } = new HashSet<string> { KeyGameId, KeyPluginVersion, KeyPlayWithBots, "MAP_NAME", "MAP_GUID" };
 
     /// <summary>The room properties the plugin has set before the first player's join answers, so the join response
     /// carries them: the client reads the rounds (and picks its scenes) right after joining, not when LOAD comes.</summary>

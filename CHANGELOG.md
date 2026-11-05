@@ -3,6 +3,10 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.5 — 2026-11-05
+
+- The pool property P is no longer set by default (its type is not known; the client falls back to its default pool).
+
 ## v0.18.4 — 2026-11-05
 
 - The room carries MAP_ID (the LevelDef id) and MAP (the map name) of the current round: the client's scene loader reads them when LOAD arrives.
