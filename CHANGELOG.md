@@ -3,6 +3,12 @@
 Generated from git history on 2026-09-15. `git log` stays the source
 of truth; this file is the readable summary.
 
+## v0.18.0 — 2026-11-05
+
+- Stumble Guys room plugin (prds#12): after the matched players join a Quantum-app room, set ROUNDS_NUMBER (byte), ROUND{i}_MAP_ID/_MAP/_MAP_NAME (strings) and
+  ROUND{i}_MAP_GUID (long), GAME_ID, P, PLUGIN_VERSION, PLAY_WITH_BOTS, then LOAD; when every player has set LOAD_READY (or after a timeout) set START, and the
+  Quantum host takes over. Key names and value types are from the game's own code. OPENPAK_STUMBLE_ROUNDS (default 1) and OPENPAK_STUMBLE_JOIN_WINDOW (default 6 s).
+
 ## v0.17.1 — 2026-11-05
 
 - Log the first 40 raised events per peer (code, size, whether the app is a Quantum app), to see what a Quantum client sends (prds#12).

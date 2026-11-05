@@ -102,6 +102,8 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
     private readonly Action<Room, PeerConnection?>? _roomChanged;
     private readonly IFusionSessionHost? _fusion;
     private readonly Quantum.QuantumHost? _quantum;
+    private readonly Quantum.StumbleLobbyHost? _stumble;
+    private readonly System.Diagnostics.Stopwatch _stumbleClock = System.Diagnostics.Stopwatch.StartNew();
     private readonly HashSet<string> _quantumAppIds;
 
     /// <param name="allowAnonymousLan">
@@ -120,9 +122,10 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
                              bool trustLanAdmin = false, Action<PeerConnection, string>? roomCreated = null,
                              IFusionSessionHost? fusion = null, Action<Room, PeerConnection?>? roomChanged = null,
                              TokenKeys? keys = null, Quantum.QuantumHost? quantum = null,
-                             IEnumerable<string>? quantumAppIds = null)
+                             IEnumerable<string>? quantumAppIds = null, Quantum.StumbleLobbyHost? stumble = null)
     {
         _quantum = quantum;
+        _stumble = stumble;
         _quantumAppIds = new HashSet<string>(quantumAppIds ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
         _roomChanged = roomChanged;
         _fusion = fusion;
@@ -149,6 +152,9 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
             .On(OpSetProperties, HandleSetProperties, SessionStatus.InRoom)
             .On(OpRaiseEvent, HandleRaiseEvent, SessionStatus.InRoom);
     }
+
+    /// <summary>Advance the Stumble lobbies (rounds, LOAD, START); on the game listener loop.</summary>
+    public void TickStumble() => _stumble?.Tick(_stumbleClock.Elapsed.TotalSeconds);
 
     public void OnConnect(PeerConnection peer) { }
 
@@ -182,6 +188,7 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
         if (left is not null) _roomChanged?.Invoke(left, null);
         _fusion?.PlayerLeft(state.RoomKey, state.Actor);
         _quantum?.PlayerLeft(state.RoomKey, state.Actor);
+        _stumble?.Left(state.RoomKey, state.Actor);
         _lifecycle?.OnLeft(state.RoomKey, state.Actor, session);   // plugins free per-actor state (e.g. team slot)
     }
 
@@ -251,6 +258,8 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
         session.RelayFrom(actor, join);   // tell already-present actors this actor arrived (255)
         peer.RaiseEvent(join);             // and give the newcomer its own join
         session.ReplayCacheTo(actor);      // then replay cached spawns so it renders the existing world
+        if (_stumble is not null && peer.AppId is { } stumbleApp && _quantumAppIds.Contains(stumbleApp))
+            _stumble.Joined(roomKey, actor, _stumbleClock.Elapsed.TotalSeconds);
         _lifecycle?.OnJoined(roomKey, actor, session);   // plugins (e.g. game modes) react to the join
         // Fusion hosts enter through JoinGame with create-if-missing rather than Photon CreateGame.
         // Actor 1 is the room creator in either flow; later joiners must not overwrite its presence.
@@ -693,6 +702,7 @@ public sealed class GameServerHandler : IOperationHandler, IInitTokenHandler
             // Player properties carry an explicit ActorNr; absent means the shared game properties.
             int? actorNr = req.Parameters.TryGetValue(PActorNr, out var a) && a is int ai ? ai : null;
             room.SetProperties(actorNr, props);
+            if (actorNr is int stumbleActor && roomKey is not null) _stumble?.PlayerProperties(roomKey, stumbleActor, props);
 
             var broadcast = req.Parameters.TryGetValue(PBroadcast, out var b) && b is bool flag && flag;
             if (broadcast && senderActor is int sender)
